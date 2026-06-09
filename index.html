@@ -489,10 +489,13 @@ function renderClaimPage(goId) {
   page.innerHTML = html;
   // init claim state
   go.subItems.forEach(si => {
-    if (si.kind === 'member' || go.type === 'photocard') {
+    const kind = si.kind || (go.type === 'photocard' ? 'photocard' : 'random');
+    if (kind === 'photocard' || kind === 'member' && go.type !== 'merch') {
       claimState[si.id] = { type:'set', selectedMembers:{} };
+    } else if (kind === 'member' && go.type === 'merch') {
+      claimState[si.id] = { type:'merch-member', selectedMembers:{}, qty:1 };
     } else {
-      claimState[si.id] = { type: go.type === 'merch' ? 'merch' : 'versioned', qty:0 };
+      claimState[si.id] = { type:'versioned', qty:0 };
     }
   });
 }
@@ -574,19 +577,56 @@ function renderVersionedSubItemPublic(si, goId) {
 function renderMerchPublic(go) {
   let html = '';
   go.subItems.forEach(si => {
-    const totalClaimed = si.claims.reduce((a,c)=>a+c.qty,0);
-    html += `<div class="card" style="margin-bottom:12px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
-        <div style="font-weight:500;font-size:15px;">${si.name}</div>
-        <span style="font-size:13px;font-weight:500;">$${si.price.toFixed(2)}</span>
-      </div>
-      <div style="font-size:12px;color:var(--text3);margin-bottom:12px;">${totalClaimed} claimed</div>
-      <div class="qty-row">
-        <button class="qty-btn" onclick="adjustVersionedQty('${si.id}','${go.id}',-1)">−</button>
-        <span style="font-size:15px;font-weight:500;min-width:24px;text-align:center;" id="qty-val-${si.id}">0</span>
-        <button class="qty-btn" onclick="adjustVersionedQty('${si.id}','${go.id}',1)">+</button>
-      </div>
-    </div>`;
+    const kind = si.kind || 'random';
+    const totalClaimed = (si.claims||[]).reduce((a,c)=>a+c.qty,0);
+    if (kind === 'member') {
+      // Member ver — member tile picker, no set logic, no cap
+      html += `<div class="card" style="margin-bottom:12px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+          <div style="font-weight:500;font-size:15px;">${si.name}</div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:13px;font-weight:500;">$${(si.price||0).toFixed(2)}</span>
+            <span class="badge badge-set">member ver</span>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:12px;">${totalClaimed} claimed</div>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:10px;">Pick the member(s) you want:</div>
+        <div class="member-grid" id="picker-${si.id}">`;
+      (si.members||[]).forEach(member => {
+        const memberClaims = (si.claims||[]).filter(c => c.member === member).reduce((a,c)=>a+c.qty,0);
+        html += `<div class="member-tile" id="tile-${si.id}-${member.replace(/\s/g,'_')}" onclick="toggleMerchMember('${si.id}','${member}','${go.id}')">
+          <div class="member-tile-name">${member}</div>
+          <div class="member-tile-sub">${memberClaims} claimed</div>
+        </div>`;
+      });
+      html += `</div>
+        <div id="merch-member-qty-${si.id}" style="margin-top:12px;display:none;">
+          <div style="font-size:12px;color:var(--text2);margin-bottom:8px;">Qty per selected member:</div>
+          <div class="qty-row">
+            <button class="qty-btn" onclick="adjustMerchMemberQty('${si.id}','${go.id}',-1)">−</button>
+            <span style="font-size:15px;font-weight:500;min-width:24px;text-align:center;" id="qty-val-${si.id}">1</span>
+            <button class="qty-btn" onclick="adjustMerchMemberQty('${si.id}','${go.id}',1)">+</button>
+          </div>
+        </div>
+      </div>`;
+    } else {
+      // Random ver — just qty
+      html += `<div class="card" style="margin-bottom:12px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+          <div style="font-weight:500;font-size:15px;">${si.name}</div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:13px;font-weight:500;">$${(si.price||0).toFixed(2)}</span>
+            <span class="badge badge-fcfs">random ver</span>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:12px;">${totalClaimed} claimed &nbsp;·&nbsp; Version assigned randomly</div>
+        <div class="qty-row">
+          <button class="qty-btn" onclick="adjustVersionedQty('${si.id}','${go.id}',-1)">−</button>
+          <span style="font-size:15px;font-weight:500;min-width:24px;text-align:center;" id="qty-val-${si.id}">0</span>
+          <button class="qty-btn" onclick="adjustVersionedQty('${si.id}','${go.id}',1)">+</button>
+        </div>
+      </div>`;
+    }
   });
   return html;
 }
@@ -604,7 +644,25 @@ function toggleMember(siId, member, goId) {
   updateClaimSummary(goId);
 }
 
-function adjustVersionedQty(siId, goId, delta) {
+function toggleMerchMember(siId, member, goId) {
+  if (!claimState[siId]) claimState[siId] = { type:'merch-member', selectedMembers:{}, qty:1 };
+  const sm = claimState[siId].selectedMembers;
+  if (sm[member]) delete sm[member];
+  else sm[member] = true;
+  const tile = document.getElementById('tile-' + siId + '-' + member.replace(/\s/g,'_'));
+  if (tile) tile.classList.toggle('selected', !!sm[member]);
+  const qtyRow = document.getElementById('merch-member-qty-' + siId);
+  if (qtyRow) qtyRow.style.display = Object.keys(sm).length > 0 ? 'block' : 'none';
+  updateClaimSummary(goId);
+}
+
+function adjustMerchMemberQty(siId, goId, delta) {
+  if (!claimState[siId]) claimState[siId] = { type:'merch-member', selectedMembers:{}, qty:1 };
+  claimState[siId].qty = Math.max(1, (claimState[siId].qty || 1) + delta);
+  const el = document.getElementById('qty-val-' + siId);
+  if (el) el.textContent = claimState[siId].qty;
+  updateClaimSummary(goId);
+}
   if (!claimState[siId]) claimState[siId] = { type:'versioned', qty:0 };
   claimState[siId].qty = Math.max(0, (claimState[siId].qty || 0) + delta);
   const qty = claimState[siId].qty;
@@ -633,6 +691,9 @@ function updateClaimSummary(goId) {
     if (state.type === 'set') {
       const selected = Object.keys(state.selectedMembers || {});
       if (selected.length) lines.push(si.name + ': ' + selected.join(', '));
+    } else if (state.type === 'merch-member') {
+      const selected = Object.keys(state.selectedMembers || {});
+      if (selected.length) lines.push(si.name + ': ' + selected.map(m => m + ' ×' + (state.qty||1)).join(', '));
     } else {
       if (state.qty > 0) lines.push(si.name + ' ×' + state.qty);
     }
@@ -680,6 +741,14 @@ function submitClaim(goId) {
         si.members.forEach(m => empty.slots[m] = null);
         si.sets.push(empty);
       }
+    } else if (state.type === 'merch-member') {
+      const members = Object.keys(state.selectedMembers || {});
+      if (!members.length) return;
+      const qty = state.qty || 1;
+      members.forEach(member => {
+        si.claims.push({ user:u, qty, member, assignedVers:[], payment:'unpaid', fulfillment:'Pending' });
+        placed = true;
+      });
     } else if (state.qty > 0) {
       const assigned = si.versions ? assignVersions(state.qty, si.versions) : [];
       si.claims.push({ user:u, qty:state.qty, assignedVers:assigned, payment:'unpaid', fulfillment:'Pending' });
@@ -716,7 +785,10 @@ function doLookup() {
         });
       } else {
         (si.claims||[]).forEach(c => {
-          if (c.user === u) rows.push({ go:go.name, item:si.name, detail:(c.assignedVers||[]).join('+'), qty:c.qty, claim:'Secured', payment:c.payment, fulfillment:c.fulfillment });
+          if (c.user === u) {
+            const detail = c.member ? c.member : (c.assignedVers||[]).join('+');
+            rows.push({ go:go.name, item:si.name, detail, qty:c.qty, claim:'Secured', payment:c.payment, fulfillment:c.fulfillment });
+          }
         });
       }
     });
@@ -1016,12 +1088,29 @@ function addSubItem() {
   } else {
     inner = `<div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end;">
       <div class="field" style="margin-bottom:0;"><label>Item name</label><input type="text" id="si-name-${id}" placeholder="e.g. Lightstick"></div>
-      <div class="field" style="margin-bottom:0;"><label>Price (USD)</label><input type="number" id="si-price-${id}" placeholder="0.00" step="0.01"></div>
+      <div class="field" style="margin-bottom:0;"><label>Kind</label>
+        <select id="si-kind-${id}" onchange="onMerchKindChange('${id}')">
+          <option value="random">Random ver</option>
+          <option value="member">Member ver</option>
+        </select>
+      </div>
       <button class="btn btn-sm btn-ghost" onclick="removeSubItem('${id}')">×</button>
+    </div>
+    <div class="field-row" style="margin-top:8px;">
+      <div class="field" style="margin-bottom:0;"><label>Price (USD)</label><input type="number" id="si-price-${id}" placeholder="0.00" step="0.01"></div>
+    </div>
+    <div id="si-merch-extra-${id}" style="display:none;margin-top:8px;">
+      <div class="field" style="margin-bottom:0;"><label>Members (one per line)</label><textarea id="si-members-${id}" placeholder="Karina\nWinter\nGiselle\nNingning" style="min-height:80px;font-family:var(--mono);font-size:12px;"></textarea></div>
     </div>`;
   }
   wrap.innerHTML = inner;
   document.getElementById('sub-items-list').appendChild(wrap);
+}
+
+function onMerchKindChange(id) {
+  const kind = document.getElementById('si-kind-' + id).value;
+  const extra = document.getElementById('si-merch-extra-' + id);
+  if (extra) extra.style.display = kind === 'member' ? 'block' : 'none';
 }
 
 function onSubItemKindChange(id) {
@@ -1077,7 +1166,14 @@ function createGO() {
       }
     } else {
       const price = parseFloat((document.getElementById('si-price-' + siId)||{}).value) || 0;
-      subItems.push({ id:siId, name:siName, price, claims:[] });
+      const kind = (document.getElementById('si-kind-' + siId)||{}).value || 'random';
+      if (kind === 'member') {
+        const membersRaw = (document.getElementById('si-members-' + siId)||{}).value || '';
+        const members = membersRaw.split('\n').map(m=>m.trim()).filter(Boolean);
+        subItems.push({ id:siId, name:siName, kind:'member', members, price, claims:[] });
+      } else {
+        subItems.push({ id:siId, name:siName, kind:'random', price, claims:[] });
+      }
     }
   });
   if (!subItems.length) { toast('Add at least one item.'); return; }
@@ -1183,10 +1279,13 @@ function renderEditSubItems() {
         </div>`;
       }
     } else {
-      inner += `<div class="field-row" style="margin-bottom:0;">
+      inner += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
           <div class="field" style="margin-bottom:0;"><label>Item name</label><input type="text" id="edit-si-name-${si.id}" value="${si.name}"></div>
-          <div class="field" style="margin-bottom:0;"><label>Price (USD)</label><input type="number" id="edit-si-price-${si.id}" value="${si.price || 0}" step="0.01" style="width:100%;"><div class="field-hint">Applies to new claims only.</div></div>
-        </div>`;
+          <div class="field" style="margin-bottom:0;"><label>Price (USD)</label><input type="number" id="edit-si-price-${si.id}" value="${si.price||0}" step="0.01" style="width:100%;"><div class="field-hint">Applies to new claims only.</div></div>
+        </div>
+        ${si.kind === 'member' ? `<div class="field" style="margin-bottom:0;"><label>Members (one per line)</label>
+          <textarea id="edit-si-members-${si.id}" style="min-height:70px;font-family:var(--mono);font-size:12px;">${(si.members||[]).join('\n')}</textarea>
+        </div>` : `<div style="font-size:11px;color:var(--text3);">Random ver — no member list needed.</div>`}`;
     }
     const claimCount = getSubItemClaimCount(si);
     inner += `</div>
@@ -1241,31 +1340,32 @@ function saveGOEdits() {
     if (nameEl) si.name = nameEl.value.trim() || si.name;
     const priceEl = document.getElementById('edit-si-price-' + si.id);
     if (priceEl) si.price = parseFloat(priceEl.value) || si.price;
-    if (go.type === 'photocard' || si.kind === 'member') {
+    if (go.type === 'photocard' || (si.kind === 'member' && si.sets)) {
       si.minSecure = minSecure || si.minSecure;
       const membersEl = document.getElementById('edit-si-members-' + si.id);
       if (membersEl) {
         const newMembers = membersEl.value.split('\n').map(m => m.trim()).filter(Boolean);
         if (newMembers.length) {
-          // Add new members as open slots to all existing sets
           const added = newMembers.filter(m => !si.members.includes(m));
           const removed = si.members.filter(m => !newMembers.includes(m));
-          if (removed.length) {
-            // Remove slots for removed members
-            si.sets.forEach(s => removed.forEach(m => { delete s.slots[m]; }));
-          }
-          if (added.length) {
-            si.sets.forEach(s => added.forEach(m => { s.slots[m] = null; }));
-          }
+          if (removed.length) si.sets.forEach(s => removed.forEach(m => { delete s.slots[m]; }));
+          if (added.length) si.sets.forEach(s => added.forEach(m => { s.slots[m] = null; }));
           si.members = newMembers;
         }
+      }
+    } else if (si.kind === 'member' && si.claims) {
+      // Merch member — just update members list, no sets
+      const membersEl = document.getElementById('edit-si-members-' + si.id);
+      if (membersEl) {
+        const newMembers = membersEl.value.split('\n').map(m => m.trim()).filter(Boolean);
+        if (newMembers.length) si.members = newMembers;
       }
     } else if (si.kind === 'versioned') {
       const versionsEl = document.getElementById('edit-si-versions-' + si.id);
       if (versionsEl) si.versions = versionsEl.value.split(',').map(v => v.trim()).filter(Boolean);
     }
     // Handle newly added sub-items (no existing sets)
-    if ((go.type === 'photocard' || si.kind === 'member') && si.sets.length === 1 && Object.keys(si.sets[0].slots).length === 0) {
+    if ((go.type === 'photocard' || (si.kind === 'member' && si.sets)) && si.sets.length === 1 && Object.keys(si.sets[0].slots).length === 0) {
       const membersEl = document.getElementById('edit-si-members-' + si.id);
       if (membersEl) {
         const members = membersEl.value.split('\n').map(m => m.trim()).filter(Boolean);
