@@ -1,0 +1,2018 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GO Manager</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap');
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --pink-50:#FBEAF0;--pink-100:#F4C0D1;--pink-400:#D4537E;--pink-600:#993556;--pink-800:#72243E;--pink-900:#4B1528;
+    --gray-50:#F1EFE8;--gray-100:#D3D1C7;--gray-200:#B4B2A9;--gray-400:#888780;--gray-600:#5F5E5A;--gray-800:#444441;--gray-900:#2C2C2A;
+    --teal-50:#E1F5EE;--teal-100:#9FE1CB;--teal-400:#1D9E75;--teal-600:#0F6E56;--teal-800:#085041;
+    --amber-50:#FAEEDA;--amber-800:#633806;
+    --red-50:#FCEBEB;--red-400:#E24B4A;--red-800:#791F1F;
+    --bg:#faf9f7;--surface:#ffffff;--surface2:#F1EFE8;
+    --text:#2C2C2A;--text2:#5F5E5A;--text3:#888780;
+    --border:rgba(44,44,42,0.12);--border2:rgba(44,44,42,0.22);
+    --accent:#D4537E;--accent-light:#FBEAF0;--accent-dark:#72243E;
+    --radius:10px;--radius-lg:16px;
+    --font:'DM Sans',sans-serif;--mono:'DM Mono',monospace;
+  }
+  body { font-family:var(--font);background:var(--bg);color:var(--text);font-size:14px;line-height:1.6;min-height:100vh; }
+  nav { background:var(--surface);border-bottom:0.5px solid var(--border);padding:0 24px;display:flex;align-items:center;height:52px; }
+  .nav-logo { font-size:15px;font-weight:500;color:var(--accent);letter-spacing:-0.3px;margin-right:32px; }
+  .nav-tabs { display:flex;height:100%; }
+  .nav-tab { height:100%;padding:0 16px;display:flex;align-items:center;font-size:13px;color:var(--text2);cursor:pointer;border-bottom:2px solid transparent;transition:color .15s,border-color .15s;white-space:nowrap; }
+  .nav-tab:hover { color:var(--text); }
+  .nav-tab.active { color:var(--accent);border-bottom-color:var(--accent);font-weight:500; }
+  .nav-right { margin-left:auto; }
+  .badge-admin { font-size:11px;background:var(--accent-light);color:var(--accent-dark);padding:3px 10px;border-radius:20px;font-weight:500; }
+  .page { display:none;padding:28px 24px;max-width:900px;margin:0 auto; }
+  .page.active { display:block; }
+  .card { background:var(--surface);border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:20px 24px;margin-bottom:16px; }
+  .card-sm { background:var(--surface);border:0.5px solid var(--border);border-radius:var(--radius);padding:14px 16px; }
+  .section-label { font-size:11px;font-weight:500;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:12px; }
+  .page-title { font-size:20px;font-weight:500;margin-bottom:4px;letter-spacing:-0.3px; }
+  .page-sub { font-size:13px;color:var(--text2);margin-bottom:24px; }
+  .field { margin-bottom:16px; }
+  .field label { display:block;font-size:12px;font-weight:500;color:var(--text2);margin-bottom:6px; }
+  .field input,.field select,.field textarea { width:100%;padding:9px 12px;border:0.5px solid var(--border2);border-radius:var(--radius);font-family:var(--font);font-size:14px;background:var(--surface);color:var(--text);outline:none;transition:border-color .15s; }
+  .field input:focus,.field select:focus,.field textarea:focus { border-color:var(--accent); }
+  .field textarea { resize:vertical;min-height:80px; }
+  .field-row { display:grid;grid-template-columns:1fr 1fr;gap:12px; }
+  .field-hint { font-size:11px;color:var(--text3);margin-top:4px; }
+  .btn { display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border-radius:var(--radius);font-family:var(--font);font-size:13px;font-weight:500;cursor:pointer;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);transition:background .15s; }
+  .btn:hover { background:var(--surface2); }
+  .btn-primary { background:var(--accent);color:white;border-color:var(--accent); }
+  .btn-primary:hover { background:var(--pink-600); }
+  .btn-sm { padding:5px 12px;font-size:12px; }
+  .btn-ghost { border-color:transparent;background:transparent; }
+  .btn-ghost:hover { background:var(--surface2); }
+  .badge { display:inline-flex;align-items:center;font-size:11px;font-weight:500;padding:3px 9px;border-radius:20px; }
+  .badge-pending { background:var(--amber-50);color:var(--amber-800); }
+  .badge-secured { background:var(--teal-50);color:var(--teal-800); }
+  .badge-waitlist { background:var(--gray-50);color:var(--gray-800); }
+  .badge-paid { background:var(--teal-50);color:var(--teal-800); }
+  .badge-unpaid { background:var(--red-50);color:var(--red-800); }
+  .badge-transit { background:var(--accent-light);color:var(--accent-dark); }
+  .badge-ready { background:var(--teal-50);color:var(--teal-800); }
+  .badge-fcfs { background:var(--gray-50);color:var(--gray-800); }
+  .badge-set { background:var(--accent-light);color:var(--accent-dark); }
+  .go-card { background:var(--surface);border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:18px 20px;margin-bottom:12px;cursor:pointer;transition:border-color .15s; }
+  .go-card:hover { border-color:var(--border2); }
+  .go-card-header { display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px; }
+  .go-name { font-size:15px;font-weight:500;letter-spacing:-0.2px; }
+  .go-meta { font-size:12px;color:var(--text3);margin-top:2px; }
+  .go-stats { display:flex;gap:16px;margin-top:10px;padding-top:10px;border-top:0.5px solid var(--border); }
+  .go-stat { font-size:12px;color:var(--text2); }
+  .go-stat span { font-weight:500;color:var(--text); }
+  .table-wrap { overflow-x:auto; }
+  table { width:100%;border-collapse:collapse;font-size:13px; }
+  th { text-align:left;font-size:11px;font-weight:500;color:var(--text3);padding:8px 12px;border-bottom:0.5px solid var(--border);letter-spacing:.05em;text-transform:uppercase; }
+  td { padding:10px 12px;border-bottom:0.5px solid var(--border);vertical-align:middle; }
+  tr:last-child td { border-bottom:none; }
+  tr:hover td { background:var(--bg); }
+  .lookup-box { background:var(--surface);border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:32px;text-align:center;margin-bottom:20px; }
+  .divider { border:none;border-top:0.5px solid var(--border);margin:20px 0; }
+  .tag { display:inline-block;font-size:11px;padding:2px 8px;border-radius:6px;background:var(--surface2);color:var(--text2);font-family:var(--mono); }
+  .upload-area { border:1px dashed var(--border2);border-radius:var(--radius);padding:20px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s; }
+  .upload-area:hover { border-color:var(--accent);background:var(--accent-light); }
+  .upload-area input[type=file] { display:none; }
+  .admin-section { margin-bottom:24px; }
+  .admin-section-title { font-size:13px;font-weight:500;margin-bottom:12px;display:flex;align-items:center;gap:8px; }
+  #toast { position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--gray-900);color:white;font-size:13px;padding:10px 20px;border-radius:20px;opacity:0;transition:opacity .2s;pointer-events:none;white-space:nowrap;z-index:999; }
+  #toast.show { opacity:1; }
+  .sub-item-row { display:grid;gap:8px;margin-bottom:8px;align-items:start; }
+  .sub-item-row input,.sub-item-row select { padding:7px 10px;border:0.5px solid var(--border2);border-radius:var(--radius);font-family:var(--font);font-size:13px;background:var(--surface);color:var(--text);outline:none; }
+  .member-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px; }
+  .member-tile { border:0.5px solid var(--border2);border-radius:var(--radius);padding:10px 12px;cursor:pointer;transition:border-color .15s,background .15s; }
+  .member-tile.selected { border-color:var(--accent);background:var(--accent-light); }
+  .member-tile-name { font-size:13px;font-weight:500; }
+  .member-tile-sub { font-size:11px;color:var(--text3);margin-top:2px; }
+  .member-tile.selected .member-tile-name { color:var(--accent-dark); }
+  .qty-row { display:flex;align-items:center;gap:8px; }
+  .qty-btn { width:28px;height:28px;border-radius:6px;border:0.5px solid var(--border2);background:var(--surface);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:background .15s; }
+  .qty-btn:hover { background:var(--surface2); }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-logo">✦ go manager</div>
+  <div class="nav-tabs">
+    <div class="nav-tab active" onclick="showPage('orders')">Group orders</div>
+    <div class="nav-tab" onclick="showPage('lookup')">My orders</div>
+    <div class="nav-tab" onclick="showPage('payment')">Submit payment</div>
+    <div class="nav-tab" onclick="showPage('shipping')">Request shipping</div>
+    <div class="nav-tab" onclick="showPage('admin')">Admin</div>
+  </div>
+  <div class="nav-right" style="display:flex;align-items:center;gap:10px;">
+    <button class="btn btn-sm btn-ghost" onclick="openSettings()" style="font-size:12px;">⚙ Sheets</button>
+    <span class="badge-admin">admin</span>
+  </div>
+</nav>
+<div id="toast"></div>
+
+<!-- ORDERS PAGE -->
+<div class="page active" id="page-orders"></div>
+
+<!-- LOOKUP PAGE -->
+<div class="page" id="page-lookup">
+  <p class="page-title">My orders</p>
+  <p class="page-sub">Look up your claims and payment status.</p>
+  <div class="lookup-box" id="lookup-form">
+    <div style="font-size:32px;color:var(--text3);margin-bottom:12px;">⌕</div>
+    <div style="font-size:16px;font-weight:500;margin-bottom:6px;">Find your orders</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:20px;">Enter your Instagram username to see all your active claims.</div>
+    <div style="display:flex;gap:8px;max-width:360px;margin:0 auto;">
+      <input type="text" placeholder="@username" id="lookup-input" onkeydown="if(event.key==='Enter')doLookup()" style="flex:1;">
+      <button class="btn btn-primary" onclick="doLookup()">Look up</button>
+    </div>
+  </div>
+  <div id="lookup-result" style="display:none;">
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
+        <div style="width:44px;height:44px;border-radius:50%;background:var(--accent-light);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:500;color:var(--accent-dark);" id="result-avatar">JH</div>
+        <div>
+          <div style="font-weight:500;font-size:15px;" id="result-username">@username</div>
+          <div style="font-size:12px;color:var(--text2);" id="result-count"></div>
+        </div>
+        <button class="btn btn-ghost btn-sm" style="margin-left:auto;" onclick="resetLookup()">← Back</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>GO</th><th>Item</th><th>Version/Member</th><th>Qty</th><th>Claim</th><th>Payment</th><th>Fulfillment</th></tr></thead>
+          <tbody id="lookup-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- PAYMENT PAGE -->
+<div class="page" id="page-payment">
+  <p class="page-title">Submit payment</p>
+  <p class="page-sub">Upload your payment screenshot and log the details.</p>
+  <div class="card">
+    <div class="field"><label>Instagram username</label><input type="text" placeholder="@username"></div>
+    <div class="field"><label>Group order</label><select id="payment-go-select"></select></div>
+    <div class="field-row">
+      <div class="field"><label>Payment method</label>
+        <select><option>PayPal</option><option>Venmo</option><option>Zelle</option><option>Wise</option></select>
+      </div>
+      <div class="field"><label>Amount paid</label><input type="number" placeholder="0.00" step="0.01"></div>
+    </div>
+    <div class="field"><label>Transaction ID (optional)</label><input type="text" placeholder="e.g. 4GH72XABCDE"></div>
+    <div class="field">
+      <label>Payment screenshot</label>
+      <div class="upload-area" onclick="document.getElementById('proof-upload').click()">
+        <input type="file" id="proof-upload" accept="image/*" onchange="showUpload(this)">
+        <div style="font-size:22px;color:var(--text3);margin-bottom:6px;">↑</div>
+        <div style="font-size:12px;color:var(--text2);">Tap to upload screenshot</div>
+        <div style="margin-top:8px;font-size:12px;color:var(--teal-600);font-weight:500;" id="upload-name"></div>
+      </div>
+    </div>
+    <div class="field"><label>Email (optional)</label><input type="email" placeholder="your@email.com"><div class="field-hint">Get a confirmation when your payment is verified.</div></div>
+    <button class="btn btn-primary" onclick="_submitPaymentForm()" style="width:100%;justify-content:center;">Submit payment</button>
+  </div>
+</div>
+
+<!-- SHIPPING PAGE -->
+<div class="page" id="page-shipping">
+  <p class="page-title">Request shipping</p>
+  <p class="page-sub">Submit once all your ready items have been confirmed.</p>
+  <div class="card" style="background:var(--teal-50);border-color:var(--teal-100);margin-bottom:16px;">
+    <div style="font-size:13px;color:var(--teal-800);">Check "My orders" first to confirm which items are marked <strong style="font-weight:500;">Ready</strong> before submitting.</div>
+  </div>
+  <div class="card">
+    <div class="field"><label>Instagram username</label><input type="text" placeholder="@username"></div>
+    <hr class="divider" style="margin:8px 0 16px;">
+    <div class="section-label">Shipping address</div>
+    <div class="field"><label>Full name</label><input type="text" placeholder="As on shipping label"></div>
+    <div class="field"><label>Address line 1</label><input type="text"></div>
+    <div class="field"><label>Address line 2 (optional)</label><input type="text" placeholder="Apt, suite, unit..."></div>
+    <div class="field-row">
+      <div class="field"><label>City</label><input type="text"></div>
+      <div class="field"><label>State / Province</label><input type="text"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Postal code</label><input type="text"></div>
+      <div class="field"><label>Country</label><input type="text" value="United States"></div>
+    </div>
+    <div class="field"><label>Notes (optional)</label><textarea placeholder="Special instructions..."></textarea></div>
+    <div class="field"><label>Email (optional)</label><input type="email" placeholder="your@email.com"><div class="field-hint">Get notified when your package ships.</div></div>
+    <button class="btn btn-primary" onclick="_origSubmitShipping()" style="width:100%;justify-content:center;">Submit request</button>
+  </div>
+</div>
+
+<!-- ADMIN PAGE -->
+<div class="page" id="page-admin">
+  <!-- Admin home -->
+  <div id="admin-home">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+      <p class="page-title" style="margin:0;">Admin</p>
+      <button class="btn btn-sm btn-primary" onclick="showAdminPanel('new-go')">+ New GO</button>
+    </div>
+    <p class="page-sub">Manage claims, payments, and fulfillment.</p>
+    <div class="admin-section">
+      <div class="section-label">Active group orders</div>
+      <div id="admin-go-list"></div>
+    </div>
+    <div class="admin-section">
+      <div class="admin-section-title">Pending payment proofs</div>
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Username</th><th>GO</th><th>Amount</th><th>Method</th><th>Ref</th><th>Submitted</th><th>Action</th></tr></thead>
+            <tbody id="payment-proofs-tbody">
+              <tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px;">No pending proofs.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="admin-section">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <div class="admin-section-title" style="margin:0;">Shipping queue</div>
+        <button class="btn btn-sm" onclick="refreshShippingQueue()">↺ Refresh</button>
+      </div>
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Username</th><th>Items ready</th><th>Cards</th><th>EMS fee</th><th>Dom. fee</th><th>Total</th><th>Address</th><th></th></tr></thead>
+            <tbody id="shipping-queue-tbody">
+              <tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px;">No shipping requests yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modals -->
+  <div id="modal-overlay" style="display:none;position:fixed;inset:0;background:rgba(44,44,42,0.45);z-index:500;align-items:center;justify-content:center;">
+    <div id="modal-box" style="background:var(--surface);border-radius:var(--radius-lg);padding:28px;max-width:520px;width:90%;border:0.5px solid var(--border);max-height:90vh;overflow-y:auto;"></div>
+  </div>
+
+  <!-- New GO panel -->
+  <div id="admin-panel-new-go" style="display:none;">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:20px;">
+      <button class="btn btn-ghost btn-sm" onclick="showAdminPanel('home')" style="padding:5px 8px;">← Back</button>
+      <span style="font-size:13px;color:var(--text2);">New group order</span>
+    </div>
+    <div class="card">
+      <div class="field"><label>GO name</label><input type="text" id="new-go-name" placeholder="e.g. Stray Kids — ATE"></div>
+      <div class="field-row">
+        <div class="field"><label>Type</label>
+          <select id="new-go-type" onchange="onGoTypeChange()">
+            <option value="photocard">Photocard</option>
+            <option value="album">Album</option>
+            <option value="merch">Merch</option>
+          </select>
+        </div>
+        <div class="field"><label>Deadline</label><input type="date" id="new-go-deadline"></div>
+      </div>
+      <div class="field"><label>Min slots to secure a set</label><input type="number" id="new-go-min-secure" value="7" min="1"><div class="field-hint" id="min-secure-hint">Applies to photocard sets and album member versions.</div></div>
+
+      <!-- Sub-items builder -->
+      <div id="sub-items-section">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+          <div class="section-label" style="margin:0;" id="sub-items-label">Card sets</div>
+          <button class="btn btn-sm" onclick="addSubItem()">+ Add</button>
+        </div>
+        <div id="sub-items-list"></div>
+      </div>
+
+      <button class="btn btn-primary" onclick="createGO()" style="width:100%;justify-content:center;margin-top:8px;">Create GO</button>
+    </div>
+  </div>
+
+  <!-- GO detail panel -->
+  <div id="admin-panel-go-detail" style="display:none;">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+      <button class="btn btn-ghost btn-sm" onclick="showAdminPanel('home')" style="padding:5px 8px;">← Back</button>
+      <span style="font-size:13px;color:var(--text2);" id="detail-breadcrumb"></span>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+      <p class="page-title" style="margin:0;" id="detail-go-title"></p>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <div id="detail-badges"></div>
+        <button class="btn btn-sm" onclick="openEditGO()" id="edit-go-btn">Edit GO</button>
+      </div>
+    </div>
+    <div id="detail-content"></div>
+  </div>
+
+  <!-- Edit GO panel -->
+  <div id="admin-panel-edit-go" style="display:none;">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:20px;">
+      <button class="btn btn-ghost btn-sm" onclick="showAdminPanel('go-detail')" style="padding:5px 8px;">← Back</button>
+      <span style="font-size:13px;color:var(--text2);" id="edit-go-breadcrumb">Edit GO</span>
+    </div>
+    <div class="card">
+      <div class="section-label">General</div>
+      <div class="field"><label>GO name</label><input type="text" id="edit-go-name"></div>
+      <div class="field-row">
+        <div class="field"><label>Deadline</label><input type="date" id="edit-go-deadline"></div>
+        <div class="field"><label>Status</label>
+          <select id="edit-go-status">
+            <option value="open">Open — accepting claims</option>
+            <option value="closed">Closed — no new claims</option>
+          </select>
+        </div>
+      </div>
+      <div class="field" id="edit-min-secure-row">
+        <label>Min slots to secure a set</label>
+        <input type="number" id="edit-go-min-secure" min="1">
+        <div class="field-hint">Applies to all set-based sub-items in this GO.</div>
+      </div>
+      <hr style="border:none;border-top:0.5px solid var(--border);margin:4px 0 20px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <div class="section-label" style="margin:0;" id="edit-sub-items-label">Sub-items</div>
+        <button class="btn btn-sm" onclick="addEditSubItem()">+ Add</button>
+      </div>
+      <div id="edit-sub-items-list"></div>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button class="btn btn-primary" onclick="saveGOEdits()" style="flex:1;justify-content:center;">Save changes</button>
+        <button class="btn" style="color:var(--red-400);border-color:var(--red-400);padding:9px 16px;" onclick="confirmDeleteGO()">Delete GO</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const FULFILLMENT = ['Pending','On the way','Ready','Dispatched'];
+
+// ── DATA MODEL ──────────────────────────────────────────────────────────────
+// GO types: photocard | album | merch
+// Sub-items:
+//   photocard: { id, name, members[], minSecure, sets[] }
+//     set: { status:'open'|'secured', slots:{ memberName: {user,payment,fulfillment} | null } }
+//   album: { id, name, subItems[] }
+//     subItem: { id, name, kind:'member'|'versioned', price,
+//       if member:  members[], minSecure, sets[]   (same as photocard)
+//       if versioned: versions:['A','B',...], claims:[] }
+//   merch: { id, name, items:[ {id,name,price,claims:[]} ] }
+
+let allGOs = {};
+
+let currentGO = null;
+let claimState = {}; // { subItemId: { type:'set', selectedMembers:{} } | { type:'versioned'|'merch', qty:0 } }
+let currentClaimGoId = null;
+
+// ── UTILITIES ────────────────────────────────────────────────────────────────
+function countFilled(set, members) { return members.filter(m => set.slots[m]).length; }
+function nextFulfillment(f) { const i = FULFILLMENT.indexOf(f); return i < FULFILLMENT.length-1 ? FULFILLMENT[i+1] : null; }
+function fulfillBadge(f) { return f==='Ready'?'badge-ready':f==='On the way'?'badge-transit':'badge-pending'; }
+function assignVersions(qty, versions) {
+  if (!versions || versions.length === 0) return Array(qty).fill('random');
+  const result = [];
+  for (let i = 0; i < qty; i++) {
+    if (i < versions.length) result.push(versions[i % versions.length]);
+    else result.push('random');
+  }
+  return result;
+}
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+// ── ORDERS PAGE ──────────────────────────────────────────────────────────────
+function renderOrdersList() {
+  const container = document.getElementById('page-orders');
+  if (!container) return;
+  let html = '<p class="page-title">Active group orders</p><p class="page-sub">Claim a spot or browse available items.</p>';
+  Object.values(allGOs).forEach(go => {
+    const typeLabel = go.type === 'photocard' ? 'Photocard' : go.type === 'album' ? 'Album' : 'Merch';
+    const badgeClass = go.type === 'photocard' ? 'badge-set' : go.type === 'album' ? 'badge-fcfs' : 'badge-waitlist';
+    html += `<div class="go-card" onclick="openClaimPage('${go.id}')">
+      <div class="go-card-header">
+        <div><div class="go-name">${go.name}</div><div class="go-meta">Deadline: ${go.deadline} &nbsp;·&nbsp; ${go.subItems.length} ${go.type === 'merch' ? 'items' : go.type === 'album' ? 'versions' : 'sets'}</div></div>
+        <span class="badge ${badgeClass}">${typeLabel}</span>
+      </div>
+      <div id="go-preview-${go.id}"></div>
+    </div>`;
+  });
+  container.innerHTML = html;
+  Object.values(allGOs).forEach(go => renderGoPreview(go.id));
+  renderPaymentGoSelect();
+}
+
+function renderGoPreview(goId) {
+  const go = allGOs[goId];
+  const el = document.getElementById('go-preview-' + goId);
+  if (!el) return;
+  if (go.type === 'photocard') {
+    let html = '<div style="margin-top:10px;display:flex;flex-direction:column;gap:6px;">';
+    go.subItems.forEach(si => {
+      const totalSlots = si.sets.reduce((a, s) => a + countFilled(s, si.members), 0);
+      const secured = si.sets.filter(s => s.status === 'secured').length;
+      html += `<div style="font-size:12px;display:flex;align-items:center;gap:8px;">
+        <span style="font-weight:500;min-width:120px;">${si.name}</span>
+        <span style="color:var(--text3);">${totalSlots} claimed · ${secured} set${secured!==1?'s':''} secured</span>
+      </div>`;
+    });
+    html += '</div>';
+    el.innerHTML = html;
+  } else if (go.type === 'album') {
+    let html = '<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;">';
+    go.subItems.forEach(si => {
+      const count = si.kind === 'member'
+        ? si.sets.reduce((a,s) => a + countFilled(s, si.members), 0)
+        : si.claims.reduce((a,c) => a+c.qty, 0);
+      html += `<div class="tag">${si.name} · ${count} claimed</div>`;
+    });
+    html += '</div>';
+    el.innerHTML = html;
+  } else {
+    let html = '<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;">';
+    go.subItems.forEach(si => {
+      const count = si.claims.reduce((a,c) => a+c.qty, 0);
+      html += `<div class="tag">${si.name} $${si.price} · ${count} claimed</div>`;
+    });
+    html += '</div>';
+    el.innerHTML = html;
+  }
+}
+
+// ── CLAIM PAGE ───────────────────────────────────────────────────────────────
+function openClaimPage(goId) {
+  currentClaimGoId = goId;
+  claimState = {};
+  const go = allGOs[goId];
+  let page = document.getElementById('page-claim-' + goId);
+  if (!page) {
+    page = document.createElement('div');
+    page.className = 'page';
+    page.id = 'page-claim-' + goId;
+    document.body.appendChild(page);
+  }
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  page.classList.add('active');
+  renderClaimPage(goId);
+}
+
+function renderClaimPage(goId) {
+  const go = allGOs[goId];
+  const page = document.getElementById('page-claim-' + goId);
+  if (!page) return;
+  let html = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:20px;">
+    <button class="btn btn-ghost btn-sm" onclick="showPage('orders')" style="padding:5px 8px;">← Back</button>
+    <span style="font-size:13px;color:var(--text2);">${go.name}</span>
+  </div>
+  ${go.status === 'closed' ? '<div class="card" style="background:var(--surface2);border-color:var(--border2);margin-bottom:16px;"><div style="font-size:13px;color:var(--text2);font-weight:500;">This GO is closed — no longer accepting new claims.</div></div>' : ''}`;
+
+  if (go.type === 'photocard') {
+    go.subItems.forEach(si => {
+      html += renderSetSubItemPublic(si, goId);
+    });
+  } else if (go.type === 'album') {
+    go.subItems.forEach(si => {
+      if (si.kind === 'member') html += renderSetSubItemPublic(si, goId);
+      else html += renderVersionedSubItemPublic(si, goId);
+    });
+  } else {
+    html += renderMerchPublic(go);
+  }
+
+  html += `<div class="card" style="margin-top:8px;">
+    <div class="section-label">Your details</div>
+    <div class="field"><label>Instagram username</label><input type="text" id="claim-username-${goId}" placeholder="@username"></div>
+    <div class="field"><label>Email (optional)</label><input type="email" id="claim-email-${goId}" placeholder="your@email.com"><div class="field-hint">Receive a confirmation when your claim is logged.</div></div>
+    <div id="claim-summary-${goId}" style="display:none;background:var(--surface2);border-radius:var(--radius);padding:12px 14px;margin-bottom:16px;font-size:13px;"></div>
+    <button class="btn btn-primary" onclick="submitClaim('${goId}')" style="width:100%;justify-content:center;">Submit claim</button>
+  </div>`;
+  page.innerHTML = html;
+  // init claim state
+  go.subItems.forEach(si => {
+    if (si.kind === 'member' || go.type === 'photocard') {
+      claimState[si.id] = { type:'set', selectedMembers:{} };
+    } else {
+      claimState[si.id] = { type: go.type === 'merch' ? 'merch' : 'versioned', qty:0 };
+    }
+  });
+}
+
+function renderSetSubItemPublic(si, goId) {
+  let html = `<div class="card" style="margin-bottom:12px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+      <div style="font-weight:500;font-size:15px;">${si.name}</div>
+      <span class="badge badge-set">set-based</span>
+    </div>`;
+  // Sets status board (public — no usernames)
+  si.sets.forEach((set, i) => {
+    const filled = countFilled(set, si.members);
+    const total = si.members.length;
+    const pct = Math.round(filled/total*100);
+    const isSecured = set.status === 'secured';
+    const isEmpty = filled === 0;
+    if (isEmpty) return;
+    const barColor = isSecured ? 'var(--teal-400)' : filled >= si.minSecure ? 'var(--teal-400)' : 'var(--accent)';
+    html += `<div style="margin-bottom:12px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+        <span style="font-size:12px;font-weight:500;">Set ${i+1}</span>
+        ${isSecured ? '<span class="badge badge-secured" style="font-size:10px;">Secured</span>' : `<span style="font-size:11px;color:var(--text3);">${filled}/${total}</span>`}
+      </div>
+      <div style="background:var(--gray-100);border-radius:4px;height:4px;margin-bottom:10px;">
+        <div style="background:${barColor};width:${pct}%;height:4px;border-radius:4px;"></div>
+      </div>
+      <div class="member-grid">`;
+    si.members.forEach(member => {
+      const taken = !!set.slots[member];
+      const border = taken ? 'var(--border2)' : 'var(--border)';
+      const sub = taken ? 'taken' : 'open';
+      const subColor = taken ? 'var(--text3)' : 'var(--teal-600)';
+      html += `<div style="background:var(--surface2);border-radius:8px;padding:8px 10px;border:0.5px solid ${border};">
+        <div style="font-size:12px;font-weight:500;">${member}</div>
+        <div style="font-size:11px;color:${subColor};margin-top:2px;">${sub}</div>
+      </div>`;
+    });
+    html += `</div></div>`;
+  });
+  // Member picker
+  html += `<hr style="border:none;border-top:0.5px solid var(--border);margin:14px 0;">
+    <div style="font-size:12px;color:var(--text2);margin-bottom:10px;">Pick member(s) to claim:</div>
+    <div class="member-grid" id="picker-${si.id}">`;
+  si.members.forEach(member => {
+    const openCount = si.sets.filter(s => s.status !== 'secured' && !s.slots[member]).length;
+    const label = openCount > 0 ? openCount + ' open' : 'new set';
+    const labelColor = openCount > 0 ? 'var(--text3)' : 'var(--accent)';
+    html += `<div class="member-tile" id="tile-${si.id}-${member.replace(/\s/g,'_')}" onclick="toggleMember('${si.id}','${member}','${goId}')">
+      <div class="member-tile-name">${member}</div>
+      <div class="member-tile-sub" style="color:${labelColor};">${label}</div>
+    </div>`;
+  });
+  html += `</div>
+    <div id="qty-display-${si.id}" style="margin-top:10px;font-size:12px;color:var(--text3);"></div>
+  </div>`;
+  return html;
+}
+
+function renderVersionedSubItemPublic(si, goId) {
+  const totalClaimed = si.claims.reduce((a,c)=>a+c.qty,0);
+  const verDisplay = si.versions && si.versions.length ? si.versions.join(' / ') : '';
+  return `<div class="card" style="margin-bottom:12px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+      <div style="font-weight:500;font-size:15px;">${si.name}</div>
+      <span class="badge badge-fcfs">FCFS</span>
+    </div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:12px;">${verDisplay ? 'Versions: ' + verDisplay + ' &nbsp;·&nbsp; ' : ''}$${si.price.toFixed(2)} per copy &nbsp;·&nbsp; ${totalClaimed} claimed</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:10px;">1 copy → random ver &nbsp;·&nbsp; 2 copies → 1A + 1B &nbsp;·&nbsp; 3+ → A+B then random</div>
+    <div class="qty-row">
+      <button class="qty-btn" onclick="adjustVersionedQty('${si.id}','${goId}',-1)">−</button>
+      <span style="font-size:15px;font-weight:500;min-width:24px;text-align:center;" id="qty-val-${si.id}">0</span>
+      <button class="qty-btn" onclick="adjustVersionedQty('${si.id}','${goId}',1)">+</button>
+      <span style="font-size:12px;color:var(--text3);margin-left:4px;" id="qty-ver-${si.id}"></span>
+    </div>
+  </div>`;
+}
+
+function renderMerchPublic(go) {
+  let html = '';
+  go.subItems.forEach(si => {
+    const totalClaimed = si.claims.reduce((a,c)=>a+c.qty,0);
+    html += `<div class="card" style="margin-bottom:12px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+        <div style="font-weight:500;font-size:15px;">${si.name}</div>
+        <span style="font-size:13px;font-weight:500;">$${si.price.toFixed(2)}</span>
+      </div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:12px;">${totalClaimed} claimed</div>
+      <div class="qty-row">
+        <button class="qty-btn" onclick="adjustVersionedQty('${si.id}','${go.id}',-1)">−</button>
+        <span style="font-size:15px;font-weight:500;min-width:24px;text-align:center;" id="qty-val-${si.id}">0</span>
+        <button class="qty-btn" onclick="adjustVersionedQty('${si.id}','${go.id}',1)">+</button>
+      </div>
+    </div>`;
+  });
+  return html;
+}
+
+function toggleMember(siId, member, goId) {
+  if (!claimState[siId]) claimState[siId] = { type:'set', selectedMembers:{} };
+  const sm = claimState[siId].selectedMembers;
+  if (sm[member]) delete sm[member];
+  else sm[member] = 1;
+  const tile = document.getElementById('tile-' + siId + '-' + member.replace(/\s/g,'_'));
+  if (tile) tile.classList.toggle('selected', !!sm[member]);
+  const display = document.getElementById('qty-display-' + siId);
+  const selected = Object.keys(sm);
+  if (display) display.textContent = selected.length ? 'Selected: ' + selected.join(', ') : '';
+  updateClaimSummary(goId);
+}
+
+function adjustVersionedQty(siId, goId, delta) {
+  if (!claimState[siId]) claimState[siId] = { type:'versioned', qty:0 };
+  claimState[siId].qty = Math.max(0, (claimState[siId].qty || 0) + delta);
+  const qty = claimState[siId].qty;
+  const el = document.getElementById('qty-val-' + siId);
+  if (el) el.textContent = qty;
+  const verEl = document.getElementById('qty-ver-' + siId);
+  if (verEl) {
+    const go = allGOs[goId];
+    const si = go && go.subItems.find(s => s.id === siId);
+    if (si && si.versions) {
+      const assigned = assignVersions(qty, si.versions);
+      verEl.textContent = qty > 0 ? '→ ' + assigned.join(' + ') : '';
+    }
+  }
+  updateClaimSummary(goId);
+}
+
+function updateClaimSummary(goId) {
+  const el = document.getElementById('claim-summary-' + goId);
+  if (!el) return;
+  const go = allGOs[goId];
+  const lines = [];
+  go.subItems.forEach(si => {
+    const state = claimState[si.id];
+    if (!state) return;
+    if (state.type === 'set') {
+      const selected = Object.keys(state.selectedMembers || {});
+      if (selected.length) lines.push(si.name + ': ' + selected.join(', '));
+    } else {
+      if (state.qty > 0) lines.push(si.name + ' ×' + state.qty);
+    }
+  });
+  if (lines.length) {
+    el.style.display = 'block';
+    el.innerHTML = '<div style="font-size:12px;font-weight:500;color:var(--text2);margin-bottom:6px;">Your claim</div>' + lines.map(l => `<div>• ${l}</div>`).join('');
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+function submitClaim(goId) {
+  const usernameEl = document.getElementById('claim-username-' + goId);
+  const username = usernameEl ? usernameEl.value.trim() : '';
+  if (!username) { toast('Please enter your username.'); return; }
+  const u = username.startsWith('@') ? username : '@' + username;
+  const go = allGOs[goId];
+  let placed = false;
+  go.subItems.forEach(si => {
+    const state = claimState[si.id];
+    if (!state) return;
+    if (state.type === 'set') {
+      const members = Object.keys(state.selectedMembers || {});
+      if (!members.length) return;
+      members.forEach(member => {
+        let slotted = false;
+        for (let s = 0; s < si.sets.length; s++) {
+          if (si.sets[s].status !== 'secured' && !si.sets[s].slots[member]) {
+            si.sets[s].slots[member] = { user:u, payment:'unpaid', fulfillment:'Pending' };
+            slotted = true; placed = true; break;
+          }
+        }
+        if (!slotted) {
+          const newSet = { status:'open', slots:{} };
+          si.members.forEach(m => newSet.slots[m] = null);
+          newSet.slots[member] = { user:u, payment:'unpaid', fulfillment:'Pending' };
+          si.sets.push(newSet);
+          placed = true;
+        }
+      });
+      const last = si.sets[si.sets.length-1];
+      if (countFilled(last, si.members) > 0) {
+        const empty = { status:'open', slots:{} };
+        si.members.forEach(m => empty.slots[m] = null);
+        si.sets.push(empty);
+      }
+    } else if (state.qty > 0) {
+      const assigned = si.versions ? assignVersions(state.qty, si.versions) : [];
+      si.claims.push({ user:u, qty:state.qty, assignedVers:assigned, payment:'unpaid', fulfillment:'Pending' });
+      placed = true;
+    }
+  });
+  if (!placed) { toast('Please select at least one item.'); return; }
+  if (go.status === 'closed') { toast('This GO is closed and no longer accepting claims.'); return; }
+  claimState = {};
+  renderOrdersList();
+  renderAdminGOList();
+  toast('Claim submitted! Check "My orders" to track status.');
+  showPage('orders');
+}
+
+// ── LOOKUP ───────────────────────────────────────────────────────────────────
+function doLookup() {
+  const val = document.getElementById('lookup-input').value.trim();
+  if (!val) return;
+  const u = val.startsWith('@') ? val : '@' + val;
+  document.getElementById('result-avatar').textContent = u.replace('@','').slice(0,2).toUpperCase();
+  document.getElementById('result-username').textContent = u;
+  const rows = [];
+  Object.values(allGOs).forEach(go => {
+    go.subItems.forEach(si => {
+      if (si.kind === 'member' || go.type === 'photocard') {
+        si.sets.forEach((set, si2) => {
+          si.members.forEach(member => {
+            const slot = set.slots[member];
+            if (slot && slot.user === u) {
+              rows.push({ go:go.name, item:si.name, detail:member, qty:1, claim:set.status==='secured'?'Secured':'Pending', payment:slot.payment, fulfillment:slot.fulfillment });
+            }
+          });
+        });
+      } else {
+        (si.claims||[]).forEach(c => {
+          if (c.user === u) rows.push({ go:go.name, item:si.name, detail:(c.assignedVers||[]).join('+'), qty:c.qty, claim:'Secured', payment:c.payment, fulfillment:c.fulfillment });
+        });
+      }
+    });
+  });
+  document.getElementById('result-count').textContent = rows.length + ' active claim' + (rows.length!==1?'s':'');
+  const tbody = document.getElementById('lookup-tbody');
+  tbody.innerHTML = rows.length ? rows.map(r => `<tr>
+    <td style="font-weight:500;">${r.go}</td>
+    <td>${r.item}</td>
+    <td style="color:var(--text2);">${r.detail}</td>
+    <td>${r.qty}</td>
+    <td><span class="badge ${r.claim==='Secured'?'badge-secured':'badge-pending'}">${r.claim}</span></td>
+    <td><span class="badge ${r.payment==='paid'?'badge-paid':'badge-unpaid'}">${r.payment==='paid'?'Paid':'Unpaid'}</span></td>
+    <td><span class="badge ${fulfillBadge(r.fulfillment)}">${r.fulfillment}</span></td>
+  </tr>`).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px;">No claims found for ' + u + '.</td></tr>';
+  document.getElementById('lookup-form').style.display = 'none';
+  document.getElementById('lookup-result').style.display = 'block';
+}
+
+function resetLookup() {
+  document.getElementById('lookup-form').style.display = 'block';
+  document.getElementById('lookup-result').style.display = 'none';
+  document.getElementById('lookup-input').value = '';
+}
+
+// ── ADMIN ────────────────────────────────────────────────────────────────────
+function renderAdminGOList() {
+  const el = document.getElementById('admin-go-list');
+  if (!el) return;
+  el.innerHTML = Object.values(allGOs).map(go => {
+    const typeLabel = go.type==='photocard'?'Photocard':go.type==='album'?'Album':'Merch';
+    const badgeClass = go.type==='photocard'?'badge-set':go.type==='album'?'badge-fcfs':'badge-waitlist';
+    let meta = '';
+    if (go.type === 'photocard') {
+      const total = go.subItems.reduce((a,si) => a + si.sets.reduce((b,s) => b + countFilled(s,si.members), 0), 0);
+      const secured = go.subItems.reduce((a,si) => a + si.sets.filter(s=>s.status==='secured').length, 0);
+      meta = total + ' claims · ' + secured + ' set' + (secured!==1?'s':'') + ' secured';
+    } else if (go.type === 'album') {
+      const total = go.subItems.reduce((a,si) => {
+        if (si.kind==='member') return a + si.sets.reduce((b,s)=>b+countFilled(s,si.members),0);
+        return a + si.claims.reduce((b,c)=>b+c.qty,0);
+      },0);
+      meta = total + ' total claims';
+    } else {
+      const total = go.subItems.reduce((a,si)=>a+si.claims.reduce((b,c)=>b+c.qty,0),0);
+      meta = total + ' items claimed';
+    }
+    return `<div class="card-sm" style="margin-bottom:8px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div>
+          <div style="font-weight:500;font-size:13px;">${go.name}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px;"><span class="badge ${badgeClass}" style="font-size:10px;padding:2px 7px;margin-right:6px;">${typeLabel}</span>${go.status==='closed'?'<span class="badge badge-waitlist" style="font-size:10px;padding:2px 7px;margin-right:6px;">Closed</span>':''}${meta}</div>
+        </div>
+        <button class="btn btn-sm" onclick="openGODetail('${go.id}')">Manage</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function openGODetail(goId) {
+  currentGO = allGOs[goId];
+  document.getElementById('detail-breadcrumb').textContent = currentGO.name;
+  document.getElementById('detail-go-title').textContent = currentGO.name;
+  const typeLabel = currentGO.type==='photocard'?'Photocard':currentGO.type==='album'?'Album':'Merch';
+  const badgeClass = currentGO.type==='photocard'?'badge-set':currentGO.type==='album'?'badge-fcfs':'badge-waitlist';
+  document.getElementById('detail-badges').innerHTML = `<span class="badge ${badgeClass}">${typeLabel}</span>`;
+  renderDetailContent();
+  showAdminPanel('go-detail');
+}
+
+function renderDetailContent() {
+  const go = currentGO;
+  const el = document.getElementById('detail-content');
+  if (!el) return;
+  let html = '';
+  go.subItems.forEach((si, siIdx) => {
+    html += `<div class="admin-section">
+      <div class="admin-section-title">${si.name}`;
+    if (si.kind === 'member' || go.type === 'photocard') {
+      html += ` <span class="badge badge-set" style="font-size:10px;">set-based</span>`;
+    } else if (si.kind === 'versioned') {
+      html += ` <span class="badge badge-fcfs" style="font-size:10px;">versioned FCFS</span>`;
+    } else {
+      html += ` <span style="font-size:12px;color:var(--text3);">$${si.price.toFixed(2)}</span>`;
+    }
+    html += `</div>`;
+
+    if (si.kind === 'member' || go.type === 'photocard') {
+      // Log IG claim input
+      html += `<div class="card" style="margin-bottom:10px;">
+        <div style="font-size:12px;color:var(--text2);margin-bottom:10px;">Log from IG comment</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 60px auto;gap:8px;align-items:end;">
+          <div class="field" style="margin:0;"><label>Username</label><input type="text" id="log-u-${si.id}" placeholder="@username"></div>
+          <div class="field" style="margin:0;"><label>Member</label>
+            <select id="log-m-${si.id}"><option value="">Select</option>${si.members.map(m=>`<option>${m}</option>`).join('')}</select>
+          </div>
+          <div class="field" style="margin:0;"><label>Qty</label><input type="number" id="log-q-${si.id}" value="1" min="1" max="20" style="width:100%;"></div>
+          <button class="btn btn-primary" onclick="logSetClaim('${go.id}','${si.id}')" style="height:38px;">Log</button>
+        </div>
+      </div>`;
+      // Sets
+      si.sets.forEach((set, setIdx) => {
+        const filled = countFilled(set, si.members);
+        const total = si.members.length;
+        const pct = Math.round(filled/total*100);
+        const isSecured = set.status === 'secured';
+        const securable = !isSecured && filled >= si.minSecure;
+        const isEmpty = filled === 0;
+        if (isEmpty && setIdx === si.sets.length - 1) {
+          html += `<div style="font-size:12px;color:var(--text3);padding:6px 0;">Set ${setIdx+1} — waiting for first claim</div>`;
+          return;
+        }
+        if (isEmpty) return;
+        const barColor = isSecured ? 'var(--teal-400)' : securable ? 'var(--teal-400)' : 'var(--accent)';
+        html += `<div class="card" style="margin-bottom:10px;${isSecured?'border-color:var(--teal-100);':''}">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+            <div style="font-size:13px;font-weight:500;">Set ${setIdx+1} — ${filled}/${total}</div>
+            <div style="display:flex;gap:6px;align-items:center;">
+              ${isSecured ? '<span class="badge badge-secured">Secured</span>' : ''}
+              ${securable ? `<button class="btn btn-sm" style="color:var(--teal-600);border-color:var(--teal-100);" onclick="secureSet('${go.id}','${si.id}',${setIdx})">Secure</button>` : ''}
+            </div>
+          </div>
+          <div style="background:var(--gray-100);border-radius:4px;height:4px;margin-bottom:12px;"><div style="background:${barColor};width:${pct}%;height:4px;border-radius:4px;"></div></div>
+          <div class="member-grid">`;
+        si.members.forEach(member => {
+          const slot = set.slots[member];
+          const taken = !!slot;
+          const bg = taken ? (isSecured ? 'var(--teal-50)' : 'var(--pink-50)') : 'var(--surface2)';
+          const border = taken ? (isSecured ? 'var(--teal-100)' : 'var(--pink-100)') : 'var(--border)';
+          const nameColor = taken ? (isSecured ? 'var(--teal-800)' : 'var(--pink-800)') : 'var(--text2)';
+          const subColor = taken ? (isSecured ? 'var(--teal-600)' : 'var(--accent)') : 'var(--text3)';
+          const sub = taken ? slot.user : 'open';
+          const fulfillHtml = taken && !isSecured ? '' : taken ? `<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
+            <span class="badge ${fulfillBadge(slot.fulfillment)}" style="font-size:10px;">${slot.fulfillment}</span>
+            ${nextFulfillment(slot.fulfillment) ? `<button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 6px;" onclick="advanceSetFulfill('${go.id}','${si.id}',${setIdx},'${member}')">→ ${nextFulfillment(slot.fulfillment)}</button>` : ''}
+            <button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 6px;" onclick="openEditClaimModal('${go.id}','${si.id}',${setIdx},'${member}')">Edit</button>
+          </div>` : '';
+          html += `<div style="background:${bg};border-radius:8px;padding:8px 10px;border:0.5px solid ${border};">
+            <div style="font-size:12px;font-weight:500;color:${nameColor};">${member}</div>
+            <div style="font-size:11px;margin-top:2px;color:${subColor};">${sub}</div>
+            ${fulfillHtml}
+          </div>`;
+        });
+        html += `</div></div>`;
+      });
+    } else {
+      // FCFS / merch claims table
+      const claims = si.claims || [];
+      html += `<div class="card"><div class="table-wrap"><table>
+        <thead><tr><th>#</th><th>Username</th><th>Qty</th>${si.kind==='versioned'?'<th>Versions</th>':''}<th>Payment</th><th>Fulfillment</th><th></th></tr></thead>
+        <tbody>`;
+      if (!claims.length) {
+        html += `<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px;">No claims yet.</td></tr>`;
+      } else {
+        claims.forEach((c, ci) => {
+          const nf = nextFulfillment(c.fulfillment);
+          html += `<tr>
+            <td style="color:var(--text3);font-family:var(--mono);">${ci+1}</td>
+            <td style="font-weight:500;">${c.user}</td>
+            <td>${c.qty}</td>
+            ${si.kind==='versioned' ? `<td style="font-size:12px;color:var(--text2);">${(c.assignedVers||[]).join(' + ')}</td>` : ''}
+            <td><span class="badge ${c.payment==='paid'?'badge-paid':'badge-unpaid'}">${c.payment==='paid'?'Paid':'Unpaid'}</span></td>
+            <td><div style="display:flex;align-items:center;gap:6px;">
+              <span class="badge ${fulfillBadge(c.fulfillment)}">${c.fulfillment}</span>
+              ${nf ? `<button class="btn btn-sm btn-ghost" style="font-size:11px;padding:3px 8px;" onclick="advanceFCFSFulfill('${go.id}','${si.id}',${ci})">→ ${nf}</button>` : ''}
+            </div></td>
+            <td><div style="display:flex;gap:4px;">
+              <button class="btn btn-sm btn-ghost" onclick="openEditFCFSClaimModal('${go.id}','${si.id}',${ci})">Edit</button>
+              <button class="btn btn-sm btn-ghost" onclick="removeFCFSClaim('${go.id}','${si.id}',${ci})">×</button>
+            </div></td>
+          </tr>`;
+        });
+      }
+      html += `</tbody></table></div></div>`;
+    }
+    html += `</div>`;
+  });
+  el.innerHTML = html;
+}
+
+function logSetClaim(goId, siId) {
+  const go = allGOs[goId];
+  const si = go.subItems.find(s => s.id === siId);
+  const username = document.getElementById('log-u-' + siId).value.trim();
+  const member = document.getElementById('log-m-' + siId).value;
+  const qty = parseInt(document.getElementById('log-q-' + siId).value) || 1;
+  if (!username || !member) { toast('Enter username and member.'); return; }
+  const u = username.startsWith('@') ? username : '@' + username;
+  for (let q = 0; q < qty; q++) {
+    let placed = false;
+    for (let s = 0; s < si.sets.length; s++) {
+      if (si.sets[s].status !== 'secured' && !si.sets[s].slots[member]) {
+        si.sets[s].slots[member] = { user:u, payment:'unpaid', fulfillment:'Pending' };
+        placed = true; break;
+      }
+    }
+    if (!placed) {
+      const newSet = { status:'open', slots:{} };
+      si.members.forEach(m => newSet.slots[m] = null);
+      newSet.slots[member] = { user:u, payment:'unpaid', fulfillment:'Pending' };
+      si.sets.push(newSet);
+    }
+  }
+  const last = si.sets[si.sets.length-1];
+  if (countFilled(last, si.members) > 0) {
+    const empty = { status:'open', slots:{} };
+    si.members.forEach(m => empty.slots[m] = null);
+    si.sets.push(empty);
+  }
+  document.getElementById('log-u-' + siId).value = '';
+  document.getElementById('log-q-' + siId).value = '1';
+  renderDetailContent();
+  renderAdminGOList();
+  renderOrdersList();
+  toast('Logged: ' + u + ' × ' + member + ' ×' + qty);
+}
+
+function secureSet(goId, siId, setIdx) {
+  const si = allGOs[goId].subItems.find(s => s.id === siId);
+  si.sets[setIdx].status = 'secured';
+  renderDetailContent();
+  renderAdminGOList();
+  renderOrdersList();
+  toast('Set ' + (setIdx+1) + ' secured!');
+}
+
+function advanceSetFulfill(goId, siId, setIdx, member) {
+  const si = allGOs[goId].subItems.find(s => s.id === siId);
+  const slot = si.sets[setIdx].slots[member];
+  if (!slot) return;
+  const nf = nextFulfillment(slot.fulfillment);
+  if (nf) { slot.fulfillment = nf; renderDetailContent(); toast('Updated: ' + member + ' → ' + nf); }
+}
+
+function advanceFCFSFulfill(goId, siId, claimIdx) {
+  const si = allGOs[goId].subItems.find(s => s.id === siId);
+  const nf = nextFulfillment(si.claims[claimIdx].fulfillment);
+  if (nf) { si.claims[claimIdx].fulfillment = nf; renderDetailContent(); toast('Fulfillment updated: ' + nf); }
+}
+
+function removeFCFSClaim(goId, siId, claimIdx) {
+  const si = allGOs[goId].subItems.find(s => s.id === siId);
+  si.claims.splice(claimIdx, 1);
+  renderDetailContent();
+  renderAdminGOList();
+  toast('Claim removed.');
+}
+
+// ── NEW GO CREATION ───────────────────────────────────────────────────────────
+let newGoSubItems = [];
+
+function onGoTypeChange() {
+  const type = document.getElementById('new-go-type').value;
+  const label = document.getElementById('sub-items-label');
+  const minRow = document.getElementById('new-go-min-secure').parentElement;
+  label.textContent = type === 'photocard' ? 'Card sets' : type === 'album' ? 'Versions / sub-items' : 'Items';
+  minRow.style.display = type === 'merch' ? 'none' : 'block';
+  newGoSubItems = [];
+  document.getElementById('sub-items-list').innerHTML = '';
+  addSubItem();
+}
+
+function addSubItem() {
+  const type = document.getElementById('new-go-type').value;
+  const id = 'si-' + Date.now();
+  newGoSubItems.push({ _id: id });
+  const wrap = document.createElement('div');
+  wrap.id = 'wrap-' + id;
+  wrap.className = 'card-sm';
+  wrap.style.marginBottom = '8px';
+  let inner = '';
+  if (type === 'photocard') {
+    inner = `<div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:start;">
+      <div>
+        <div class="field" style="margin-bottom:8px;"><label>Set name</label><input type="text" id="si-name-${id}" placeholder="e.g. Main set"></div>
+        <div class="field" style="margin-bottom:0;"><label>Members (one per line)</label><textarea id="si-members-${id}" placeholder="Karina\nWinter\nGiselle\nNingning" style="min-height:80px;font-family:var(--mono);font-size:12px;"></textarea></div>
+      </div>
+      <button class="btn btn-sm btn-ghost" onclick="removeSubItem('${id}')" style="margin-top:24px;">×</button>
+    </div>`;
+  } else if (type === 'album') {
+    inner = `<div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end;">
+      <div class="field" style="margin-bottom:0;"><label>Version name</label><input type="text" id="si-name-${id}" placeholder="e.g. Member ver"></div>
+      <div class="field" style="margin-bottom:0;"><label>Kind</label>
+        <select id="si-kind-${id}" onchange="onSubItemKindChange('${id}')">
+          <option value="member">Member ver (set-based)</option>
+          <option value="versioned">Other ver (A/B/random)</option>
+        </select>
+      </div>
+      <button class="btn btn-sm btn-ghost" onclick="removeSubItem('${id}')">×</button>
+    </div>
+    <div id="si-extra-${id}" style="margin-top:8px;">
+      <div class="field" style="margin-bottom:0;"><label>Members (one per line)</label><textarea id="si-members-${id}" placeholder="Yujin\nGaeul\nRei\n..." style="min-height:80px;font-family:var(--mono);font-size:12px;"></textarea></div>
+    </div>
+    <div class="field-row" style="margin-top:8px;">
+      <div class="field" style="margin-bottom:0;"><label>Price (USD)</label><input type="number" id="si-price-${id}" placeholder="0.00" step="0.01"></div>
+    </div>`;
+  } else {
+    inner = `<div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end;">
+      <div class="field" style="margin-bottom:0;"><label>Item name</label><input type="text" id="si-name-${id}" placeholder="e.g. Lightstick"></div>
+      <div class="field" style="margin-bottom:0;"><label>Price (USD)</label><input type="number" id="si-price-${id}" placeholder="0.00" step="0.01"></div>
+      <button class="btn btn-sm btn-ghost" onclick="removeSubItem('${id}')">×</button>
+    </div>`;
+  }
+  wrap.innerHTML = inner;
+  document.getElementById('sub-items-list').appendChild(wrap);
+}
+
+function onSubItemKindChange(id) {
+  const kind = document.getElementById('si-kind-' + id).value;
+  const extra = document.getElementById('si-extra-' + id);
+  if (!extra) return;
+  if (kind === 'member') {
+    extra.innerHTML = `<div class="field" style="margin-bottom:0;"><label>Members (one per line)</label><textarea id="si-members-${id}" placeholder="Yujin\nGaeul\nRei\n..." style="min-height:80px;font-family:var(--mono);font-size:12px;"></textarea></div>`;
+  } else {
+    extra.innerHTML = `<div class="field" style="margin-bottom:0;"><label>Versions (comma separated, e.g. A,B)</label><input type="text" id="si-versions-${id}" placeholder="A,B"></div>`;
+  }
+}
+
+function removeSubItem(id) {
+  const wrap = document.getElementById('wrap-' + id);
+  if (wrap) wrap.remove();
+  newGoSubItems = newGoSubItems.filter(s => s._id !== id);
+}
+
+function createGO() {
+  const name = document.getElementById('new-go-name').value.trim();
+  const type = document.getElementById('new-go-type').value;
+  const deadline = document.getElementById('new-go-deadline').value;
+  const minSecure = parseInt(document.getElementById('new-go-min-secure').value) || 7;
+  if (!name) { toast('Enter a GO name.'); return; }
+  const id = name.toLowerCase().replace(/[^a-z0-9]/g,'-').slice(0,20) + '-' + Date.now();
+  const subItems = [];
+  document.querySelectorAll('#sub-items-list .card-sm').forEach(wrap => {
+    const siId = wrap.id.replace('wrap-','');
+    const siName = (document.getElementById('si-name-' + siId)||{}).value || '';
+    if (!siName) return;
+    if (type === 'photocard') {
+      const membersRaw = (document.getElementById('si-members-' + siId)||{}).value || '';
+      const members = membersRaw.split('\n').map(m=>m.trim()).filter(Boolean);
+      if (!members.length) return;
+      const emptySet = { status:'open', slots:{} };
+      members.forEach(m => emptySet.slots[m] = null);
+      subItems.push({ id: siId, name:siName, members, minSecure, sets:[emptySet] });
+    } else if (type === 'album') {
+      const kind = (document.getElementById('si-kind-' + siId)||{}).value || 'member';
+      const price = parseFloat((document.getElementById('si-price-' + siId)||{}).value) || 0;
+      if (kind === 'member') {
+        const membersRaw = (document.getElementById('si-members-' + siId)||{}).value || '';
+        const members = membersRaw.split('\n').map(m=>m.trim()).filter(Boolean);
+        if (!members.length) return;
+        const emptySet = { status:'open', slots:{} };
+        members.forEach(m => emptySet.slots[m] = null);
+        subItems.push({ id:siId, name:siName, kind:'member', members, minSecure, price, sets:[emptySet] });
+      } else {
+        const versionsRaw = (document.getElementById('si-versions-' + siId)||{}).value || 'A,B';
+        const versions = versionsRaw.split(',').map(v=>v.trim()).filter(Boolean);
+        subItems.push({ id:siId, name:siName, kind:'versioned', versions, price, claims:[] });
+      }
+    } else {
+      const price = parseFloat((document.getElementById('si-price-' + siId)||{}).value) || 0;
+      subItems.push({ id:siId, name:siName, price, claims:[] });
+    }
+  });
+  if (!subItems.length) { toast('Add at least one item.'); return; }
+  allGOs[id] = { id, name, type, deadline, subItems };
+  renderAdminGOList();
+  renderOrdersList();
+  toast('GO created: ' + name);
+  showAdminPanel('home');
+}
+
+// ── ADMIN PANEL NAV ───────────────────────────────────────────────────────────
+function showAdminPanel(panel) {
+  ['home','new-go','go-detail','edit-go'].forEach(p => {
+    const el = document.getElementById(p === 'home' ? 'admin-home' : 'admin-panel-' + p);
+    if (el) el.style.display = p === panel ? 'block' : 'none';
+  });
+  if (panel === 'home') renderAdminGOList();
+  if (panel === 'new-go') { newGoSubItems = []; document.getElementById('sub-items-list').innerHTML = ''; addSubItem(); }
+}
+
+function renderPaymentGoSelect() {
+  const el = document.getElementById('payment-go-select');
+  if (!el) return;
+  el.innerHTML = Object.values(allGOs).map(go => `<option>${go.name}</option>`).join('');
+}
+
+// ── PAGE NAV ──────────────────────────────────────────────────────────────────
+function showPage(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  const pageMap = { orders:0, lookup:1, payment:2, shipping:3, admin:4 };
+  const page = document.getElementById('page-' + id);
+  if (page) {
+    page.classList.add('active');
+    const idx = pageMap[id];
+    if (idx !== undefined) document.querySelectorAll('.nav-tab')[idx].classList.add('active');
+    if (id === 'orders') renderOrdersList();
+    if (id === 'admin') showAdminPanel('home');
+  }
+}
+
+function calcShip(input, totalId) {
+  const dom = parseFloat(input.value) || 0;
+  document.getElementById(totalId).textContent = '$' + (1 + dom).toFixed(2);
+}
+
+function showUpload(input) {
+  if (input.files && input.files[0]) document.getElementById('upload-name').textContent = '✓ ' + input.files[0].name;
+}
+
+// ── EDIT GO ───────────────────────────────────────────────────────────────────
+function openEditGO() {
+  const go = currentGO;
+  document.getElementById('edit-go-breadcrumb').textContent = go.name;
+  document.getElementById('edit-go-name').value = go.name;
+  document.getElementById('edit-go-deadline').value = go.deadline || '';
+  document.getElementById('edit-go-status').value = go.status || 'open';
+  const minSecureRow = document.getElementById('edit-min-secure-row');
+  minSecureRow.style.display = go.type === 'merch' ? 'none' : 'block';
+  if (go.type !== 'merch') {
+    const firstSetSi = go.subItems.find(si => si.minSecure);
+    document.getElementById('edit-go-min-secure').value = firstSetSi ? firstSetSi.minSecure : 7;
+  }
+  const label = document.getElementById('edit-sub-items-label');
+  label.textContent = go.type === 'photocard' ? 'Card sets' : go.type === 'album' ? 'Versions' : 'Items';
+  renderEditSubItems();
+  showAdminPanel('edit-go');
+}
+
+function renderEditSubItems() {
+  const go = currentGO;
+  const container = document.getElementById('edit-sub-items-list');
+  if (!container) return;
+  container.innerHTML = '';
+  go.subItems.forEach(si => {
+    const hasClaims = getSubItemClaimCount(si) > 0;
+    const wrap = document.createElement('div');
+    wrap.className = 'card-sm';
+    wrap.style.marginBottom = '8px';
+    wrap.id = 'edit-wrap-' + si.id;
+    let inner = `<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+      <div style="flex:1;">`;
+    if (go.type === 'photocard') {
+      inner += `<div class="field" style="margin-bottom:8px;"><label>Set name</label><input type="text" id="edit-si-name-${si.id}" value="${si.name}"></div>
+        <div class="field" style="margin-bottom:0;"><label>Members (one per line)</label>
+          <textarea id="edit-si-members-${si.id}" style="min-height:70px;font-family:var(--mono);font-size:12px;">${si.members.join('\n')}</textarea>
+          ${hasClaims ? '<div class="field-hint" style="color:var(--amber-800);">New members added will appear as open slots in existing sets.</div>' : ''}
+        </div>`;
+    } else if (go.type === 'album') {
+      inner += `<div class="field-row" style="margin-bottom:8px;">
+          <div class="field" style="margin-bottom:0;"><label>Name</label><input type="text" id="edit-si-name-${si.id}" value="${si.name}"></div>
+          <div class="field" style="margin-bottom:0;"><label>Price (USD)</label><input type="number" id="edit-si-price-${si.id}" value="${si.price || 0}" step="0.01" style="width:100%;"><div class="field-hint">Applies to new claims only.</div></div>
+        </div>`;
+      if (si.kind === 'member') {
+        inner += `<div class="field" style="margin-bottom:0;"><label>Members (one per line)</label>
+          <textarea id="edit-si-members-${si.id}" style="min-height:70px;font-family:var(--mono);font-size:12px;">${si.members.join('\n')}</textarea>
+          ${hasClaims ? '<div class="field-hint" style="color:var(--amber-800);">New members added will appear as open slots in existing sets.</div>' : ''}
+        </div>`;
+      } else {
+        inner += `<div class="field" style="margin-bottom:0;"><label>Versions (comma separated)</label>
+          <input type="text" id="edit-si-versions-${si.id}" value="${(si.versions||[]).join(',')}">
+          <div class="field-hint">Applies to new claims only.</div>
+        </div>`;
+      }
+    } else {
+      inner += `<div class="field-row" style="margin-bottom:0;">
+          <div class="field" style="margin-bottom:0;"><label>Item name</label><input type="text" id="edit-si-name-${si.id}" value="${si.name}"></div>
+          <div class="field" style="margin-bottom:0;"><label>Price (USD)</label><input type="number" id="edit-si-price-${si.id}" value="${si.price || 0}" step="0.01" style="width:100%;"><div class="field-hint">Applies to new claims only.</div></div>
+        </div>`;
+    }
+    const claimCount = getSubItemClaimCount(si);
+    inner += `</div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;padding-top:20px;">
+        ${claimCount > 0 ? `<span style="font-size:11px;color:var(--text3);">${claimCount} claim${claimCount!==1?'s':''}</span>` : ''}
+        <button class="btn btn-sm btn-ghost" style="color:var(--red-400);" onclick="removeEditSubItem('${si.id}',${hasClaims})">Remove</button>
+      </div>
+    </div>`;
+    wrap.innerHTML = inner;
+    container.appendChild(wrap);
+  });
+}
+
+function getSubItemClaimCount(si) {
+  if (si.sets) return si.sets.reduce((a, s) => a + Object.values(s.slots).filter(v => v).length, 0);
+  if (si.claims) return si.claims.reduce((a, c) => a + c.qty, 0);
+  return 0;
+}
+
+function addEditSubItem() {
+  const go = currentGO;
+  const id = 'new-' + Date.now();
+  const newSi = go.type === 'photocard'
+    ? { id, name:'', members:[], minSecure: go.subItems[0]?.minSecure || 7, sets:[{ status:'open', slots:{} }] }
+    : go.type === 'album'
+    ? { id, name:'', kind:'versioned', versions:['A','B'], price:0, claims:[] }
+    : { id, name:'', price:0, claims:[] };
+  go.subItems.push(newSi);
+  renderEditSubItems();
+  const wrap = document.getElementById('edit-wrap-' + id);
+  if (wrap) wrap.scrollIntoView({ behavior:'smooth' });
+}
+
+function removeEditSubItem(siId, hasClaims) {
+  if (hasClaims) {
+    if (!confirm('This item has existing claims that will be cancelled. Remove anyway?')) return;
+  }
+  currentGO.subItems = currentGO.subItems.filter(si => si.id !== siId);
+  renderEditSubItems();
+  toast('Sub-item removed' + (hasClaims ? ' and claims cancelled.' : '.'));
+}
+
+function saveGOEdits() {
+  const go = currentGO;
+  go.name = document.getElementById('edit-go-name').value.trim() || go.name;
+  go.deadline = document.getElementById('edit-go-deadline').value;
+  go.status = document.getElementById('edit-go-status').value;
+  const minSecure = parseInt(document.getElementById('edit-go-min-secure').value);
+  // Update each sub-item
+  go.subItems.forEach(si => {
+    const nameEl = document.getElementById('edit-si-name-' + si.id);
+    if (nameEl) si.name = nameEl.value.trim() || si.name;
+    const priceEl = document.getElementById('edit-si-price-' + si.id);
+    if (priceEl) si.price = parseFloat(priceEl.value) || si.price;
+    if (go.type === 'photocard' || si.kind === 'member') {
+      si.minSecure = minSecure || si.minSecure;
+      const membersEl = document.getElementById('edit-si-members-' + si.id);
+      if (membersEl) {
+        const newMembers = membersEl.value.split('\n').map(m => m.trim()).filter(Boolean);
+        if (newMembers.length) {
+          // Add new members as open slots to all existing sets
+          const added = newMembers.filter(m => !si.members.includes(m));
+          const removed = si.members.filter(m => !newMembers.includes(m));
+          if (removed.length) {
+            // Remove slots for removed members
+            si.sets.forEach(s => removed.forEach(m => { delete s.slots[m]; }));
+          }
+          if (added.length) {
+            si.sets.forEach(s => added.forEach(m => { s.slots[m] = null; }));
+          }
+          si.members = newMembers;
+        }
+      }
+    } else if (si.kind === 'versioned') {
+      const versionsEl = document.getElementById('edit-si-versions-' + si.id);
+      if (versionsEl) si.versions = versionsEl.value.split(',').map(v => v.trim()).filter(Boolean);
+    }
+    // Handle newly added sub-items (no existing sets)
+    if ((go.type === 'photocard' || si.kind === 'member') && si.sets.length === 1 && Object.keys(si.sets[0].slots).length === 0) {
+      const membersEl = document.getElementById('edit-si-members-' + si.id);
+      if (membersEl) {
+        const members = membersEl.value.split('\n').map(m => m.trim()).filter(Boolean);
+        si.members = members;
+        si.sets[0].slots = {};
+        members.forEach(m => si.sets[0].slots[m] = null);
+      }
+    }
+  });
+  // Remove sub-items with no name
+  go.subItems = go.subItems.filter(si => si.name);
+  renderAdminGOList();
+  renderOrdersList();
+  openGODetail(go.id);
+  toast('Changes saved.');
+}
+
+function confirmDeleteGO() {
+  const go = currentGO;
+  const totalClaims = go.subItems.reduce((a, si) => a + getSubItemClaimCount(si), 0);
+  const msg = totalClaims > 0
+    ? `Delete "${go.name}"? This has ${totalClaims} active claim${totalClaims!==1?'s':''} that will all be cancelled. This cannot be undone.`
+    : `Delete "${go.name}"? This cannot be undone.`;
+  if (!confirm(msg)) return;
+  delete allGOs[go.id];
+  currentGO = null;
+  renderAdminGOList();
+  renderOrdersList();
+  showAdminPanel('home');
+  toast('GO deleted.');
+}
+
+// ── MODAL HELPERS ─────────────────────────────────────────────────────────────
+function showModal(html) {
+  document.getElementById('modal-box').innerHTML = html;
+  document.getElementById('modal-overlay').style.display = 'flex';
+}
+function closeModal() {
+  document.getElementById('modal-overlay').style.display = 'none';
+}
+document.addEventListener('click', e => {
+  if (e.target.id === 'modal-overlay') closeModal();
+});
+
+// ── CLAIM EDITING ─────────────────────────────────────────────────────────────
+function openEditClaimModal(goId, siId, setIdx, member) {
+  const go = allGOs[goId];
+  const si = go.subItems.find(s => s.id === siId);
+  const slot = si.sets[setIdx].slots[member];
+  if (!slot) return;
+  showModal(`
+    <div style="font-size:16px;font-weight:500;margin-bottom:4px;">Edit claim</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:20px;">${go.name} — ${si.name} / ${member} / Set ${setIdx+1}</div>
+    <div class="field"><label>Username</label><input type="text" id="ec-user" value="${slot.user}"></div>
+    <div class="field-row">
+      <div class="field"><label>Payment status</label>
+        <select id="ec-payment">
+          <option value="unpaid" ${slot.payment==='unpaid'?'selected':''}>Unpaid</option>
+          <option value="paid" ${slot.payment==='paid'?'selected':''}>Paid</option>
+        </select>
+      </div>
+      <div class="field"><label>Fulfillment</label>
+        <select id="ec-fulfillment">
+          ${FULFILLMENT.map(f => `<option value="${f}" ${slot.fulfillment===f?'selected':''}>${f}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <button class="btn btn-primary" onclick="saveClaimEdit('${goId}','${siId}',${setIdx},'${member}')" style="flex:1;justify-content:center;">Save</button>
+      <button class="btn" style="color:var(--red-400);border-color:var(--red-400);" onclick="removeSetClaim('${goId}','${siId}',${setIdx},'${member}')">Remove claim</button>
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+    </div>`);
+}
+
+function saveClaimEdit(goId, siId, setIdx, member) {
+  const si = allGOs[goId].subItems.find(s => s.id === siId);
+  const slot = si.sets[setIdx].slots[member];
+  slot.user = document.getElementById('ec-user').value.trim() || slot.user;
+  slot.payment = document.getElementById('ec-payment').value;
+  slot.fulfillment = document.getElementById('ec-fulfillment').value;
+  if (slot.claim_id && API_URL) {
+    apiPost('updateClaim', { claim_id: slot.claim_id, payment_status: slot.payment, fulfillment: slot.fulfillment });
+  }
+  closeModal();
+  renderDetailContent();
+  renderAdminGOList();
+  toast('Claim updated.');
+}
+
+function removeSetClaim(goId, siId, setIdx, member) {
+  if (!confirm('Remove this claim?')) return;
+  const si = allGOs[goId].subItems.find(s => s.id === siId);
+  const slot = si.sets[setIdx].slots[member];
+  if (slot?.claim_id && API_URL) apiPost('deleteClaim', { claim_id: slot.claim_id });
+  si.sets[setIdx].slots[member] = null;
+  closeModal();
+  renderDetailContent();
+  renderAdminGOList();
+  toast('Claim removed.');
+}
+
+function openEditFCFSClaimModal(goId, siId, claimIdx) {
+  const go = allGOs[goId];
+  const si = go.subItems.find(s => s.id === siId);
+  const c = si.claims[claimIdx];
+  showModal(`
+    <div style="font-size:16px;font-weight:500;margin-bottom:4px;">Edit claim</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:20px;">${go.name} — ${si.name}</div>
+    <div class="field"><label>Username</label><input type="text" id="efc-user" value="${c.user}"></div>
+    <div class="field-row">
+      <div class="field"><label>Qty</label><input type="number" id="efc-qty" value="${c.qty}" min="1"></div>
+      <div class="field"><label>Assigned versions</label><input type="text" id="efc-vers" value="${(c.assignedVers||[]).join('+')}"><div class="field-hint">e.g. A+B or random</div></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Payment status</label>
+        <select id="efc-payment">
+          <option value="unpaid" ${c.payment==='unpaid'?'selected':''}>Unpaid</option>
+          <option value="paid" ${c.payment==='paid'?'selected':''}>Paid</option>
+        </select>
+      </div>
+      <div class="field"><label>Fulfillment</label>
+        <select id="efc-fulfillment">
+          ${FULFILLMENT.map(f => `<option value="${f}" ${c.fulfillment===f?'selected':''}>${f}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <button class="btn btn-primary" onclick="saveFCFSClaimEdit('${goId}','${siId}',${claimIdx})" style="flex:1;justify-content:center;">Save</button>
+      <button class="btn" style="color:var(--red-400);border-color:var(--red-400);" onclick="removeFCFSClaim('${goId}','${siId}',${claimIdx});closeModal()">Remove</button>
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+    </div>`);
+}
+
+function saveFCFSClaimEdit(goId, siId, claimIdx) {
+  const si = allGOs[goId].subItems.find(s => s.id === siId);
+  const c = si.claims[claimIdx];
+  c.user = document.getElementById('efc-user').value.trim() || c.user;
+  c.qty = parseInt(document.getElementById('efc-qty').value) || c.qty;
+  c.assignedVers = document.getElementById('efc-vers').value.split('+').map(v=>v.trim()).filter(Boolean);
+  c.payment = document.getElementById('efc-payment').value;
+  c.fulfillment = document.getElementById('efc-fulfillment').value;
+  if (c.claim_id && API_URL) {
+    apiPost('updateClaim', { claim_id: c.claim_id, payment_status: c.payment, fulfillment: c.fulfillment });
+  }
+  closeModal();
+  renderDetailContent();
+  renderAdminGOList();
+  toast('Claim updated.');
+}
+
+// ── PAYMENT PROOFS ────────────────────────────────────────────────────────────
+let paymentProofs = [];
+
+function addPaymentProof(proof) {
+  paymentProofs.push(proof);
+  renderPaymentProofs();
+}
+
+function renderPaymentProofs() {
+  const tbody = document.getElementById('payment-proofs-tbody');
+  if (!tbody) return;
+  if (!paymentProofs.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px;">No pending proofs.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = paymentProofs.filter(p => p.status === 'pending').map((p, i) => `
+    <tr>
+      <td style="font-weight:500;">${p.username}</td>
+      <td style="font-size:12px;">${p.go_name}</td>
+      <td style="font-family:var(--mono);">$${parseFloat(p.amount||0).toFixed(2)}</td>
+      <td>${p.method}</td>
+      <td style="font-size:11px;color:var(--text3);font-family:var(--mono);">${p.transaction_id||'—'}</td>
+      <td style="font-size:11px;color:var(--text3);">${formatRelTime(p.created_at)}</td>
+      <td>
+        <div style="display:flex;gap:4px;">
+          ${p.proof_url ? `<button class="btn btn-sm btn-ghost" onclick="viewProofImage('${p.proof_url}')">View</button>` : ''}
+          <button class="btn btn-sm" style="color:var(--teal-600);border-color:var(--teal-100);" onclick="confirmPayment(${i})">✓ Confirm</button>
+          <button class="btn btn-sm btn-ghost" style="color:var(--red-400);" onclick="rejectPayment(${i})">Reject</button>
+          <button class="btn btn-sm btn-ghost" onclick="openEditProofModal(${i})">Edit</button>
+        </div>
+      </td>
+    </tr>`).join('');
+}
+
+function viewProofImage(url) {
+  showModal(`
+    <div style="font-size:14px;font-weight:500;margin-bottom:16px;">Payment screenshot</div>
+    <img src="${url}" style="width:100%;border-radius:var(--radius);border:0.5px solid var(--border);" onerror="this.style.display='none'">
+    <button class="btn btn-ghost" onclick="closeModal()" style="margin-top:16px;width:100%;justify-content:center;">Close</button>`);
+}
+
+function confirmPayment(idx) {
+  const p = paymentProofs[idx];
+  p.status = 'confirmed';
+  // Mark all claims for this user + GO as paid
+  const go = Object.values(allGOs).find(g => g.name === p.go_name || g.id === p.go_id);
+  if (go) {
+    go.subItems.forEach(si => {
+      if (si.sets) si.sets.forEach(s => Object.values(s.slots).forEach(slot => { if (slot && slot.user === p.username) slot.payment = 'paid'; }));
+      if (si.claims) si.claims.forEach(c => { if (c.user === p.username) c.payment = 'paid'; });
+    });
+  }
+  if (API_URL && p.payment_id) apiPost('updatePayment', { payment_id: p.payment_id, status:'confirmed', username: p.username, go_id: p.go_id });
+  renderPaymentProofs();
+  renderDetailContent();
+  toast('Payment confirmed for ' + p.username);
+}
+
+function rejectPayment(idx) {
+  if (!confirm('Reject this payment proof?')) return;
+  paymentProofs[idx].status = 'rejected';
+  if (API_URL && paymentProofs[idx].payment_id) apiPost('updatePayment', { payment_id: paymentProofs[idx].payment_id, status:'rejected' });
+  renderPaymentProofs();
+  toast('Payment rejected.');
+}
+
+function openEditProofModal(idx) {
+  const p = paymentProofs[idx];
+  showModal(`
+    <div style="font-size:16px;font-weight:500;margin-bottom:4px;">Edit payment proof</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:20px;">${p.username} — ${p.go_name}</div>
+    <div class="field"><label>Username</label><input type="text" id="ep-user" value="${p.username}"></div>
+    <div class="field-row">
+      <div class="field"><label>Amount</label><input type="number" id="ep-amount" value="${p.amount||0}" step="0.01"></div>
+      <div class="field"><label>Method</label>
+        <select id="ep-method">
+          ${['PayPal','Venmo','Zelle','Wise'].map(m=>`<option ${p.method===m?'selected':''}>${m}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="field"><label>Transaction ID</label><input type="text" id="ep-txid" value="${p.transaction_id||''}"></div>
+    <div class="field"><label>Status</label>
+      <select id="ep-status">
+        <option value="pending" ${p.status==='pending'?'selected':''}>Pending</option>
+        <option value="confirmed" ${p.status==='confirmed'?'selected':''}>Confirmed</option>
+        <option value="rejected" ${p.status==='rejected'?'selected':''}>Rejected</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <button class="btn btn-primary" onclick="saveProofEdit(${idx})" style="flex:1;justify-content:center;">Save</button>
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+    </div>`);
+}
+
+function saveProofEdit(idx) {
+  const p = paymentProofs[idx];
+  p.username = document.getElementById('ep-user').value.trim() || p.username;
+  p.amount = document.getElementById('ep-amount').value;
+  p.method = document.getElementById('ep-method').value;
+  p.transaction_id = document.getElementById('ep-txid').value;
+  p.status = document.getElementById('ep-status').value;
+  closeModal();
+  renderPaymentProofs();
+  toast('Proof updated.');
+}
+
+function formatRelTime(iso) {
+  if (!iso) return '—';
+  const diff = Date.now() - new Date(iso).getTime();
+  const h = Math.floor(diff / 3600000);
+  if (h < 1) return 'Just now';
+  if (h < 24) return h + 'h ago';
+  return Math.floor(h/24) + 'd ago';
+}
+
+// Patch submitPayment to add to proofs list
+const _submitPaymentForm = () => {
+  const goName = document.getElementById('payment-go-select')?.value || '';
+  const proof = {
+    payment_id: 'pay_' + Date.now(),
+    username: document.querySelector('#page-payment input[placeholder="@username"]')?.value?.trim() || '',
+    go_name: goName, go_id: '',
+    amount: document.querySelector('#page-payment input[type=number]')?.value || 0,
+    method: document.querySelector('#page-payment select')?.value || '',
+    transaction_id: document.querySelector('#page-payment input[placeholder*="4GH"]')?.value || '',
+    proof_url: '',
+    status: 'pending',
+    created_at: new Date().toISOString()
+  };
+  addPaymentProof(proof);
+  if (API_URL) apiPost('submitPayment', proof);
+  toast('Payment submitted! We\'ll confirm within 24 hours.');
+};
+
+// ── SHIPPING QUEUE ────────────────────────────────────────────────────────────
+let shippingRequests = [];
+
+function refreshShippingQueue() {
+  // Auto-populate from joiners with all items Ready
+  const readyByUser = {};
+  Object.values(allGOs).forEach(go => {
+    go.subItems.forEach(si => {
+      if (si.sets) {
+        si.sets.forEach(set => {
+          si.members && si.members.forEach(member => {
+            const slot = set.slots[member];
+            if (slot && slot.fulfillment === 'Ready') {
+              if (!readyByUser[slot.user]) readyByUser[slot.user] = { user:slot.user, cards:0, others:[], items:[] };
+              readyByUser[slot.user].cards++;
+              readyByUser[slot.user].items.push({ go: go.name, item: si.name + ' ' + member });
+            }
+          });
+        });
+      }
+      if (si.claims) {
+        si.claims.forEach(c => {
+          if (c.fulfillment === 'Ready') {
+            if (!readyByUser[c.user]) readyByUser[c.user] = { user:c.user, cards:0, others:[], items:[] };
+            readyByUser[c.user].others.push(si.name + ' ×' + c.qty);
+            readyByUser[c.user].items.push({ go: go.name, item: si.name });
+          }
+        });
+      }
+    });
+  });
+  // Merge with existing shipping requests
+  Object.values(readyByUser).forEach(r => {
+    if (!shippingRequests.find(s => s.username === r.user && s.shipped !== true)) {
+      shippingRequests.push({ request_id: 'ship_' + Date.now() + '_' + r.user, username: r.user, cards: r.cards, others: r.others.join(', '), items: r.items, ems_fee: (r.cards * 0.5).toFixed(2), dom_fee: '', total: '', address: '', shipped: false });
+    }
+  });
+  renderShippingQueue();
+}
+
+function renderShippingQueue() {
+  const tbody = document.getElementById('shipping-queue-tbody');
+  if (!tbody) return;
+  const pending = shippingRequests.filter(r => !r.shipped);
+  if (!pending.length) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px;">No shipping requests yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = pending.map((r, i) => {
+    const emsNum = parseFloat(r.ems_fee) || 0;
+    const domNum = parseFloat(r.dom_fee) || 0;
+    const total = r.total || (emsNum + domNum > 0 ? (emsNum + domNum).toFixed(2) : '—');
+    return `<tr>
+      <td style="font-weight:500;">${r.username}</td>
+      <td style="font-size:12px;color:var(--text2);">${r.items ? r.items.length : '—'} items</td>
+      <td>${r.cards || 0}</td>
+      <td style="font-family:var(--mono);">$${emsNum.toFixed(2)}</td>
+      <td><input type="number" placeholder="0.00" step="0.01" value="${r.dom_fee||''}" oninput="updateShipFee(${i},this.value)" style="width:72px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);"></td>
+      <td style="font-family:var(--mono);font-weight:500;" id="ship-total-${i}">${total !== '—' ? '$'+total : '—'}</td>
+      <td><button class="btn btn-sm btn-ghost" onclick="viewShippingAddress(${i})">${r.address ? '✓ Set' : 'View'}</button></td>
+      <td>
+        <div style="display:flex;gap:4px;">
+          <button class="btn btn-sm btn-primary" onclick="markShipped(${i})">Mark shipped</button>
+          <button class="btn btn-sm btn-ghost" onclick="openEditShippingModal(${i})">Edit</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function updateShipFee(idx, val) {
+  const r = shippingRequests.filter(r => !r.shipped)[idx];
+  if (!r) return;
+  r.dom_fee = val;
+  const ems = parseFloat(r.ems_fee) || 0;
+  const dom = parseFloat(val) || 0;
+  r.total = (ems + dom).toFixed(2);
+  const el = document.getElementById('ship-total-' + idx);
+  if (el) el.textContent = '$' + r.total;
+}
+
+function viewShippingAddress(idx) {
+  const r = shippingRequests.filter(s => !s.shipped)[idx];
+  if (!r) return;
+  const addr = r.address || 'No address on file.';
+  showModal(`
+    <div style="font-size:16px;font-weight:500;margin-bottom:4px;">Shipping address</div>
+    <div style="font-size:13px;font-weight:500;margin-bottom:4px;">${r.username}</div>
+    <div style="font-size:13px;color:var(--text2);white-space:pre-line;margin-bottom:16px;">${addr}</div>
+    <div style="font-size:13px;font-weight:500;margin-bottom:8px;">Items ready:</div>
+    <div style="font-size:12px;color:var(--text2);">${(r.items||[]).map(it=>`• ${it.go} — ${it.item}`).join('<br>') || '—'}</div>
+    <button class="btn btn-ghost" onclick="closeModal()" style="margin-top:20px;width:100%;justify-content:center;">Close</button>`);
+}
+
+function markShipped(idx) {
+  const pending = shippingRequests.filter(s => !s.shipped);
+  const r = pending[idx];
+  if (!r) return;
+  if (!r.total || r.total === '—') { toast('Enter domestic fee before marking shipped.'); return; }
+  if (!confirm('Mark as shipped for ' + r.username + '? This will update all their ready items to dispatched.')) return;
+  r.shipped = true;
+  // Advance fulfillment for all their ready items
+  Object.values(allGOs).forEach(go => {
+    go.subItems.forEach(si => {
+      if (si.sets) si.sets.forEach(set => {
+        si.members && si.members.forEach(member => {
+          const slot = set.slots[member];
+          if (slot && slot.user === r.username && slot.fulfillment === 'Ready') slot.fulfillment = 'Dispatched';
+        });
+      });
+      if (si.claims) si.claims.forEach(c => { if (c.user === r.username && c.fulfillment === 'Ready') c.fulfillment = 'Dispatched'; });
+    });
+  });
+  if (API_URL && r.request_id) apiPost('updateShipping', { request_id: r.request_id, ems_fee: r.ems_fee, dom_fee: r.dom_fee, total_fee: r.total, shipped: true });
+  renderShippingQueue();
+  renderDetailContent();
+  toast('Marked shipped for ' + r.username);
+}
+
+function openEditShippingModal(idx) {
+  const r = shippingRequests.filter(s => !s.shipped)[idx];
+  if (!r) return;
+  showModal(`
+    <div style="font-size:16px;font-weight:500;margin-bottom:4px;">Edit shipping request</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:20px;">${r.username}</div>
+    <div class="field"><label>Username</label><input type="text" id="es-user" value="${r.username}"></div>
+    <div class="field-row">
+      <div class="field"><label>EMS fee ($)</label><input type="number" id="es-ems" value="${r.ems_fee||0}" step="0.01"></div>
+      <div class="field"><label>Domestic fee ($)</label><input type="number" id="es-dom" value="${r.dom_fee||''}" step="0.01"></div>
+    </div>
+    <div class="field"><label>Shipping address</label><textarea id="es-addr" style="min-height:80px;">${r.address||''}</textarea></div>
+    <div class="field"><label>Notes</label><textarea id="es-notes" style="min-height:60px;">${r.notes||''}</textarea></div>
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <button class="btn btn-primary" onclick="saveShippingEdit(${idx})" style="flex:1;justify-content:center;">Save</button>
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+    </div>`);
+}
+
+function saveShippingEdit(idx) {
+  const r = shippingRequests.filter(s => !s.shipped)[idx];
+  if (!r) return;
+  r.username = document.getElementById('es-user').value.trim() || r.username;
+  r.ems_fee = document.getElementById('es-ems').value;
+  r.dom_fee = document.getElementById('es-dom').value;
+  r.total = (parseFloat(r.ems_fee||0) + parseFloat(r.dom_fee||0)).toFixed(2);
+  r.address = document.getElementById('es-addr').value;
+  r.notes = document.getElementById('es-notes').value;
+  closeModal();
+  renderShippingQueue();
+  toast('Shipping request updated.');
+}
+
+// Hook up shipping form submission to populate queue
+const _origSubmitShipping = () => {
+  const username = document.querySelector('#page-shipping input[placeholder="@username"]')?.value?.trim() || '';
+  const fullName = document.querySelector('#page-shipping input[placeholder="As on shipping label"]')?.value || '';
+  const addr1 = document.querySelectorAll('#page-shipping input[type=text]')?.[2]?.value || '';
+  const addr2 = document.querySelectorAll('#page-shipping input[type=text]')?.[3]?.value || '';
+  const city = document.querySelectorAll('#page-shipping input[type=text]')?.[4]?.value || '';
+  const state = document.querySelectorAll('#page-shipping input[type=text]')?.[5]?.value || '';
+  const postal = document.querySelectorAll('#page-shipping input[type=text]')?.[6]?.value || '';
+  const country = document.querySelectorAll('#page-shipping input[type=text]')?.[7]?.value || '';
+  const addressStr = [fullName, addr1, addr2, city + ' ' + state, postal, country].filter(Boolean).join('\n');
+  // Find or create shipping request for this user
+  let req = shippingRequests.find(r => r.username === (username.startsWith('@')?username:'@'+username) && !r.shipped);
+  if (req) {
+    req.address = addressStr;
+  } else {
+    const u = username.startsWith('@') ? username : '@' + username;
+    const cards = countUserCards(u);
+    shippingRequests.push({ request_id:'ship_'+Date.now(), username:u, cards, others:'', items:[], ems_fee:(cards*0.5).toFixed(2), dom_fee:'', total:'', address:addressStr, shipped:false });
+  }
+  renderShippingQueue();
+  toast('Shipping request submitted!');
+};
+
+function countUserCards(username) {
+  let count = 0;
+  Object.values(allGOs).forEach(go => {
+    go.subItems.forEach(si => {
+      if (si.sets) si.sets.forEach(set => {
+        (si.members||[]).forEach(m => { if (set.slots[m]?.user === username && set.slots[m]?.fulfillment === 'Ready') count++; });
+      });
+    });
+  });
+  return count;
+}
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+// ── API LAYER ─────────────────────────────────────────────────────────────────
+let API_URL = localStorage.getItem('go_api_url') || '';
+let useBackend = !!API_URL;
+
+async function apiGet(action, params = {}) {
+  if (!API_URL) return null;
+  const qs = new URLSearchParams({ action, ...params }).toString();
+  const res = await fetch(API_URL + '?' + qs);
+  return res.json();
+}
+
+async function apiPost(action, data = {}) {
+  if (!API_URL) return null;
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    body: JSON.stringify({ action, data })
+  });
+  return res.json();
+}
+
+async function syncFromBackend() {
+  if (!API_URL) return;
+  showLoadingOverlay(true);
+  try {
+    const result = await apiGet('getAllGOs');
+    if (result && result.gos) {
+      result.gos.forEach(go => {
+        // Rebuild allGOs from sheet data
+        const rebuilt = {
+          id: go.go_id, name: go.name, type: go.type,
+          deadline: go.deadline, status: go.status || 'open',
+          subItems: []
+        };
+        // Rebuild subItems from per-GO sheet rows
+        (go.subItems || []).forEach(si => {
+          const members = tryParse(si.members, []);
+          const versions = tryParse(si.versions, []);
+          const kind = si.kind || go.type;
+          if (kind === 'photocard' || kind === 'member') {
+            rebuilt.subItems.push({ id: si.sub_item_id, name: si.name, kind, members, minSecure: si.min_secure || 7, price: si.price || 0, sets: buildSetsFromClaims(go.claims, si.sub_item_id, members) });
+          } else if (kind === 'versioned') {
+            rebuilt.subItems.push({ id: si.sub_item_id, name: si.name, kind:'versioned', versions, price: si.price || 0, claims: buildVersionedClaims(go.claims, si.sub_item_id) });
+          } else {
+            rebuilt.subItems.push({ id: si.sub_item_id, name: si.name, price: si.price || 0, claims: buildVersionedClaims(go.claims, si.sub_item_id) });
+          }
+        });
+        allGOs[go.go_id] = rebuilt;
+      });
+      renderOrdersList();
+      renderAdminGOList();
+      toast('Synced from Google Sheets.');
+    }
+  } catch(e) {
+    toast('Sync failed: ' + e.message);
+  }
+  showLoadingOverlay(false);
+}
+
+function tryParse(val, fallback) {
+  try { return JSON.parse(val); } catch(e) { return fallback; }
+}
+
+function buildSetsFromClaims(claims, siId, members) {
+  const filtered = (claims || []).filter(c => c.sub_item_id === siId);
+  if (!filtered.length) {
+    const empty = { status:'open', slots:{} };
+    members.forEach(m => empty.slots[m] = null);
+    return [empty];
+  }
+  const setNums = [...new Set(filtered.map(c => parseInt(c.set_num) || 1))].sort();
+  const sets = setNums.map(n => {
+    const setStatus = filtered.find(c => parseInt(c.set_num) === n && c.claim_status === 'secured') ? 'secured' : 'open';
+    const slots = {};
+    members.forEach(m => slots[m] = null);
+    filtered.filter(c => parseInt(c.set_num) === n).forEach(c => {
+      slots[c.member_or_version] = { user: c.username, payment: c.payment_status, fulfillment: c.fulfillment, claim_id: c.claim_id };
+    });
+    return { status: setStatus, slots };
+  });
+  const last = sets[sets.length - 1];
+  const hasEmpty = members.every(m => !last.slots[m]);
+  if (!hasEmpty) {
+    const empty = { status:'open', slots:{} };
+    members.forEach(m => empty.slots[m] = null);
+    sets.push(empty);
+  }
+  return sets;
+}
+
+function buildVersionedClaims(claims, siId) {
+  return (claims || []).filter(c => c.sub_item_id === siId).map(c => ({
+    user: c.username, qty: c.qty || 1,
+    assignedVers: c.assigned_vers ? c.assigned_vers.split('+') : [],
+    payment: c.payment_status, fulfillment: c.fulfillment, claim_id: c.claim_id
+  }));
+}
+
+function showLoadingOverlay(show) {
+  let el = document.getElementById('loading-overlay');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'loading-overlay';
+    el.style.cssText = 'position:fixed;inset:0;background:rgba(255,255,255,0.8);display:flex;align-items:center;justify-content:center;z-index:9999;font-size:14px;color:var(--text2);';
+    el.innerHTML = '<div>Syncing with Google Sheets…</div>';
+    document.body.appendChild(el);
+  }
+  el.style.display = show ? 'flex' : 'none';
+}
+
+// Patch submitClaim to also write to backend
+const _origSubmitClaim = submitClaim;
+async function submitClaim(goId) {
+  const usernameEl = document.getElementById('claim-username-' + goId);
+  const username = usernameEl ? usernameEl.value.trim() : '';
+  if (!username) { toast('Please enter your username.'); return; }
+  const u = username.startsWith('@') ? username : '@' + username;
+  const go = allGOs[goId];
+  const claimsToWrite = [];
+  let placed = false;
+  go.subItems.forEach(si => {
+    const state = claimState[si.id];
+    if (!state) return;
+    if (state.type === 'set') {
+      const members = Object.keys(state.selectedMembers || {});
+      if (!members.length) return;
+      members.forEach(member => {
+        let setNum = 1;
+        let slotted = false;
+        for (let s = 0; s < si.sets.length; s++) {
+          if (si.sets[s].status !== 'secured' && !si.sets[s].slots[member]) {
+            si.sets[s].slots[member] = { user:u, payment:'unpaid', fulfillment:'Pending' };
+            setNum = s + 1; slotted = true; placed = true; break;
+          }
+        }
+        if (!slotted) {
+          const newSet = { status:'open', slots:{} };
+          si.members.forEach(m => newSet.slots[m] = null);
+          newSet.slots[member] = { user:u, payment:'unpaid', fulfillment:'Pending' };
+          si.sets.push(newSet);
+          setNum = si.sets.length; placed = true;
+        }
+        claimsToWrite.push({ go_id:goId, go_name:go.name, sub_item_id:si.id, sub_item_name:si.name, sub_item_kind: si.kind || go.type, username:u, email: (document.getElementById('claim-email-'+goId)||{}).value || '', member_or_version:member, set_num:setNum, qty:1, assigned_vers:'' });
+      });
+      const last = si.sets[si.sets.length-1];
+      if (countFilled(last, si.members) > 0) {
+        const empty = { status:'open', slots:{} };
+        si.members.forEach(m => empty.slots[m] = null);
+        si.sets.push(empty);
+      }
+    } else if (state.qty > 0) {
+      const assigned = si.versions ? assignVersions(state.qty, si.versions) : [];
+      si.claims.push({ user:u, qty:state.qty, assignedVers:assigned, payment:'unpaid', fulfillment:'Pending' });
+      claimsToWrite.push({ go_id:goId, go_name:go.name, sub_item_id:si.id, sub_item_name:si.name, sub_item_kind: si.kind || go.type, username:u, email: (document.getElementById('claim-email-'+goId)||{}).value || '', member_or_version:'', set_num:'', qty:state.qty, assigned_vers:assigned.join('+') });
+      placed = true;
+    }
+  });
+  if (!placed) { toast('Please select at least one item.'); return; }
+  if (go.status === 'closed') { toast('This GO is closed and no longer accepting claims.'); return; }
+  if (API_URL && claimsToWrite.length) {
+    apiPost('submitClaim', { claims: claimsToWrite }).catch(() => {});
+  }
+  claimState = {};
+  renderOrdersList();
+  renderAdminGOList();
+  toast('Claim submitted! Check "My orders" to track status.');
+  showPage('orders');
+}
+
+// Patch createGO to also write to backend
+const _origCreateGO = createGO;
+async function createGO() {
+  _origCreateGO();
+  if (API_URL) {
+    const lastGO = Object.values(allGOs)[Object.values(allGOs).length - 1];
+    if (lastGO) await apiPost('createGO', { ...lastGO, id: lastGO.id, min_secure: lastGO.subItems?.[0]?.minSecure || 7 });
+  }
+}
+
+// Patch saveGOEdits to also write to backend
+const _origSaveGOEdits = saveGOEdits;
+async function saveGOEdits() {
+  _origSaveGOEdits();
+  if (API_URL && currentGO) {
+    await apiPost('updateGO', { go_id: currentGO.id, name: currentGO.name, deadline: currentGO.deadline, status: currentGO.status, subItems: currentGO.subItems });
+  }
+}
+
+// Patch advanceSetFulfill / advanceFCFSFulfill to write to backend
+const _origAdvanceSet = advanceSetFulfill;
+async function advanceSetFulfill(goId, siId, setIdx, member) {
+  _origAdvanceSet(goId, siId, setIdx, member);
+  if (API_URL) {
+    const slot = allGOs[goId]?.subItems?.find(s=>s.id===siId)?.sets?.[setIdx]?.slots?.[member];
+    if (slot?.claim_id) await apiPost('updateClaim', { claim_id: slot.claim_id, fulfillment: slot.fulfillment });
+  }
+}
+
+const _origAdvanceFCFS = advanceFCFSFulfill;
+async function advanceFCFSFulfill(goId, siId, claimIdx) {
+  _origAdvanceFCFS(goId, siId, claimIdx);
+  if (API_URL) {
+    const claim = allGOs[goId]?.subItems?.find(s=>s.id===siId)?.claims?.[claimIdx];
+    if (claim?.claim_id) await apiPost('updateClaim', { claim_id: claim.claim_id, fulfillment: claim.fulfillment });
+  }
+}
+
+// Patch secureSet to write to backend
+const _origSecureSet = secureSet;
+async function secureSet(goId, siId, setIdx) {
+  _origSecureSet(goId, siId, setIdx);
+  if (API_URL) await apiPost('secureSet', { go_id: goId, sub_item_id: siId, set_num: setIdx + 1 });
+}
+
+// Settings panel
+function openSettings() {
+  let panel = document.getElementById('settings-panel');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'settings-panel';
+    panel.style.cssText = 'position:fixed;inset:0;background:rgba(44,44,42,0.4);display:flex;align-items:center;justify-content:center;z-index:998;';
+    panel.innerHTML = `<div style="background:var(--surface);border-radius:var(--radius-lg);padding:28px;max-width:480px;width:90%;border:0.5px solid var(--border);">
+      <div style="font-size:16px;font-weight:500;margin-bottom:4px;">Google Sheets connection</div>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:20px;">Paste your Apps Script Web App URL to enable live data sync.</div>
+      <div class="field"><label>Web App URL</label>
+        <input type="text" id="settings-api-url" placeholder="https://script.google.com/macros/s/..." value="${API_URL}" style="font-size:12px;font-family:var(--mono);">
+      </div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:20px;">Need help setting this up? See the setup guide below.</div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-primary" onclick="saveSettings()" style="flex:1;justify-content:center;">Save & sync</button>
+        <button class="btn" onclick="testConnection()" style="justify-content:center;">Test</button>
+        <button class="btn btn-ghost" onclick="document.getElementById('settings-panel').style.display='none'">Cancel</button>
+      </div>
+      <div id="settings-status" style="margin-top:12px;font-size:12px;color:var(--text3);"></div>
+    </div>`;
+    document.body.appendChild(panel);
+  }
+  panel.style.display = 'flex';
+}
+
+async function saveSettings() {
+  const url = document.getElementById('settings-api-url').value.trim();
+  API_URL = url;
+  localStorage.setItem('go_api_url', url);
+  useBackend = !!url;
+  document.getElementById('settings-panel').style.display = 'none';
+  if (url) {
+    await apiPost('bootstrap', {});
+    await syncFromBackend();
+  }
+}
+
+async function testConnection() {
+  const url = document.getElementById('settings-api-url').value.trim();
+  if (!url) { document.getElementById('settings-status').textContent = 'Enter a URL first.'; return; }
+  document.getElementById('settings-status').textContent = 'Testing…';
+  try {
+    const tmpUrl = API_URL;
+    API_URL = url;
+    const res = await apiGet('ping');
+    API_URL = tmpUrl;
+    if (res && res.ok) {
+      document.getElementById('settings-status').style.color = 'var(--teal-600)';
+      document.getElementById('settings-status').textContent = '✓ Connected successfully.';
+    } else {
+      throw new Error(res?.error || 'Unexpected response');
+    }
+  } catch(e) {
+    document.getElementById('settings-status').style.color = 'var(--red-400)';
+    document.getElementById('settings-status').textContent = '✗ ' + e.message;
+  }
+}
+renderOrdersList();
+renderAdminGOList();
+renderPaymentGoSelect();
+</script>
+</body>
+</html>
