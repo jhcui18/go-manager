@@ -2010,23 +2010,23 @@ async function submitClaim(goId) {
 }
 
 // Patch createGO to also write to backend
-const _origCreateGO = createGO;
-async function createGO() {
+const _origCreateGO = createGO.bind({});
+createGO = async function() {
   _origCreateGO();
   if (API_URL) {
     const lastGO = Object.values(allGOs)[Object.values(allGOs).length - 1];
     if (lastGO) await apiPost('createGO', { ...lastGO, id: lastGO.id, min_secure: lastGO.subItems?.[0]?.minSecure || 7 });
   }
-}
+};
 
 // Patch saveGOEdits to also write to backend
-const _origSaveGOEdits = saveGOEdits;
-async function saveGOEdits() {
+const _origSaveGOEdits = saveGOEdits.bind({});
+saveGOEdits = async function() {
   _origSaveGOEdits();
   if (API_URL && currentGO) {
     await apiPost('updateGO', { go_id: currentGO.id, name: currentGO.name, deadline: currentGO.deadline, status: currentGO.status, subItems: currentGO.subItems });
   }
-}
+};
 
 // Patch advanceSetFulfill / advanceFCFSFulfill to write to backend
 const _origAdvanceSet = advanceSetFulfill;
