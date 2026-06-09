@@ -663,6 +663,8 @@ function adjustMerchMemberQty(siId, goId, delta) {
   if (el) el.textContent = claimState[siId].qty;
   updateClaimSummary(goId);
 }
+
+function adjustVersionedQty(siId, goId, delta) {
   if (!claimState[siId]) claimState[siId] = { type:'versioned', qty:0 };
   claimState[siId].qty = Math.max(0, (claimState[siId].qty || 0) + delta);
   const qty = claimState[siId].qty;
