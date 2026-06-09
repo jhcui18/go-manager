@@ -1132,8 +1132,7 @@ function removeSubItem(id) {
   newGoSubItems = newGoSubItems.filter(s => s._id !== id);
 }
 
-function createGO() {
-  const name = document.getElementById('new-go-name').value.trim();
+function _createGOCore() {lementById('new-go-name').value.trim();
   const type = document.getElementById('new-go-type').value;
   const deadline = document.getElementById('new-go-deadline').value;
   const minSecure = parseInt(document.getElementById('new-go-min-secure').value) || 7;
@@ -1330,8 +1329,7 @@ function removeEditSubItem(siId, hasClaims) {
   toast('Sub-item removed' + (hasClaims ? ' and claims cancelled.' : '.'));
 }
 
-function saveGOEdits() {
-  const go = currentGO;
+function _saveGOEditsCore() {
   go.name = document.getElementById('edit-go-name').value.trim() || go.name;
   go.deadline = document.getElementById('edit-go-deadline').value;
   go.status = document.getElementById('edit-go-status').value;
@@ -2009,24 +2007,22 @@ async function submitClaim(goId) {
   showPage('orders');
 }
 
-// Patch createGO to also write to backend
-const _origCreateGO = createGO.bind({});
-createGO = async function() {
-  _origCreateGO();
+// createGO — calls core logic then syncs to backend if connected
+async function createGO() {
+  _createGOCore();
   if (API_URL) {
     const lastGO = Object.values(allGOs)[Object.values(allGOs).length - 1];
     if (lastGO) await apiPost('createGO', { ...lastGO, id: lastGO.id, min_secure: lastGO.subItems?.[0]?.minSecure || 7 });
   }
-};
+}
 
-// Patch saveGOEdits to also write to backend
-const _origSaveGOEdits = saveGOEdits.bind({});
-saveGOEdits = async function() {
-  _origSaveGOEdits();
+// saveGOEdits — calls core logic then syncs to backend if connected
+async function saveGOEdits() {
+  _saveGOEditsCore();
   if (API_URL && currentGO) {
     await apiPost('updateGO', { go_id: currentGO.id, name: currentGO.name, deadline: currentGO.deadline, status: currentGO.status, subItems: currentGO.subItems });
   }
-};
+}
 
 // Patch advanceSetFulfill / advanceFCFSFulfill to write to backend
 const _origAdvanceSet = advanceSetFulfill;
