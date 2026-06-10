@@ -1650,7 +1650,7 @@ function saveGOEdits() {
   toast('Changes saved.');
 }
 
-function confirmDeleteGO() {
+async function confirmDeleteGO() {
   const go = currentGO;
   const totalClaims = go.subItems.reduce((a, si) => a + getSubItemClaimCount(si), 0);
   const msg = totalClaims > 0
@@ -1658,10 +1658,14 @@ function confirmDeleteGO() {
     : `Delete "${go.name}"? This cannot be undone.`;
   if (!confirm(msg)) return;
   const goId = go.id;
+  showLoadingOverlay(true);
+  if (API_URL) {
+    try { await apiPost('deleteGO', { go_id: goId }); } catch(e) {}
+  }
   delete allGOs[goId];
   currentGO = null;
   saveLocal();
-  if (API_URL) apiPost('deleteGO', { go_id: goId });
+  showLoadingOverlay(false);
   renderAdminGOList();
   renderOrdersList();
   showAdminPanel('home');
