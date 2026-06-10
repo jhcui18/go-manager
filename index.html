@@ -599,7 +599,10 @@ function renderSetSubItemPublic(si, goId) {
   let html = `<div class="card" style="margin-bottom:12px;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
       <div style="font-weight:500;font-size:15px;">${si.name}</div>
-      <span class="badge badge-set">set-based</span>
+      <div style="display:flex;align-items:center;gap:8px;">
+        ${si.price ? `<span style="font-size:13px;font-weight:500;">$${si.price.toFixed(2)}<span style="font-size:11px;color:var(--text3);font-weight:400;">/copy</span></span>` : ''}
+        <span class="badge badge-set">set-based</span>
+      </div>
     </div>`;
   // Sets status board (public — no usernames)
   si.sets.forEach((set, i) => {
@@ -1044,6 +1047,7 @@ function renderDetailContent() {
       <div class="admin-section-title">${si.name}`;
     if (si.sets) {
       html += ` <span class="badge badge-set" style="font-size:10px;">set-based</span>`;
+      if (si.price) html += ` <span style="font-size:12px;color:var(--text3);">$${si.price.toFixed(2)}/copy</span>`;
     } else if (si.kind === 'versioned') {
       html += ` <span class="badge badge-fcfs" style="font-size:10px;">versioned FCFS</span>`;
     } else {
