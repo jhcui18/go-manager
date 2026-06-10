@@ -2201,10 +2201,11 @@ async function syncFromBackend() {
         (go.subItems || []).forEach(si => {
           if (!si || !si.sub_item_id) return; // skip blank sub-item rows
           let members = parseMembers(si.members);
-          console.log('[sync] sub-item', si.sub_item_id, '| raw members:', JSON.stringify(si.members), '| parsed:', members);
+          console.log('[sync] GO', go.go_id, '| sub-item', si.sub_item_id, '| raw members:', JSON.stringify(si.members), '| parsed:', members, '| GO claims:', (go.claims||[]).length);
           // Fallback: reconstruct members from claims (handles ID mismatch)
           if (!members.length && go.claims) {
             let siClaims = go.claims.filter(c => c.sub_item_id === si.sub_item_id && c.member_or_version);
+            console.log('[sync] exact siId match claims:', siClaims.length, '| first claim sub_item_id:', go.claims[0]?.sub_item_id, '| si.sub_item_id:', si.sub_item_id);
             if (!siClaims.length) {
               // sub_item_id mismatch (sub-item was re-created): use all member-type claims for GO
               siClaims = go.claims.filter(c => c.member_or_version && c.sub_item_kind !== 'versioned' && c.sub_item_kind !== 'random');
