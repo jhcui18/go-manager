@@ -159,17 +159,19 @@ function deleteGO(goId) {
 function submitClaim(data) {
   bootstrapSheets();
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_JOINERS);
-  const claimId = 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
   const now = new Date().toISOString();
-  // data.claims is an array of individual slot claims
+  const claimIds = [];
+  // data.claims is an array of individual slot claims — each gets its own unique ID
   (data.claims || []).forEach(c => {
+    const claimId = 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
+    claimIds.push(claimId);
     sheet.appendRow([
       claimId, c.go_id, c.go_name, c.sub_item_id, c.sub_item_name, c.sub_item_kind,
       c.username, c.email || '', c.member_or_version || '', c.set_num || '',
       c.qty || 1, c.assigned_vers || '', 'pending', 'unpaid', 'Pending', now, now
     ]);
   });
-  return { ok: true, claim_id: claimId };
+  return { ok: true, claim_ids: claimIds };
 }
 
 function updateClaim(data) {
