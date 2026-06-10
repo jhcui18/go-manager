@@ -1156,9 +1156,14 @@ function advanceFCFSFulfill(goId, siId, claimIdx) {
   }
 }
 
-function removeFCFSClaim(goId, siId, claimIdx) {
+async function removeFCFSClaim(goId, siId, claimIdx) {
   const si = allGOs[goId].subItems.find(s => s.id === siId);
+  const claim = si.claims[claimIdx];
+  if (API_URL && claim?.claim_id) {
+    try { await apiPost('deleteClaim', { claim_id: claim.claim_id }); } catch(e) {}
+  }
   si.claims.splice(claimIdx, 1);
+  saveLocal();
   renderDetailContent();
   renderAdminGOList();
   toast('Claim removed.');
@@ -1738,12 +1743,15 @@ function saveClaimEdit(goId, siId, setIdx, member) {
   toast('Claim updated.');
 }
 
-function removeSetClaim(goId, siId, setIdx, member) {
+async function removeSetClaim(goId, siId, setIdx, member) {
   if (!confirm('Remove this claim?')) return;
   const si = allGOs[goId].subItems.find(s => s.id === siId);
   const slot = si.sets[setIdx].slots[member];
-  if (slot?.claim_id && API_URL) apiPost('deleteClaim', { claim_id: slot.claim_id });
+  if (slot?.claim_id && API_URL) {
+    try { await apiPost('deleteClaim', { claim_id: slot.claim_id }); } catch(e) {}
+  }
   si.sets[setIdx].slots[member] = null;
+  saveLocal();
   closeModal();
   renderDetailContent();
   renderAdminGOList();
