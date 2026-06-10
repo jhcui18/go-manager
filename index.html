@@ -2202,14 +2202,19 @@ async function syncFromBackend() {
         const currentSiIds = new Set((go.subItems || []).map(s => s.sub_item_id).filter(Boolean));
         const orphanedClaims = (go.claims || []).filter(c => c.sub_item_id && !currentSiIds.has(c.sub_item_id));
         let claimsForBuild = go.claims || [];
+        console.log('[remap] GO', go.go_id, '| currentSiIds:', [...currentSiIds], '| orphaned:', orphanedClaims.length, '| orphan siIds:', [...new Set(orphanedClaims.map(c=>c.sub_item_id))]);
         if (orphanedClaims.length) {
           // Find current sub-items with empty stored members — these are the replacement targets
           const emptyMemberSis = (go.subItems || []).filter(s => s.sub_item_id && !parseMembers(s.members).length);
+          console.log('[remap] emptyMemberSis:', emptyMemberSis.map(s=>s.sub_item_id));
           if (emptyMemberSis.length === 1) {
             const targetId = emptyMemberSis[0].sub_item_id;
             claimsForBuild = (go.claims || []).map(c =>
               (c.sub_item_id && !currentSiIds.has(c.sub_item_id)) ? { ...c, sub_item_id: targetId } : c
             );
+            console.log('[remap] remapped', orphanedClaims.length, 'claims to', targetId);
+          } else {
+            console.log('[remap] skipped — emptyMemberSis count:', emptyMemberSis.length);
           }
         }
 
