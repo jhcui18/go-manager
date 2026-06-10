@@ -104,8 +104,6 @@
   <div class="nav-tabs">
     <div class="nav-tab active" onclick="showPage('orders')">Group orders</div>
     <div class="nav-tab" onclick="showPage('lookup')">My orders</div>
-    <div class="nav-tab" onclick="showPage('payment')" style="display:none;">Submit payment</div>
-    <div class="nav-tab" onclick="showPage('shipping')" style="display:none;">Request shipping</div>
     <div class="nav-tab" onclick="showPage('rules')">Rules</div>
     <div class="nav-tab" id="admin-nav-tab" onclick="requireAdmin()" style="display:none;">Admin</div>
   </div>
@@ -1375,7 +1373,7 @@ function requireAdmin() {
 function showPage(id) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-  const pageMap = { orders:0, lookup:1, payment:2, shipping:3, rules:4, admin:5 };
+  const pageMap = { orders:0, lookup:1, rules:2, admin:3 };
   const page = document.getElementById('page-' + id);
   if (page) {
     page.classList.add('active');
