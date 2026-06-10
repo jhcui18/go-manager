@@ -782,22 +782,36 @@ function updateClaimSummary(goId) {
   if (!el) return;
   const go = allGOs[goId];
   const lines = [];
+  let total = 0;
   go.subItems.forEach(si => {
     const state = claimState[si.id];
     if (!state) return;
+    const price = si.price || 0;
     if (state.type === 'set') {
       const selected = Object.keys(state.selectedMembers || {});
-      if (selected.length) lines.push(si.name + ': ' + selected.join(', '));
+      if (selected.length) {
+        lines.push(si.name + ': ' + selected.join(', ') + (price ? ` ($${(price * selected.length).toFixed(2)})` : ''));
+        total += price * selected.length;
+      }
     } else if (state.type === 'merch-member') {
       const selected = Object.keys(state.selectedMembers || {});
-      if (selected.length) lines.push(si.name + ': ' + selected.map(m => m + ' ×' + (state.qty||1)).join(', '));
+      const qty = state.qty || 1;
+      if (selected.length) {
+        lines.push(si.name + ': ' + selected.map(m => m + ' ×' + qty).join(', ') + (price ? ` ($${(price * selected.length * qty).toFixed(2)})` : ''));
+        total += price * selected.length * qty;
+      }
     } else {
-      if (state.qty > 0) lines.push(si.name + ' ×' + state.qty);
+      if (state.qty > 0) {
+        lines.push(si.name + ' ×' + state.qty + (price ? ` ($${(price * state.qty).toFixed(2)})` : ''));
+        total += price * state.qty;
+      }
     }
   });
   if (lines.length) {
     el.style.display = 'block';
-    el.innerHTML = '<div style="font-size:12px;font-weight:500;color:var(--text2);margin-bottom:6px;">Your claim</div>' + lines.map(l => `<div>• ${l}</div>`).join('');
+    el.innerHTML = '<div style="font-size:12px;font-weight:500;color:var(--text2);margin-bottom:6px;">Your claim</div>'
+      + lines.map(l => `<div style="margin-bottom:2px;">• ${l}</div>`).join('')
+      + (total > 0 ? `<div style="margin-top:8px;padding-top:8px;border-top:0.5px solid var(--border);font-weight:500;">Total: $${total.toFixed(2)} <span style="font-size:11px;font-weight:400;color:var(--text3);">(item cost only, excl. shipping)</span></div>` : '');
   } else {
     el.style.display = 'none';
   }
