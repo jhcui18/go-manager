@@ -1001,7 +1001,7 @@ function renderDetailContent() {
         <div style="display:grid;grid-template-columns:1fr 1fr 60px auto;gap:8px;align-items:end;">
           <div class="field" style="margin:0;"><label>Username</label><input type="text" id="log-u-${si.id}" placeholder="@username"></div>
           <div class="field" style="margin:0;"><label>Member</label>
-            <select id="log-m-${si.id}"><option value="">Select</option>${si.members.map(m=>`<option>${m}</option>`).join('')}</select>
+            <select id="log-m-${si.id}"><option value="">Select</option>${(si.members||[]).map(m=>`<option>${m}</option>`).join('')}</select>
           </div>
           <div class="field" style="margin:0;"><label>Qty</label><input type="number" id="log-q-${si.id}" value="1" min="1" max="20" style="width:100%;"></div>
           <button class="btn btn-primary" onclick="logSetClaim('${go.id}','${si.id}')" style="height:38px;">Log</button>
@@ -2161,38 +2161,40 @@ async function syncFromBackend() {
     if (result && result.gos && result.gos.length) {
       allGOs = {};
       result.gos.forEach(go => {
+        if (!go.go_id) return; // skip blank rows
         const rebuilt = {
-          id: go.go_id, name: go.name, type: go.type,
+          id: go.go_id, name: go.name || '', type: go.type || 'photocard',
           deadline: fmtDate(go.deadline), status: go.status || 'open',
           subItems: []
         };
         (go.subItems || []).forEach(si => {
+          if (!si || !si.sub_item_id) return; // skip blank sub-item rows
           const members = tryParse(si.members, []);
           const versions = tryParse(si.versions, []);
-          const kind = si.kind || go.type;
-          if (go.type === 'photocard' || (go.type === 'album' && kind === 'member')) {
+          const kind = si.kind || go.type || 'photocard';
+          if (rebuilt.type === 'photocard' || (rebuilt.type === 'album' && kind === 'member')) {
             rebuilt.subItems.push({
-              id: si.sub_item_id, name: si.name, kind,
+              id: si.sub_item_id, name: si.name || '', kind,
               members, minSecure: parseInt(si.min_secure) || 7,
               price: parseFloat(si.price) || 0,
               sets: buildSetsFromClaims(go.claims, si.sub_item_id, members)
             });
-          } else if (go.type === 'album' && kind === 'versioned') {
+          } else if (rebuilt.type === 'album' && kind === 'versioned') {
             rebuilt.subItems.push({
-              id: si.sub_item_id, name: si.name, kind: 'versioned',
+              id: si.sub_item_id, name: si.name || '', kind: 'versioned',
               versions, price: parseFloat(si.price) || 0,
               claims: buildVersionedClaims(go.claims, si.sub_item_id)
             });
-          } else if (go.type === 'merch') {
+          } else if (rebuilt.type === 'merch') {
             if (kind === 'member') {
               rebuilt.subItems.push({
-                id: si.sub_item_id, name: si.name, kind: 'member',
+                id: si.sub_item_id, name: si.name || '', kind: 'member',
                 members, price: parseFloat(si.price) || 0,
                 claims: buildVersionedClaims(go.claims, si.sub_item_id)
               });
             } else {
               rebuilt.subItems.push({
-                id: si.sub_item_id, name: si.name, kind: 'random',
+                id: si.sub_item_id, name: si.name || '', kind: 'random',
                 price: parseFloat(si.price) || 0,
                 claims: buildVersionedClaims(go.claims, si.sub_item_id)
               });
@@ -2200,17 +2202,19 @@ async function syncFromBackend() {
           }
         });
         // If local data has more claims than Sheets (e.g. submitted offline), preserve local
-        const localGo = localSnapshot[go.go_id];
-        if (localGo) {
-          rebuilt.subItems.forEach(syncedSi => {
-            const localSi = localGo.subItems && localGo.subItems.find(s => s.id === syncedSi.id);
-            if (!localSi) return;
-            if (countLocalClaims(localSi) > countLocalClaims(syncedSi)) {
-              if (localSi.sets) syncedSi.sets = localSi.sets;
-              if (localSi.claims) syncedSi.claims = localSi.claims;
-            }
-          });
-        }
+        try {
+          const localGo = localSnapshot[go.go_id];
+          if (localGo && localGo.subItems) {
+            rebuilt.subItems.forEach(syncedSi => {
+              const localSi = localGo.subItems.find(s => s && s.id === syncedSi.id);
+              if (!localSi) return;
+              if (countLocalClaims(localSi) > countLocalClaims(syncedSi)) {
+                if (localSi.sets) syncedSi.sets = localSi.sets;
+                if (localSi.claims) syncedSi.claims = localSi.claims;
+              }
+            });
+          }
+        } catch(mergeErr) { console.warn('Local merge skipped:', mergeErr); }
         allGOs[go.go_id] = rebuilt;
       });
       saveLocal();
