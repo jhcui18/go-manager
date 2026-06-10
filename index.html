@@ -440,7 +440,17 @@ let currentClaimGoId = null;
 
 // ── UTILITIES ────────────────────────────────────────────────────────────────
 function countFilled(set, members) { return members.filter(m => set.slots[m]).length; }
-function fmtDate(val) { if (!val) return ''; const s = val instanceof Date ? val.toISOString() : String(val); return s.slice(0, 10); }
+function fmtDate(val) {
+  if (!val) return '';
+  // Already a clean YYYY-MM-DD string
+  if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val)) return val;
+  const d = new Date(val);
+  if (isNaN(d)) return String(val).slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 function nextFulfillment(f) { const i = FULFILLMENT.indexOf(f); return i < FULFILLMENT.length-1 ? FULFILLMENT[i+1] : null; }
 function fulfillBadge(f) { return f==='Ready'?'badge-ready':f==='On the way'?'badge-transit':'badge-pending'; }
 function assignVersions(qty, versions) {
@@ -1329,7 +1339,7 @@ function openEditGO() {
   const go = currentGO;
   document.getElementById('edit-go-breadcrumb').textContent = go.name;
   document.getElementById('edit-go-name').value = go.name;
-  document.getElementById('edit-go-deadline').value = go.deadline || '';
+  document.getElementById('edit-go-deadline').value = fmtDate(go.deadline);
   document.getElementById('edit-go-status').value = go.status || 'open';
   const minSecureRow = document.getElementById('edit-min-secure-row');
   minSecureRow.style.display = go.type === 'merch' ? 'none' : 'block';
