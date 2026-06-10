@@ -1235,7 +1235,8 @@ function addSubItem() {
     inner = `<div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:start;">
       <div>
         <div class="field" style="margin-bottom:8px;"><label>Set name</label><input type="text" id="si-name-${id}" placeholder="e.g. Main set"></div>
-        <div class="field" style="margin-bottom:0;"><label>Members (one per line)</label><textarea id="si-members-${id}" placeholder="Karina\nWinter\nGiselle\nNingning" style="min-height:80px;font-family:var(--mono);font-size:12px;"></textarea></div>
+        <div class="field" style="margin-bottom:8px;"><label>Members (one per line)</label><textarea id="si-members-${id}" placeholder="Karina\nWinter\nGiselle\nNingning" style="min-height:80px;font-family:var(--mono);font-size:12px;"></textarea></div>
+        <div class="field" style="margin-bottom:0;"><label>Price per copy (USD)</label><input type="number" id="si-price-${id}" placeholder="0.00" step="0.01"></div>
       </div>
       <button class="btn btn-sm btn-ghost" onclick="removeSubItem('${id}')" style="margin-top:24px;">×</button>
     </div>`;
@@ -1317,9 +1318,10 @@ function createGO() {
       const membersRaw = (document.getElementById('si-members-' + siId)||{}).value || '';
       const members = membersRaw.split('\n').map(m=>m.trim()).filter(Boolean);
       if (!members.length) return;
+      const price = parseFloat((document.getElementById('si-price-' + siId)||{}).value) || 0;
       const emptySet = { status:'open', slots:{} };
       members.forEach(m => emptySet.slots[m] = null);
-      subItems.push({ id: siId, name:siName, members, minSecure, sets:[emptySet] });
+      subItems.push({ id: siId, name:siName, members, minSecure, price, sets:[emptySet] });
     } else if (type === 'album') {
       const kind = (document.getElementById('si-kind-' + siId)||{}).value || 'member';
       const price = parseFloat((document.getElementById('si-price-' + siId)||{}).value) || 0;
@@ -1479,7 +1481,10 @@ function renderEditSubItems() {
     let inner = `<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
       <div style="flex:1;">`;
     if (go.type === 'photocard') {
-      inner += `<div class="field" style="margin-bottom:8px;"><label>Set name</label><input type="text" id="edit-si-name-${si.id}" value="${si.name}"></div>
+      inner += `<div class="field-row" style="margin-bottom:8px;">
+          <div class="field" style="margin-bottom:0;"><label>Set name</label><input type="text" id="edit-si-name-${si.id}" value="${si.name}"></div>
+          <div class="field" style="margin-bottom:0;"><label>Price per copy (USD)</label><input type="number" id="edit-si-price-${si.id}" value="${si.price || 0}" step="0.01" style="width:100%;"><div class="field-hint">Applies to new claims only.</div></div>
+        </div>
         <div class="field" style="margin-bottom:0;"><label>Members (one per line)</label>
           <textarea id="edit-si-members-${si.id}" style="min-height:70px;font-family:var(--mono);font-size:12px;">${si.members.join('\n')}</textarea>
           ${hasClaims ? '<div class="field-hint" style="color:var(--amber-800);">New members added will appear as open slots in existing sets.</div>' : ''}
@@ -1540,7 +1545,8 @@ function addEditSubItem() {
     inner = `<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
       <div style="flex:1;">
         <div class="field" style="margin-bottom:8px;"><label>Set name</label><input type="text" id="edit-si-name-${id}" placeholder="e.g. Main set"></div>
-        <div class="field" style="margin-bottom:0;"><label>Members (one per line)</label><textarea id="edit-si-members-${id}" placeholder="Karina&#10;Winter&#10;Giselle&#10;Ningning" style="min-height:80px;font-family:var(--mono);font-size:12px;"></textarea></div>
+        <div class="field" style="margin-bottom:8px;"><label>Members (one per line)</label><textarea id="edit-si-members-${id}" placeholder="Karina&#10;Winter&#10;Giselle&#10;Ningning" style="min-height:80px;font-family:var(--mono);font-size:12px;"></textarea></div>
+        <div class="field" style="margin-bottom:0;"><label>Price per copy (USD)</label><input type="number" id="edit-si-price-${id}" placeholder="0.00" step="0.01" value="0"></div>
       </div>
       <button class="btn btn-sm btn-ghost" style="color:var(--red-400);margin-top:20px;" onclick="removeNewEditSubItem('${id}')">×</button>
     </div>`;
@@ -1675,7 +1681,7 @@ function saveGOEdits() {
     if (go.type === 'photocard') {
       const members = ((document.getElementById('edit-si-members-' + id)||{}).value||'').split('\n').map(m=>m.trim()).filter(Boolean);
       const slots = {}; members.forEach(m => slots[m] = null);
-      go.subItems.push({ id, name, members, minSecure: minSecure||7, sets:[{ status:'open', slots }] });
+      go.subItems.push({ id, name, members, minSecure: minSecure||7, price, sets:[{ status:'open', slots }] });
     } else if (go.type === 'album') {
       if (kind === 'member') {
         const members = ((document.getElementById('edit-si-members-' + id)||{}).value||'').split('\n').map(m=>m.trim()).filter(Boolean);
