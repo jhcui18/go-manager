@@ -383,6 +383,7 @@
       <p class="page-title" style="margin:0;" id="detail-go-title"></p>
       <div style="display:flex;gap:6px;align-items:center;">
         <div id="detail-badges"></div>
+        <button class="btn btn-sm btn-ghost" onclick="refreshCurrentGO()" title="Refresh claims from Sheets">↺</button>
         <button class="btn btn-sm" onclick="openEditGO()" id="edit-go-btn">Edit GO</button>
       </div>
     </div>
@@ -965,6 +966,15 @@ function openGODetail(goId) {
   document.getElementById('detail-badges').innerHTML = `<span class="badge ${badgeClass}">${typeLabel}</span>`;
   showAdminPanel('go-detail');
   renderDetailContent();
+}
+
+async function refreshCurrentGO() {
+  if (!currentGO) return;
+  await syncFromBackend();
+  if (currentGO && allGOs[currentGO.id]) {
+    currentGO = allGOs[currentGO.id];
+    renderDetailContent();
+  }
 }
 
 function renderDetailContent() {
@@ -2207,6 +2217,12 @@ async function syncFromBackend() {
       renderOrdersList();
       renderAdminGOList();
       renderPaymentGoSelect();
+      // If admin has a GO detail open, update currentGO to the fresh synced object
+      if (currentGO && allGOs[currentGO.id]) {
+        currentGO = allGOs[currentGO.id];
+        const detailPanel = document.getElementById('admin-panel-go-detail');
+        if (detailPanel && detailPanel.style.display !== 'none') renderDetailContent();
+      }
       toast('Synced from Google Sheets.');
     }
   } catch(e) {
