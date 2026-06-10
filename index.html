@@ -1864,31 +1864,52 @@ async function syncFromBackend() {
   showLoadingOverlay(true);
   try {
     const result = await apiGet('getAllGOs');
-    if (result && result.gos) {
+    if (result && result.gos && result.gos.length) {
+      allGOs = {};
       result.gos.forEach(go => {
-        // Rebuild allGOs from sheet data
         const rebuilt = {
           id: go.go_id, name: go.name, type: go.type,
           deadline: go.deadline, status: go.status || 'open',
           subItems: []
         };
-        // Rebuild subItems from per-GO sheet rows
         (go.subItems || []).forEach(si => {
           const members = tryParse(si.members, []);
           const versions = tryParse(si.versions, []);
           const kind = si.kind || go.type;
-          if (kind === 'photocard' || kind === 'member') {
-            rebuilt.subItems.push({ id: si.sub_item_id, name: si.name, kind, members, minSecure: si.min_secure || 7, price: si.price || 0, sets: buildSetsFromClaims(go.claims, si.sub_item_id, members) });
-          } else if (kind === 'versioned') {
-            rebuilt.subItems.push({ id: si.sub_item_id, name: si.name, kind:'versioned', versions, price: si.price || 0, claims: buildVersionedClaims(go.claims, si.sub_item_id) });
-          } else {
-            rebuilt.subItems.push({ id: si.sub_item_id, name: si.name, price: si.price || 0, claims: buildVersionedClaims(go.claims, si.sub_item_id) });
+          if (go.type === 'photocard' || (go.type === 'album' && kind === 'member')) {
+            rebuilt.subItems.push({
+              id: si.sub_item_id, name: si.name, kind,
+              members, minSecure: parseInt(si.min_secure) || 7,
+              price: parseFloat(si.price) || 0,
+              sets: buildSetsFromClaims(go.claims, si.sub_item_id, members)
+            });
+          } else if (go.type === 'album' && kind === 'versioned') {
+            rebuilt.subItems.push({
+              id: si.sub_item_id, name: si.name, kind: 'versioned',
+              versions, price: parseFloat(si.price) || 0,
+              claims: buildVersionedClaims(go.claims, si.sub_item_id)
+            });
+          } else if (go.type === 'merch') {
+            if (kind === 'member') {
+              rebuilt.subItems.push({
+                id: si.sub_item_id, name: si.name, kind: 'member',
+                members, price: parseFloat(si.price) || 0,
+                claims: buildVersionedClaims(go.claims, si.sub_item_id)
+              });
+            } else {
+              rebuilt.subItems.push({
+                id: si.sub_item_id, name: si.name, kind: 'random',
+                price: parseFloat(si.price) || 0,
+                claims: buildVersionedClaims(go.claims, si.sub_item_id)
+              });
+            }
           }
         });
         allGOs[go.go_id] = rebuilt;
       });
       renderOrdersList();
       renderAdminGOList();
+      renderPaymentGoSelect();
       toast('Synced from Google Sheets.');
     }
   } catch(e) {
@@ -2111,6 +2132,7 @@ async function testConnection() {
 renderOrdersList();
 renderAdminGOList();
 renderPaymentGoSelect();
+if (API_URL) syncFromBackend();
 </script>
 </body>
 </html>
