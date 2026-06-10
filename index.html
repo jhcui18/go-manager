@@ -2230,7 +2230,7 @@ async function syncFromBackend() {
       toast('Synced from Google Sheets.');
     }
   } catch(e) {
-    console.error('Sync error:', e);
+    console.error('Sync error at stack:', e.stack || e);
     toast('Sync failed: ' + (e.message || String(e)));
   }
   showLoadingOverlay(false);
