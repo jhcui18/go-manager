@@ -2108,7 +2108,8 @@ function countUserCards(username) {
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 // ── API LAYER ─────────────────────────────────────────────────────────────────
-let API_URL = localStorage.getItem('go_api_url') || '';
+const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbyNkei3xGy6AEzvBlLIximpLF0XBj2iXnu4DoBgcgyCZtzooniBZ6_NAyE44QY2kYik/exec';
+let API_URL = localStorage.getItem('go_api_url') || DEFAULT_API_URL;
 let useBackend = !!API_URL;
 
 async function apiGet(action, params = {}) {
