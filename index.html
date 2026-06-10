@@ -2200,14 +2200,15 @@ async function syncFromBackend() {
         };
         (go.subItems || []).forEach(si => {
           if (!si || !si.sub_item_id) return; // skip blank sub-item rows
-          let members = tryParse(si.members, []);
+          let members = parseMembers(si.members);
+          console.log('[sync] sub-item', si.sub_item_id, '| raw members:', JSON.stringify(si.members), '| parsed:', members);
           // Fallback: if members didn't parse, try reconstructing from claims
           if (!members.length && go.claims) {
             const siClaims = go.claims.filter(c => c.sub_item_id === si.sub_item_id && c.member_or_version);
             const seen = new Set(siClaims.map(c => c.member_or_version));
-            if (seen.size) members = [...seen];
+            if (seen.size) { members = [...seen]; console.log('[sync] members reconstructed from claims:', members); }
           }
-          if (!members.length) console.warn('Empty members for sub-item', si.sub_item_id, 'raw:', si.members);
+          if (!members.length) console.warn('[sync] WARN: still empty members for sub-item', si.sub_item_id, '| full si:', JSON.stringify(si));
           const versions = tryParse(si.versions, []);
           const kind = si.kind || go.type || 'photocard';
           if (rebuilt.type === 'photocard' || (rebuilt.type === 'album' && kind === 'member')) {
@@ -2262,6 +2263,20 @@ async function syncFromBackend() {
 
 function tryParse(val, fallback) {
   try { return JSON.parse(val); } catch(e) { return fallback; }
+}
+
+function parseMembers(val) {
+  if (!val) return [];
+  const s = String(val).trim();
+  if (!s || s === '[]' || s === '""') return [];
+  // Try JSON array first
+  try {
+    const parsed = JSON.parse(s);
+    if (Array.isArray(parsed)) return parsed.map(x => String(x).trim()).filter(Boolean);
+  } catch(e) {}
+  // Fallback: split by newline or comma (handles plain text in Sheets)
+  const sep = s.includes('\n') ? '\n' : ',';
+  return s.split(sep).map(x => x.trim()).filter(Boolean);
 }
 
 function buildSetsFromClaims(claims, siId, members) {
