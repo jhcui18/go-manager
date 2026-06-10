@@ -431,7 +431,8 @@ const FULFILLMENT = ['Pending','On the way','Ready','Dispatched'];
 //       if versioned: versions:['A','B',...], claims:[] }
 //   merch: { id, name, items:[ {id,name,price,claims:[]} ] }
 
-let allGOs = {};
+function saveLocal() { try { localStorage.setItem('go_data', JSON.stringify(allGOs)); } catch(e) {} }
+let allGOs = (function() { try { return JSON.parse(localStorage.getItem('go_data') || '{}'); } catch(e) { return {}; } })();
 
 let currentGO = null;
 let claimState = {}; // { subItemId: { type:'set', selectedMembers:{} } | { type:'versioned'|'merch', qty:0 } }
@@ -439,6 +440,7 @@ let currentClaimGoId = null;
 
 // ── UTILITIES ────────────────────────────────────────────────────────────────
 function countFilled(set, members) { return members.filter(m => set.slots[m]).length; }
+function fmtDate(val) { if (!val) return ''; const s = val instanceof Date ? val.toISOString() : String(val); return s.slice(0, 10); }
 function nextFulfillment(f) { const i = FULFILLMENT.indexOf(f); return i < FULFILLMENT.length-1 ? FULFILLMENT[i+1] : null; }
 function fulfillBadge(f) { return f==='Ready'?'badge-ready':f==='On the way'?'badge-transit':'badge-pending'; }
 function assignVersions(qty, versions) {
@@ -458,6 +460,7 @@ function toast(msg) {
 
 // ── ORDERS PAGE ──────────────────────────────────────────────────────────────
 function renderOrdersList() {
+  saveLocal();
   const container = document.getElementById('page-orders');
   if (!container) return;
   let html = '<p class="page-title">Active group orders</p><p class="page-sub">Claim a spot or browse available items.</p>';
@@ -466,7 +469,7 @@ function renderOrdersList() {
     const badgeClass = go.type === 'photocard' ? 'badge-set' : go.type === 'album' ? 'badge-fcfs' : 'badge-waitlist';
     html += `<div class="go-card" onclick="openClaimPage('${go.id}')">
       <div class="go-card-header">
-        <div><div class="go-name">${go.name}</div><div class="go-meta">Deadline: ${go.deadline} &nbsp;·&nbsp; ${go.subItems.length} ${go.type === 'merch' ? 'items' : go.type === 'album' ? 'versions' : 'sets'}</div></div>
+        <div><div class="go-name">${go.name}</div><div class="go-meta">Deadline: ${fmtDate(go.deadline)} &nbsp;·&nbsp; ${go.subItems.length} ${go.type === 'merch' ? 'items' : go.type === 'album' ? 'versions' : 'sets'}</div></div>
         <span class="badge ${badgeClass}">${typeLabel}</span>
       </div>
       <div id="go-preview-${go.id}"></div>
@@ -1967,7 +1970,7 @@ async function syncFromBackend() {
       result.gos.forEach(go => {
         const rebuilt = {
           id: go.go_id, name: go.name, type: go.type,
-          deadline: go.deadline, status: go.status || 'open',
+          deadline: fmtDate(go.deadline), status: go.status || 'open',
           subItems: []
         };
         (go.subItems || []).forEach(si => {
