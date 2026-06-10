@@ -633,15 +633,17 @@ function renderSetSubItemPublic(si, goId) {
   });
   // Member picker
   html += `<hr style="border:none;border-top:0.5px solid var(--border);margin:14px 0;">
-    <div style="font-size:12px;color:var(--text2);margin-bottom:10px;">Pick member(s) to claim:</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:10px;">Tap a member to add one &nbsp;·&nbsp; tap again for more &nbsp;·&nbsp; − to reduce</div>
     <div class="member-grid" id="picker-${si.id}">`;
   si.members.forEach(member => {
+    const key = member.replace(/\s/g,'_');
     const openCount = si.sets.filter(s => s.status !== 'secured' && !s.slots[member]).length;
     const label = openCount > 0 ? openCount + ' open' : 'new set';
     const labelColor = openCount > 0 ? 'var(--text3)' : 'var(--accent)';
-    html += `<div class="member-tile" id="tile-${si.id}-${member.replace(/\s/g,'_')}" onclick="toggleMember('${si.id}','${member}','${goId}')">
+    html += `<div class="member-tile" id="tile-${si.id}-${key}" style="position:relative;" onclick="incMember('${si.id}','${member}','${goId}')">
+      <button id="dec-${si.id}-${key}" onclick="event.stopPropagation();decMember('${si.id}','${member}','${goId}')" style="display:none;position:absolute;top:4px;right:4px;width:18px;height:18px;line-height:1;padding:0;border-radius:50%;border:0.5px solid var(--border2);background:var(--surface);color:var(--text2);font-size:13px;cursor:pointer;">−</button>
       <div class="member-tile-name">${member}</div>
-      <div class="member-tile-sub" style="color:${labelColor};">${label}</div>
+      <div class="member-tile-sub" id="sub-${si.id}-${key}" data-label="${label}" style="color:${labelColor};">${label}</div>
     </div>`;
   });
   html += `</div>
@@ -726,16 +728,36 @@ function renderMerchPublic(go) {
   return html;
 }
 
-function toggleMember(siId, member, goId) {
+function incMember(siId, member, goId) {
   if (!claimState[siId]) claimState[siId] = { type:'set', selectedMembers:{} };
   const sm = claimState[siId].selectedMembers;
-  if (sm[member]) delete sm[member];
-  else sm[member] = 1;
-  const tile = document.getElementById('tile-' + siId + '-' + member.replace(/\s/g,'_'));
-  if (tile) tile.classList.toggle('selected', !!sm[member]);
+  sm[member] = (sm[member] || 0) + 1;
+  updateMemberTile(siId, member, goId);
+}
+
+function decMember(siId, member, goId) {
+  const st = claimState[siId];
+  if (!st) return;
+  const sm = st.selectedMembers;
+  if (sm[member]) { sm[member] -= 1; if (sm[member] <= 0) delete sm[member]; }
+  updateMemberTile(siId, member, goId);
+}
+
+function updateMemberTile(siId, member, goId) {
+  const key = member.replace(/\s/g,'_');
+  const sm = (claimState[siId] && claimState[siId].selectedMembers) || {};
+  const qty = sm[member] || 0;
+  const tile = document.getElementById('tile-' + siId + '-' + key);
+  const sub = document.getElementById('sub-' + siId + '-' + key);
+  const dec = document.getElementById('dec-' + siId + '-' + key);
+  if (tile) tile.classList.toggle('selected', qty > 0);
+  if (dec) dec.style.display = qty > 0 ? 'flex' : 'none';
+  if (sub) sub.textContent = qty > 0 ? '×' + qty : (sub.dataset.label || '');
   const display = document.getElementById('qty-display-' + siId);
-  const selected = Object.keys(sm);
-  if (display) display.textContent = selected.length ? 'Selected: ' + selected.join(', ') : '';
+  if (display) {
+    const parts = Object.keys(sm).map(m => m + ' ×' + sm[m]);
+    display.textContent = parts.length ? 'Selected: ' + parts.join(', ') : '';
+  }
   updateClaimSummary(goId);
 }
 
@@ -788,10 +810,12 @@ function updateClaimSummary(goId) {
     if (!state) return;
     const price = si.price || 0;
     if (state.type === 'set') {
-      const selected = Object.keys(state.selectedMembers || {});
-      if (selected.length) {
-        lines.push(si.name + ': ' + selected.join(', ') + (price ? ` ($${(price * selected.length).toFixed(2)})` : ''));
-        total += price * selected.length;
+      const sm = state.selectedMembers || {};
+      const members = Object.keys(sm);
+      if (members.length) {
+        const totalQty = members.reduce((a, m) => a + sm[m], 0);
+        lines.push(si.name + ': ' + members.map(m => m + ' ×' + sm[m]).join(', ') + (price ? ` ($${(price * totalQty).toFixed(2)})` : ''));
+        total += price * totalQty;
       }
     } else if (state.type === 'merch-member') {
       const selected = Object.keys(state.selectedMembers || {});
@@ -830,25 +854,29 @@ function submitClaim(goId) {
     if (!state) return;
     const email = (document.getElementById('claim-email-' + goId) || {}).value || '';
     if (state.type === 'set') {
-      const members = Object.keys(state.selectedMembers || {});
+      const sm = state.selectedMembers || {};
+      const members = Object.keys(sm);
       if (!members.length) return;
       members.forEach(member => {
-        let setNum = 1;
-        let slotted = false;
-        for (let s = 0; s < si.sets.length; s++) {
-          if (si.sets[s].status !== 'secured' && !si.sets[s].slots[member]) {
-            si.sets[s].slots[member] = { user:u, payment:'unpaid', fulfillment:'Pending' };
-            setNum = s + 1; slotted = true; placed = true; break;
+        const wantQty = sm[member] || 1;
+        for (let n = 0; n < wantQty; n++) {
+          let setNum = 1;
+          let slotted = false;
+          for (let s = 0; s < si.sets.length; s++) {
+            if (si.sets[s].status !== 'secured' && !si.sets[s].slots[member]) {
+              si.sets[s].slots[member] = { user:u, payment:'unpaid', fulfillment:'Pending' };
+              setNum = s + 1; slotted = true; placed = true; break;
+            }
           }
+          if (!slotted) {
+            const newSet = { status:'open', slots:{} };
+            si.members.forEach(m => newSet.slots[m] = null);
+            newSet.slots[member] = { user:u, payment:'unpaid', fulfillment:'Pending' };
+            si.sets.push(newSet);
+            setNum = si.sets.length; placed = true;
+          }
+          claimsToWrite.push({ go_id:goId, go_name:go.name, sub_item_id:si.id, sub_item_name:si.name, sub_item_kind:si.kind||go.type, username:u, email, member_or_version:member, set_num:setNum, qty:1, assigned_vers:'' });
         }
-        if (!slotted) {
-          const newSet = { status:'open', slots:{} };
-          si.members.forEach(m => newSet.slots[m] = null);
-          newSet.slots[member] = { user:u, payment:'unpaid', fulfillment:'Pending' };
-          si.sets.push(newSet);
-          setNum = si.sets.length; placed = true;
-        }
-        claimsToWrite.push({ go_id:goId, go_name:go.name, sub_item_id:si.id, sub_item_name:si.name, sub_item_kind:si.kind||go.type, username:u, email, member_or_version:member, set_num:setNum, qty:1, assigned_vers:'' });
       });
       const last = si.sets[si.sets.length-1];
       if (countFilled(last, si.members) > 0) {
