@@ -880,9 +880,10 @@ function doLookup() {
   const rows = [];
   Object.values(allGOs).forEach(go => {
     go.subItems.forEach(si => {
-      if (si.kind === 'member' || go.type === 'photocard') {
-        si.sets.forEach((set, si2) => {
-          si.members.forEach(member => {
+      if (si.sets) {
+        // set-based: photocard and album member ver
+        si.sets.forEach(set => {
+          (si.members||[]).forEach(member => {
             const slot = set.slots[member];
             if (slot && slot.user === u) {
               rows.push({ go:go.name, item:si.name, detail:member, qty:1, claim:set.status==='secured'?'Secured':'Pending', payment:slot.payment, fulfillment:slot.fulfillment });
@@ -890,6 +891,7 @@ function doLookup() {
           });
         });
       } else {
+        // claims-based: versioned, random, merch member
         (si.claims||[]).forEach(c => {
           if (c.user === u) {
             const detail = c.member ? c.member : (c.assignedVers||[]).join('+');
