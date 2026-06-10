@@ -107,11 +107,12 @@
     <div class="nav-tab" onclick="showPage('payment')">Submit payment</div>
     <div class="nav-tab" onclick="showPage('shipping')">Request shipping</div>
     <div class="nav-tab" onclick="showPage('rules')">Rules</div>
-    <div class="nav-tab" onclick="showPage('admin')">Admin</div>
+    <div class="nav-tab" id="admin-nav-tab" onclick="requireAdmin()" style="display:none;">Admin</div>
   </div>
   <div class="nav-right" style="display:flex;align-items:center;gap:10px;">
-    <button class="btn btn-sm btn-ghost" onclick="openSettings()" style="font-size:12px;">⚙ Sheets</button>
-    <span class="badge-admin">admin</span>
+    <button class="btn btn-sm btn-ghost" id="sheets-btn" onclick="openSettings()" style="font-size:12px;display:none;">⚙ Sheets</button>
+    <span class="badge-admin" id="admin-badge" style="display:none;">admin</span>
+    <button class="btn btn-sm btn-ghost" onclick="promptAdmin()" id="admin-login-btn" style="font-size:12px;">Admin</button>
   </div>
 </nav>
 <div id="toast"></div>
@@ -1311,6 +1312,46 @@ function renderPaymentGoSelect() {
 }
 
 // ── PAGE NAV ──────────────────────────────────────────────────────────────────
+// ── ADMIN AUTH ────────────────────────────────────────────────────────────────
+const ADMIN_PASS = 'kpop2025';
+let isAdmin = sessionStorage.getItem('go_admin') === '1';
+
+function applyAdminState() {
+  document.getElementById('admin-nav-tab').style.display = isAdmin ? '' : 'none';
+  document.getElementById('sheets-btn').style.display = isAdmin ? '' : 'none';
+  document.getElementById('admin-badge').style.display = isAdmin ? '' : 'none';
+  document.getElementById('admin-login-btn').style.display = isAdmin ? 'none' : '';
+}
+
+function promptAdmin() {
+  showModal(`
+    <div style="font-size:16px;font-weight:500;margin-bottom:16px;">Admin login</div>
+    <div class="field"><label>Password</label><input type="password" id="admin-pass-input" onkeydown="if(event.key==='Enter')submitAdminPass()" autofocus></div>
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <button class="btn btn-primary" onclick="submitAdminPass()" style="flex:1;justify-content:center;">Log in</button>
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+    </div>
+    <div id="admin-pass-err" style="color:var(--red-400);font-size:12px;margin-top:8px;"></div>`);
+}
+
+function submitAdminPass() {
+  const val = document.getElementById('admin-pass-input').value;
+  if (val === ADMIN_PASS) {
+    isAdmin = true;
+    sessionStorage.setItem('go_admin', '1');
+    closeModal();
+    applyAdminState();
+    showPage('admin');
+  } else {
+    document.getElementById('admin-pass-err').textContent = 'Incorrect password.';
+  }
+}
+
+function requireAdmin() {
+  if (isAdmin) showPage('admin');
+  else promptAdmin();
+}
+
 function showPage(id) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
@@ -2138,6 +2179,7 @@ async function testConnection() {
     document.getElementById('settings-status').textContent = '✗ ' + e.message;
   }
 }
+applyAdminState();
 renderOrdersList();
 renderAdminGOList();
 renderPaymentGoSelect();
