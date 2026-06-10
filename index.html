@@ -113,6 +113,7 @@
     <button class="btn btn-sm btn-ghost" id="sheets-btn" onclick="openSettings()" style="font-size:12px;display:none;">⚙ Sheets</button>
     <span class="badge-admin" id="admin-badge" style="display:none;">admin</span>
     <button class="btn btn-sm btn-ghost" onclick="promptAdmin()" id="admin-login-btn" style="font-size:12px;">Admin</button>
+    <button class="btn btn-sm btn-ghost" onclick="logoutAdmin()" id="admin-logout-btn" style="font-size:12px;display:none;">Log out</button>
   </div>
 </nav>
 <div id="toast"></div>
@@ -1321,6 +1322,14 @@ function applyAdminState() {
   document.getElementById('sheets-btn').style.display = isAdmin ? '' : 'none';
   document.getElementById('admin-badge').style.display = isAdmin ? '' : 'none';
   document.getElementById('admin-login-btn').style.display = isAdmin ? 'none' : '';
+  document.getElementById('admin-logout-btn').style.display = isAdmin ? '' : 'none';
+  if (!isAdmin) showPage('orders');
+}
+
+function logoutAdmin() {
+  isAdmin = false;
+  sessionStorage.removeItem('go_admin');
+  applyAdminState();
 }
 
 function promptAdmin() {
@@ -1362,7 +1371,7 @@ function showPage(id) {
     const idx = pageMap[id];
     if (idx !== undefined) document.querySelectorAll('.nav-tab')[idx].classList.add('active');
     if (id === 'orders') renderOrdersList();
-    if (id === 'admin') showAdminPanel('home');
+    if (id === 'admin') { if (!isAdmin) { promptAdmin(); return; } showAdminPanel('home'); }
   }
 }
 
