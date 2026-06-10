@@ -1087,19 +1087,23 @@ function renderDetailContent() {
     } else {
       // FCFS / merch claims table
       const claims = si.claims || [];
+      const hasVerCol = si.kind === 'versioned';
+      const hasMemberCol = si.kind === 'member' || (si.kind !== 'versioned' && si.kind !== 'random');
       html += `<div class="card"><div class="table-wrap"><table>
-        <thead><tr><th>#</th><th>Username</th><th>Qty</th>${si.kind==='versioned'?'<th>Versions</th>':''}<th>Payment</th><th>Fulfillment</th><th></th></tr></thead>
+        <thead><tr><th>#</th><th>Username</th><th>Qty</th>${hasMemberCol?'<th>Member/Ver</th>':''}${hasVerCol?'<th>Versions</th>':''}<th>Payment</th><th>Fulfillment</th><th></th></tr></thead>
         <tbody>`;
       if (!claims.length) {
-        html += `<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px;">No claims yet.</td></tr>`;
+        html += `<tr><td colspan="${5 + (hasMemberCol?1:0) + (hasVerCol?1:0) + 1}" style="text-align:center;color:var(--text3);padding:20px;">No claims yet.</td></tr>`;
       } else {
         claims.forEach((c, ci) => {
           const nf = nextFulfillment(c.fulfillment);
+          const memberOrVer = c.member || (c.assignedVers||[]).join(' + ');
           html += `<tr>
             <td style="color:var(--text3);font-family:var(--mono);">${ci+1}</td>
             <td style="font-weight:500;">${c.user}</td>
             <td>${c.qty}</td>
-            ${si.kind==='versioned' ? `<td style="font-size:12px;color:var(--text2);">${(c.assignedVers||[]).join(' + ')}</td>` : ''}
+            ${hasMemberCol ? `<td style="font-size:12px;color:var(--text2);">${memberOrVer||'—'}</td>` : ''}
+            ${hasVerCol ? `<td style="font-size:12px;color:var(--text2);">${(c.assignedVers||[]).join(' + ')}</td>` : ''}
             <td><span class="badge ${c.payment==='paid'?'badge-paid':'badge-unpaid'}">${c.payment==='paid'?'Paid':'Unpaid'}</span></td>
             <td><div style="display:flex;align-items:center;gap:6px;">
               <span class="badge ${fulfillBadge(c.fulfillment)}">${c.fulfillment}</span>
