@@ -1132,7 +1132,8 @@ function removeSubItem(id) {
   newGoSubItems = newGoSubItems.filter(s => s._id !== id);
 }
 
-function _createGOCore() {lementById('new-go-name').value.trim();
+function _createGOCore() {
+  const name = document.getElementById('new-go-name').value.trim();
   const type = document.getElementById('new-go-type').value;
   const deadline = document.getElementById('new-go-deadline').value;
   const minSecure = parseInt(document.getElementById('new-go-min-secure').value) || 7;
