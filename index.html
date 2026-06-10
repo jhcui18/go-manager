@@ -2136,10 +2136,17 @@ async function apiPost(action, data = {}) {
   return res.json();
 }
 
+function countLocalClaims(si) {
+  if (si.sets) return si.sets.reduce((a,s) => a + Object.values(s.slots||{}).filter(Boolean).length, 0);
+  if (si.claims) return si.claims.length;
+  return 0;
+}
+
 async function syncFromBackend() {
   if (!API_URL) return;
   showLoadingOverlay(true);
   try {
+    const localSnapshot = JSON.parse(localStorage.getItem('go_data') || '{}');
     const result = await apiGet('getAllGOs');
     if (result && result.gos && result.gos.length) {
       allGOs = {};
@@ -2182,8 +2189,21 @@ async function syncFromBackend() {
             }
           }
         });
+        // If local data has more claims than Sheets (e.g. submitted offline), preserve local
+        const localGo = localSnapshot[go.go_id];
+        if (localGo) {
+          rebuilt.subItems.forEach(syncedSi => {
+            const localSi = localGo.subItems && localGo.subItems.find(s => s.id === syncedSi.id);
+            if (!localSi) return;
+            if (countLocalClaims(localSi) > countLocalClaims(syncedSi)) {
+              if (localSi.sets) syncedSi.sets = localSi.sets;
+              if (localSi.claims) syncedSi.claims = localSi.claims;
+            }
+          });
+        }
         allGOs[go.go_id] = rebuilt;
       });
+      saveLocal();
       renderOrdersList();
       renderAdminGOList();
       renderPaymentGoSelect();
