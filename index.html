@@ -106,6 +106,7 @@
     <div class="nav-tab" onclick="showPage('lookup')">My orders</div>
     <div class="nav-tab" onclick="showPage('payment')">Submit payment</div>
     <div class="nav-tab" onclick="showPage('shipping')">Request shipping</div>
+    <div class="nav-tab" onclick="showPage('rules')">Rules</div>
     <div class="nav-tab" onclick="showPage('admin')">Admin</div>
   </div>
   <div class="nav-right" style="display:flex;align-items:center;gap:10px;">
@@ -204,6 +205,80 @@
     <div class="field"><label>Notes (optional)</label><textarea placeholder="Special instructions..."></textarea></div>
     <div class="field"><label>Email (optional)</label><input type="email" placeholder="your@email.com"><div class="field-hint">Get notified when your package ships.</div></div>
     <button class="btn btn-primary" onclick="_origSubmitShipping()" style="width:100%;justify-content:center;">Submit request</button>
+  </div>
+</div>
+
+<!-- RULES PAGE -->
+<div class="page" id="page-rules">
+  <p class="page-title">Group order rules</p>
+  <p class="page-sub">Please read before joining a GO.</p>
+
+  <div class="card" style="margin-bottom:12px;">
+    <div class="section-label">Claiming items</div>
+    <ul style="list-style:none;display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--text2);">
+      <li>To claim an item, comment on the post. I will reply to confirm your claim.</li>
+      <li>A set will be secured once 2/3 of the spots are claimed. I'll regularly update the post to show how many sets are secured.</li>
+    </ul>
+  </div>
+
+  <div class="card" style="margin-bottom:12px;">
+    <div class="section-label">Securing your claim</div>
+    <ul style="list-style:none;display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--text2);">
+      <li>I will create a group chat at the end of the preorder period.</li>
+      <li>If your claim is secured, you will be added to the group chat. If not, it means your claim was not secured.</li>
+    </ul>
+  </div>
+
+  <div class="card" style="margin-bottom:12px;">
+    <div class="section-label">Group chat &amp; payment</div>
+    <ul style="list-style:none;display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--text2);">
+      <li>The group chat is used to collect payment and provide updates on shipping timelines and item status.</li>
+      <li>Payment is due within one week after the group chat is created. If you need an extension, message me in advance — otherwise your spot will be released.</li>
+      <li>No backing out without replacement.</li>
+    </ul>
+  </div>
+
+  <div class="card" style="margin-bottom:12px;">
+    <div class="section-label">Payment details</div>
+    <ul style="list-style:none;display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--text2);">
+      <li><span style="font-weight:500;color:var(--text);">Initial payment</span> — covers the cost of the item.</li>
+      <li><span style="font-weight:500;color:var(--text);">Shipping payment</span> — covers international and domestic shipping, collected after I receive the items.</li>
+    </ul>
+    <div style="margin-top:14px;padding:12px 14px;background:var(--surface2);border-radius:var(--radius);display:flex;flex-direction:column;gap:6px;">
+      <div style="font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:2px;">Payment methods</div>
+      <div style="font-size:13px;display:flex;flex-wrap:wrap;gap:8px;">
+        <span class="tag">PayPal F&amp;F (no note): @jinghanc</span>
+        <span class="tag">Venmo: @Jinghan-Cui</span>
+        <span class="tag">Zelle: jhcui1818@gmail.com</span>
+        <span class="tag">Wise: @jinghanc3</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:12px;">
+    <div class="section-label">Shipping fees (domestic, within U.S.)</div>
+    <ul style="list-style:none;display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--text2);">
+      <li><span style="font-weight:500;color:var(--text);">Tracked shipping</span> — starts at $4.60</li>
+      <li><span style="font-weight:500;color:var(--text);">Stamped shipping</span> — starts at $1.50 (limit 2 cards or fewer)</li>
+      <li>Fees are calculated based on the item's weight and dimensions.</li>
+    </ul>
+  </div>
+
+  <div class="card" style="margin-bottom:12px;">
+    <div class="section-label">Shipping timeline</div>
+    <ul style="list-style:none;display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--text2);">
+      <li>International shipping takes approximately 3 weeks to arrive to me.</li>
+      <li>Once I have the items in hand, I will ship them within 3 days after receiving your shipping payment.</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <div class="section-label">Communication policy</div>
+    <ul style="list-style:none;display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--text2);">
+      <li>Please follow me after joining the GO so I can reach you.</li>
+      <li>If I am unable to contact you for more than two weeks, your claim will be removed.</li>
+      <li>I will send you a picture of your claimed items for confirmation before I ship them.</li>
+    </ul>
   </div>
 </div>
 
@@ -714,19 +789,22 @@ function submitClaim(goId) {
   if (!username) { toast('Please enter your username.'); return; }
   const u = username.startsWith('@') ? username : '@' + username;
   const go = allGOs[goId];
+  const claimsToWrite = [];
   let placed = false;
   go.subItems.forEach(si => {
     const state = claimState[si.id];
     if (!state) return;
+    const email = (document.getElementById('claim-email-' + goId) || {}).value || '';
     if (state.type === 'set') {
       const members = Object.keys(state.selectedMembers || {});
       if (!members.length) return;
       members.forEach(member => {
+        let setNum = 1;
         let slotted = false;
         for (let s = 0; s < si.sets.length; s++) {
           if (si.sets[s].status !== 'secured' && !si.sets[s].slots[member]) {
             si.sets[s].slots[member] = { user:u, payment:'unpaid', fulfillment:'Pending' };
-            slotted = true; placed = true; break;
+            setNum = s + 1; slotted = true; placed = true; break;
           }
         }
         if (!slotted) {
@@ -734,8 +812,9 @@ function submitClaim(goId) {
           si.members.forEach(m => newSet.slots[m] = null);
           newSet.slots[member] = { user:u, payment:'unpaid', fulfillment:'Pending' };
           si.sets.push(newSet);
-          placed = true;
+          setNum = si.sets.length; placed = true;
         }
+        claimsToWrite.push({ go_id:goId, go_name:go.name, sub_item_id:si.id, sub_item_name:si.name, sub_item_kind:si.kind||go.type, username:u, email, member_or_version:member, set_num:setNum, qty:1, assigned_vers:'' });
       });
       const last = si.sets[si.sets.length-1];
       if (countFilled(last, si.members) > 0) {
@@ -749,16 +828,19 @@ function submitClaim(goId) {
       const qty = state.qty || 1;
       members.forEach(member => {
         si.claims.push({ user:u, qty, member, assignedVers:[], payment:'unpaid', fulfillment:'Pending' });
+        claimsToWrite.push({ go_id:goId, go_name:go.name, sub_item_id:si.id, sub_item_name:si.name, sub_item_kind:'member', username:u, email, member_or_version:member, set_num:'', qty, assigned_vers:'' });
         placed = true;
       });
     } else if (state.qty > 0) {
       const assigned = si.versions ? assignVersions(state.qty, si.versions) : [];
       si.claims.push({ user:u, qty:state.qty, assignedVers:assigned, payment:'unpaid', fulfillment:'Pending' });
+      claimsToWrite.push({ go_id:goId, go_name:go.name, sub_item_id:si.id, sub_item_name:si.name, sub_item_kind:si.kind||go.type, username:u, email, member_or_version:'', set_num:'', qty:state.qty, assigned_vers:assigned.join('+') });
       placed = true;
     }
   });
   if (!placed) { toast('Please select at least one item.'); return; }
   if (go.status === 'closed') { toast('This GO is closed and no longer accepting claims.'); return; }
+  if (API_URL && claimsToWrite.length) apiPost('submitClaim', { claims: claimsToWrite }).catch(() => {});
   claimState = {};
   renderOrdersList();
   renderAdminGOList();
@@ -1011,6 +1093,7 @@ function logSetClaim(goId, siId) {
 function secureSet(goId, siId, setIdx) {
   const si = allGOs[goId].subItems.find(s => s.id === siId);
   si.sets[setIdx].status = 'secured';
+  if (API_URL) apiPost('secureSet', { go_id: goId, sub_item_id: siId, set_num: setIdx + 1 });
   renderDetailContent();
   renderAdminGOList();
   renderOrdersList();
@@ -1022,13 +1105,24 @@ function advanceSetFulfill(goId, siId, setIdx, member) {
   const slot = si.sets[setIdx].slots[member];
   if (!slot) return;
   const nf = nextFulfillment(slot.fulfillment);
-  if (nf) { slot.fulfillment = nf; renderDetailContent(); toast('Updated: ' + member + ' → ' + nf); }
+  if (nf) {
+    slot.fulfillment = nf;
+    if (API_URL && slot.claim_id) apiPost('updateClaim', { claim_id: slot.claim_id, fulfillment: nf });
+    renderDetailContent();
+    toast('Updated: ' + member + ' → ' + nf);
+  }
 }
 
 function advanceFCFSFulfill(goId, siId, claimIdx) {
   const si = allGOs[goId].subItems.find(s => s.id === siId);
-  const nf = nextFulfillment(si.claims[claimIdx].fulfillment);
-  if (nf) { si.claims[claimIdx].fulfillment = nf; renderDetailContent(); toast('Fulfillment updated: ' + nf); }
+  const claim = si.claims[claimIdx];
+  const nf = nextFulfillment(claim.fulfillment);
+  if (nf) {
+    claim.fulfillment = nf;
+    if (API_URL && claim.claim_id) apiPost('updateClaim', { claim_id: claim.claim_id, fulfillment: nf });
+    renderDetailContent();
+    toast('Fulfillment updated: ' + nf);
+  }
 }
 
 function removeFCFSClaim(goId, siId, claimIdx) {
@@ -1132,7 +1226,7 @@ function removeSubItem(id) {
   newGoSubItems = newGoSubItems.filter(s => s._id !== id);
 }
 
-function _createGOCore() {
+function createGO() {
   const name = document.getElementById('new-go-name').value.trim();
   const type = document.getElementById('new-go-type').value;
   const deadline = document.getElementById('new-go-deadline').value;
@@ -1179,7 +1273,8 @@ function _createGOCore() {
     }
   });
   if (!subItems.length) { toast('Add at least one item.'); return; }
-  allGOs[id] = { id, name, type, deadline, subItems };
+  allGOs[id] = { id, name, type, deadline, status: 'open', subItems };
+  if (API_URL) apiPost('createGO', { ...allGOs[id], min_secure: subItems[0]?.minSecure || 7 });
   renderAdminGOList();
   renderOrdersList();
   toast('GO created: ' + name);
@@ -1206,7 +1301,7 @@ function renderPaymentGoSelect() {
 function showPage(id) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-  const pageMap = { orders:0, lookup:1, payment:2, shipping:3, admin:4 };
+  const pageMap = { orders:0, lookup:1, payment:2, shipping:3, rules:4, admin:5 };
   const page = document.getElementById('page-' + id);
   if (page) {
     page.classList.add('active');
@@ -1330,7 +1425,8 @@ function removeEditSubItem(siId, hasClaims) {
   toast('Sub-item removed' + (hasClaims ? ' and claims cancelled.' : '.'));
 }
 
-function _saveGOEditsCore() {
+function saveGOEdits() {
+  const go = currentGO;
   go.name = document.getElementById('edit-go-name').value.trim() || go.name;
   go.deadline = document.getElementById('edit-go-deadline').value;
   go.status = document.getElementById('edit-go-status').value;
@@ -1378,6 +1474,7 @@ function _saveGOEditsCore() {
   });
   // Remove sub-items with no name
   go.subItems = go.subItems.filter(si => si.name);
+  if (API_URL) apiPost('updateGO', { go_id: go.id, name: go.name, deadline: go.deadline, status: go.status, subItems: go.subItems });
   renderAdminGOList();
   renderOrdersList();
   openGODetail(go.id);
@@ -1968,108 +2065,6 @@ function showLoadingOverlay(show) {
     document.body.appendChild(el);
   }
   el.style.display = show ? 'flex' : 'none';
-}
-
-// Patch submitClaim to also write to backend
-const _origSubmitClaim = submitClaim;
-async function submitClaim(goId) {
-  const usernameEl = document.getElementById('claim-username-' + goId);
-  const username = usernameEl ? usernameEl.value.trim() : '';
-  if (!username) { toast('Please enter your username.'); return; }
-  const u = username.startsWith('@') ? username : '@' + username;
-  const go = allGOs[goId];
-  const claimsToWrite = [];
-  let placed = false;
-  go.subItems.forEach(si => {
-    const state = claimState[si.id];
-    if (!state) return;
-    if (state.type === 'set') {
-      const members = Object.keys(state.selectedMembers || {});
-      if (!members.length) return;
-      members.forEach(member => {
-        let setNum = 1;
-        let slotted = false;
-        for (let s = 0; s < si.sets.length; s++) {
-          if (si.sets[s].status !== 'secured' && !si.sets[s].slots[member]) {
-            si.sets[s].slots[member] = { user:u, payment:'unpaid', fulfillment:'Pending' };
-            setNum = s + 1; slotted = true; placed = true; break;
-          }
-        }
-        if (!slotted) {
-          const newSet = { status:'open', slots:{} };
-          si.members.forEach(m => newSet.slots[m] = null);
-          newSet.slots[member] = { user:u, payment:'unpaid', fulfillment:'Pending' };
-          si.sets.push(newSet);
-          setNum = si.sets.length; placed = true;
-        }
-        claimsToWrite.push({ go_id:goId, go_name:go.name, sub_item_id:si.id, sub_item_name:si.name, sub_item_kind: si.kind || go.type, username:u, email: (document.getElementById('claim-email-'+goId)||{}).value || '', member_or_version:member, set_num:setNum, qty:1, assigned_vers:'' });
-      });
-      const last = si.sets[si.sets.length-1];
-      if (countFilled(last, si.members) > 0) {
-        const empty = { status:'open', slots:{} };
-        si.members.forEach(m => empty.slots[m] = null);
-        si.sets.push(empty);
-      }
-    } else if (state.qty > 0) {
-      const assigned = si.versions ? assignVersions(state.qty, si.versions) : [];
-      si.claims.push({ user:u, qty:state.qty, assignedVers:assigned, payment:'unpaid', fulfillment:'Pending' });
-      claimsToWrite.push({ go_id:goId, go_name:go.name, sub_item_id:si.id, sub_item_name:si.name, sub_item_kind: si.kind || go.type, username:u, email: (document.getElementById('claim-email-'+goId)||{}).value || '', member_or_version:'', set_num:'', qty:state.qty, assigned_vers:assigned.join('+') });
-      placed = true;
-    }
-  });
-  if (!placed) { toast('Please select at least one item.'); return; }
-  if (go.status === 'closed') { toast('This GO is closed and no longer accepting claims.'); return; }
-  if (API_URL && claimsToWrite.length) {
-    apiPost('submitClaim', { claims: claimsToWrite }).catch(() => {});
-  }
-  claimState = {};
-  renderOrdersList();
-  renderAdminGOList();
-  toast('Claim submitted! Check "My orders" to track status.');
-  showPage('orders');
-}
-
-// createGO — calls core logic then syncs to backend if connected
-async function createGO() {
-  _createGOCore();
-  if (API_URL) {
-    const lastGO = Object.values(allGOs)[Object.values(allGOs).length - 1];
-    if (lastGO) await apiPost('createGO', { ...lastGO, id: lastGO.id, min_secure: lastGO.subItems?.[0]?.minSecure || 7 });
-  }
-}
-
-// saveGOEdits — calls core logic then syncs to backend if connected
-async function saveGOEdits() {
-  _saveGOEditsCore();
-  if (API_URL && currentGO) {
-    await apiPost('updateGO', { go_id: currentGO.id, name: currentGO.name, deadline: currentGO.deadline, status: currentGO.status, subItems: currentGO.subItems });
-  }
-}
-
-// Patch advanceSetFulfill / advanceFCFSFulfill to write to backend
-const _origAdvanceSet = advanceSetFulfill;
-async function advanceSetFulfill(goId, siId, setIdx, member) {
-  _origAdvanceSet(goId, siId, setIdx, member);
-  if (API_URL) {
-    const slot = allGOs[goId]?.subItems?.find(s=>s.id===siId)?.sets?.[setIdx]?.slots?.[member];
-    if (slot?.claim_id) await apiPost('updateClaim', { claim_id: slot.claim_id, fulfillment: slot.fulfillment });
-  }
-}
-
-const _origAdvanceFCFS = advanceFCFSFulfill;
-async function advanceFCFSFulfill(goId, siId, claimIdx) {
-  _origAdvanceFCFS(goId, siId, claimIdx);
-  if (API_URL) {
-    const claim = allGOs[goId]?.subItems?.find(s=>s.id===siId)?.claims?.[claimIdx];
-    if (claim?.claim_id) await apiPost('updateClaim', { claim_id: claim.claim_id, fulfillment: claim.fulfillment });
-  }
-}
-
-// Patch secureSet to write to backend
-const _origSecureSet = secureSet;
-async function secureSet(goId, siId, setIdx) {
-  _origSecureSet(goId, siId, setIdx);
-  if (API_URL) await apiPost('secureSet', { go_id: goId, sub_item_id: siId, set_num: setIdx + 1 });
 }
 
 // Settings panel
