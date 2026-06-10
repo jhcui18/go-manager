@@ -1659,6 +1659,7 @@ function confirmDeleteGO() {
   if (!confirm(msg)) return;
   delete allGOs[go.id];
   currentGO = null;
+  saveLocal();
   renderAdminGOList();
   renderOrdersList();
   showAdminPanel('home');
