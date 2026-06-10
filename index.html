@@ -895,7 +895,9 @@ function doLookup() {
       if (si.sets) {
         // set-based: photocard and album member ver
         si.sets.forEach(set => {
-          (si.members||[]).forEach(member => {
+          // use si.members if available, otherwise fall back to actual slot keys
+          const membersToCheck = (si.members||[]).length ? si.members : Object.keys(set.slots);
+          membersToCheck.forEach(member => {
             const slot = set.slots[member];
             if (slot && slot.user === u) {
               rows.push({ go:go.name, item:si.name, detail:member, qty:1, price:si.price||0, claim:set.status==='secured'?'Secured':'Pending', payment:slot.payment, fulfillment:slot.fulfillment });
@@ -906,7 +908,7 @@ function doLookup() {
         // claims-based: versioned, random, merch member
         (si.claims||[]).forEach(c => {
           if (c.user === u) {
-            const detail = c.member ? c.member : (c.assignedVers||[]).join('+');
+            const detail = c.member || (c.assignedVers||[]).join('+');
             rows.push({ go:go.name, item:si.name, detail, qty:c.qty, price:si.price||0, claim:'Secured', payment:c.payment, fulfillment:c.fulfillment });
           }
         });
@@ -2328,6 +2330,7 @@ function buildSetsFromClaims(claims, siId, members) {
 function buildVersionedClaims(claims, siId) {
   return (claims || []).filter(c => c.sub_item_id === siId).map(c => ({
     user: c.username, qty: c.qty || 1,
+    member: c.member_or_version || '',
     assignedVers: c.assigned_vers ? c.assigned_vers.split('+') : [],
     payment: c.payment_status, fulfillment: c.fulfillment, claim_id: c.claim_id
   }));
