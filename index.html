@@ -1657,9 +1657,11 @@ function confirmDeleteGO() {
     ? `Delete "${go.name}"? This has ${totalClaims} active claim${totalClaims!==1?'s':''} that will all be cancelled. This cannot be undone.`
     : `Delete "${go.name}"? This cannot be undone.`;
   if (!confirm(msg)) return;
-  delete allGOs[go.id];
+  const goId = go.id;
+  delete allGOs[goId];
   currentGO = null;
   saveLocal();
+  if (API_URL) apiPost('deleteGO', { go_id: goId });
   renderAdminGOList();
   renderOrdersList();
   showAdminPanel('home');
