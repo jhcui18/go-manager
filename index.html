@@ -158,7 +158,7 @@
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>GO</th><th>Item</th><th>Version/Member</th><th>Qty</th><th>Claim</th><th>Payment</th><th>Fulfillment</th></tr></thead>
+          <thead><tr><th>GO</th><th>Item</th><th>Version/Member</th><th>Qty</th><th>Price</th><th>Claim</th><th>Payment</th><th>Fulfillment</th></tr></thead>
           <tbody id="lookup-tbody"></tbody>
         </table>
       </div>
@@ -898,7 +898,7 @@ function doLookup() {
           (si.members||[]).forEach(member => {
             const slot = set.slots[member];
             if (slot && slot.user === u) {
-              rows.push({ go:go.name, item:si.name, detail:member, qty:1, claim:set.status==='secured'?'Secured':'Pending', payment:slot.payment, fulfillment:slot.fulfillment });
+              rows.push({ go:go.name, item:si.name, detail:member, qty:1, price:si.price||0, claim:set.status==='secured'?'Secured':'Pending', payment:slot.payment, fulfillment:slot.fulfillment });
             }
           });
         });
@@ -907,7 +907,7 @@ function doLookup() {
         (si.claims||[]).forEach(c => {
           if (c.user === u) {
             const detail = c.member ? c.member : (c.assignedVers||[]).join('+');
-            rows.push({ go:go.name, item:si.name, detail, qty:c.qty, claim:'Secured', payment:c.payment, fulfillment:c.fulfillment });
+            rows.push({ go:go.name, item:si.name, detail, qty:c.qty, price:si.price||0, claim:'Secured', payment:c.payment, fulfillment:c.fulfillment });
           }
         });
       }
@@ -915,15 +915,19 @@ function doLookup() {
   });
   document.getElementById('result-count').textContent = rows.length + ' active claim' + (rows.length!==1?'s':'');
   const tbody = document.getElementById('lookup-tbody');
+  const grandTotal = rows.reduce((a, r) => a + (r.price * r.qty), 0);
   tbody.innerHTML = rows.length ? rows.map(r => `<tr>
     <td style="font-weight:500;">${r.go}</td>
     <td>${r.item}</td>
     <td style="color:var(--text2);">${r.detail}</td>
     <td>${r.qty}</td>
+    <td style="font-family:var(--mono);font-size:12px;">${r.price > 0 ? '$' + (r.price * r.qty).toFixed(2) : '—'}</td>
     <td><span class="badge ${r.claim==='Secured'?'badge-secured':'badge-pending'}">${r.claim}</span></td>
     <td><span class="badge ${r.payment==='paid'?'badge-paid':'badge-unpaid'}">${r.payment==='paid'?'Paid':'Unpaid'}</span></td>
     <td><span class="badge ${fulfillBadge(r.fulfillment)}">${r.fulfillment}</span></td>
-  </tr>`).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px;">No claims found for ' + u + '.</td></tr>';
+  </tr>`).join('')
+  + (grandTotal > 0 ? `<tr style="border-top:1.5px solid var(--border);font-weight:500;"><td colspan="4" style="text-align:right;color:var(--text2);font-size:12px;">Total (excl. shipping)</td><td style="font-family:var(--mono);">$${grandTotal.toFixed(2)}</td><td colspan="3"></td></tr>` : '')
+  : '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px;">No claims found for ' + u + '.</td></tr>';
   document.getElementById('lookup-form').style.display = 'none';
   document.getElementById('lookup-result').style.display = 'block';
 }
