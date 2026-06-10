@@ -985,7 +985,7 @@ function renderDetailContent() {
   go.subItems.forEach((si, siIdx) => {
     html += `<div class="admin-section">
       <div class="admin-section-title">${si.name}`;
-    if (si.kind === 'member' || go.type === 'photocard') {
+    if (si.sets) {
       html += ` <span class="badge badge-set" style="font-size:10px;">set-based</span>`;
     } else if (si.kind === 'versioned') {
       html += ` <span class="badge badge-fcfs" style="font-size:10px;">versioned FCFS</span>`;
@@ -994,7 +994,7 @@ function renderDetailContent() {
     }
     html += `</div>`;
 
-    if (si.kind === 'member' || go.type === 'photocard') {
+    if (si.sets) {
       // Log IG claim input
       html += `<div class="card" style="margin-bottom:10px;">
         <div style="font-size:12px;color:var(--text2);margin-bottom:10px;">Log from IG comment</div>
