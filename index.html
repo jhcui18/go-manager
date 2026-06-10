@@ -2198,22 +2198,31 @@ async function syncFromBackend() {
           deadline: fmtDate(go.deadline), status: go.status || 'open',
           subItems: []
         };
+        // Remap orphaned claims to the correct current sub-item (handles re-created sub-item IDs)
+        const currentSiIds = new Set((go.subItems || []).map(s => s.sub_item_id).filter(Boolean));
+        const orphanedClaims = (go.claims || []).filter(c => c.sub_item_id && !currentSiIds.has(c.sub_item_id));
+        let claimsForBuild = go.claims || [];
+        if (orphanedClaims.length) {
+          // Find current sub-items with empty stored members — these are the replacement targets
+          const emptyMemberSis = (go.subItems || []).filter(s => s.sub_item_id && !parseMembers(s.members).length);
+          if (emptyMemberSis.length === 1) {
+            const targetId = emptyMemberSis[0].sub_item_id;
+            claimsForBuild = (go.claims || []).map(c =>
+              (c.sub_item_id && !currentSiIds.has(c.sub_item_id)) ? { ...c, sub_item_id: targetId } : c
+            );
+          }
+        }
+
         (go.subItems || []).forEach(si => {
           if (!si || !si.sub_item_id) return; // skip blank sub-item rows
           let members = parseMembers(si.members);
-          console.log('[sync] GO', go.go_id, '| sub-item', si.sub_item_id, '| raw members:', JSON.stringify(si.members), '| parsed:', members, '| GO claims:', (go.claims||[]).length);
-          // Fallback: reconstruct members from claims (handles ID mismatch)
-          if (!members.length && go.claims) {
-            let siClaims = go.claims.filter(c => c.sub_item_id === si.sub_item_id && c.member_or_version);
-            console.log('[sync] exact siId match claims:', siClaims.length, '| first claim sub_item_id:', go.claims[0]?.sub_item_id, '| si.sub_item_id:', si.sub_item_id);
-            if (!siClaims.length) {
-              // sub_item_id mismatch (sub-item was re-created): use all member-type claims for GO
-              siClaims = go.claims.filter(c => c.member_or_version && c.sub_item_kind !== 'versioned' && c.sub_item_kind !== 'random');
-            }
+          // Fallback: if members empty in Sheets, reconstruct from now-remapped claims
+          if (!members.length) {
+            const siClaims = claimsForBuild.filter(c => c.sub_item_id === si.sub_item_id && c.member_or_version);
             const seen = new Set(siClaims.map(c => c.member_or_version));
-            if (seen.size) { members = [...seen]; console.log('[sync] members reconstructed from claims:', members); }
+            if (seen.size) members = [...seen];
           }
-          if (!members.length) console.warn('[sync] WARN: still empty members for sub-item', si.sub_item_id, '| full si:', JSON.stringify(si));
+          if (!members.length) console.warn('[sync] empty members for sub-item', si.sub_item_id);
           const versions = tryParse(si.versions, []);
           const kind = si.kind || go.type || 'photocard';
           if (rebuilt.type === 'photocard' || (rebuilt.type === 'album' && kind === 'member')) {
@@ -2221,7 +2230,7 @@ async function syncFromBackend() {
               id: si.sub_item_id, name: si.name || '', kind,
               members, minSecure: parseInt(si.min_secure) || 7,
               price: parseFloat(si.price) || 0,
-              sets: buildSetsFromClaims(go.claims, si.sub_item_id, members)
+              sets: buildSetsFromClaims(claimsForBuild, si.sub_item_id, members)
             });
           } else if (rebuilt.type === 'album' && kind === 'versioned') {
             rebuilt.subItems.push({
@@ -2285,13 +2294,7 @@ function parseMembers(val) {
 }
 
 function buildSetsFromClaims(claims, siId, members) {
-  let filtered = (claims || []).filter(c => c.sub_item_id === siId);
-  // ID mismatch recovery: if no exact match, find claims by member name
-  if (!filtered.length && members.length) {
-    const memberSet = new Set(members);
-    const fallback = (claims || []).filter(c => c.member_or_version && memberSet.has(c.member_or_version));
-    if (fallback.length) filtered = fallback;
-  }
+  const filtered = (claims || []).filter(c => c.sub_item_id === siId);
   if (!filtered.length) {
     const empty = { status:'open', slots:{} };
     members.forEach(m => empty.slots[m] = null);
