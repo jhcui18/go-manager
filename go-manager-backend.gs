@@ -133,9 +133,9 @@ function updateGO(data) {
     const siSheetName = 'go_' + data.go_id;
     let siSheet = ss.getSheetByName(siSheetName);
     if (!siSheet) siSheet = ensureSheet(ss, siSheetName, ['sub_item_id','name','kind','members','versions','price','min_secure']);
-    // Clear and rewrite (simple approach — sub-items rarely change)
+    // Delete all data rows then rewrite (clearContent leaves ghost rows that accumulate)
     const lastRow = siSheet.getLastRow();
-    if (lastRow > 1) siSheet.getRange(2, 1, lastRow - 1, siSheet.getLastColumn()).clearContent();
+    if (lastRow > 1) siSheet.deleteRows(2, lastRow - 1);
     data.subItems.forEach(si => {
       siSheet.appendRow([si.id, si.name, si.kind || '', JSON.stringify(si.members || []), JSON.stringify(si.versions || []), si.price || 0, si.minSecure || 7]);
     });

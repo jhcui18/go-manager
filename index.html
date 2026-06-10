@@ -2219,7 +2219,7 @@ async function syncFromBackend() {
         }
 
         (go.subItems || []).forEach(si => {
-          if (!si || !si.sub_item_id) return; // skip blank sub-item rows
+          if (!si || !si.sub_item_id || !si.name) return; // skip blank/ghost sub-item rows
           let members = parseMembers(si.members);
           // Fallback: if members empty in Sheets, reconstruct from now-remapped claims
           if (!members.length) {
