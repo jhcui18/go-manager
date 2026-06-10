@@ -1477,15 +1477,81 @@ function getSubItemClaimCount(si) {
 function addEditSubItem() {
   const go = currentGO;
   const id = 'new-' + Date.now();
-  const newSi = go.type === 'photocard'
-    ? { id, name:'', members:[], minSecure: go.subItems[0]?.minSecure || 7, sets:[{ status:'open', slots:{} }] }
-    : go.type === 'album'
-    ? { id, name:'', kind:'versioned', versions:['A','B'], price:0, claims:[] }
-    : { id, name:'', price:0, claims:[] };
-  go.subItems.push(newSi);
-  renderEditSubItems();
+  const container = document.getElementById('edit-sub-items-list');
+  const wrap = document.createElement('div');
+  wrap.className = 'card-sm';
+  wrap.style.marginBottom = '8px';
+  wrap.id = 'edit-wrap-' + id;
+  let inner = '';
+  if (go.type === 'photocard') {
+    inner = `<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+      <div style="flex:1;">
+        <div class="field" style="margin-bottom:8px;"><label>Set name</label><input type="text" id="edit-si-name-${id}" placeholder="e.g. Main set"></div>
+        <div class="field" style="margin-bottom:0;"><label>Members (one per line)</label><textarea id="edit-si-members-${id}" placeholder="Karina&#10;Winter&#10;Giselle&#10;Ningning" style="min-height:80px;font-family:var(--mono);font-size:12px;"></textarea></div>
+      </div>
+      <button class="btn btn-sm btn-ghost" style="color:var(--red-400);margin-top:20px;" onclick="removeNewEditSubItem('${id}')">×</button>
+    </div>`;
+  } else if (go.type === 'album') {
+    inner = `<div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end;">
+      <div class="field" style="margin-bottom:0;"><label>Version name</label><input type="text" id="edit-si-name-${id}" placeholder="e.g. Member ver"></div>
+      <div class="field" style="margin-bottom:0;"><label>Kind</label>
+        <select id="edit-si-kind-${id}" onchange="onEditSubItemKindChange('${id}')">
+          <option value="member">Member ver (set-based)</option>
+          <option value="versioned">Other ver (A/B/random)</option>
+        </select>
+      </div>
+      <button class="btn btn-sm btn-ghost" style="color:var(--red-400);" onclick="removeNewEditSubItem('${id}')">×</button>
+    </div>
+    <div id="edit-si-extra-${id}" style="margin-top:8px;">
+      <div class="field" style="margin-bottom:0;"><label>Members (one per line)</label><textarea id="edit-si-members-${id}" placeholder="Yujin&#10;Gaeul&#10;Rei&#10;..." style="min-height:80px;font-family:var(--mono);font-size:12px;"></textarea></div>
+    </div>
+    <div class="field-row" style="margin-top:8px;">
+      <div class="field" style="margin-bottom:0;"><label>Price (USD)</label><input type="number" id="edit-si-price-${id}" placeholder="0.00" step="0.01" value="0"></div>
+    </div>`;
+  } else {
+    inner = `<div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end;">
+      <div class="field" style="margin-bottom:0;"><label>Item name</label><input type="text" id="edit-si-name-${id}" placeholder="e.g. Lightstick"></div>
+      <div class="field" style="margin-bottom:0;"><label>Kind</label>
+        <select id="edit-si-kind-${id}" onchange="onEditMerchKindChange('${id}')">
+          <option value="random">Random ver</option>
+          <option value="member">Member ver</option>
+        </select>
+      </div>
+      <button class="btn btn-sm btn-ghost" style="color:var(--red-400);" onclick="removeNewEditSubItem('${id}')">×</button>
+    </div>
+    <div class="field-row" style="margin-top:8px;">
+      <div class="field" style="margin-bottom:0;"><label>Price (USD)</label><input type="number" id="edit-si-price-${id}" placeholder="0.00" step="0.01" value="0"></div>
+    </div>
+    <div id="edit-si-merch-extra-${id}" style="display:none;margin-top:8px;">
+      <div class="field" style="margin-bottom:0;"><label>Members (one per line)</label><textarea id="edit-si-members-${id}" placeholder="Karina&#10;Winter&#10;Giselle&#10;Ningning" style="min-height:80px;font-family:var(--mono);font-size:12px;"></textarea></div>
+    </div>`;
+  }
+  wrap.innerHTML = inner;
+  wrap.dataset.newItem = '1';
+  container.appendChild(wrap);
+  wrap.scrollIntoView({ behavior:'smooth' });
+}
+
+function onEditSubItemKindChange(id) {
+  const kind = document.getElementById('edit-si-kind-' + id).value;
+  const extra = document.getElementById('edit-si-extra-' + id);
+  if (!extra) return;
+  if (kind === 'member') {
+    extra.innerHTML = `<div class="field" style="margin-bottom:0;"><label>Members (one per line)</label><textarea id="edit-si-members-${id}" placeholder="Yujin&#10;Gaeul&#10;Rei&#10;..." style="min-height:80px;font-family:var(--mono);font-size:12px;"></textarea></div>`;
+  } else {
+    extra.innerHTML = `<div class="field" style="margin-bottom:0;"><label>Versions (comma separated, e.g. A,B)</label><input type="text" id="edit-si-versions-${id}" placeholder="A,B"></div>`;
+  }
+}
+
+function onEditMerchKindChange(id) {
+  const kind = document.getElementById('edit-si-kind-' + id).value;
+  const extra = document.getElementById('edit-si-merch-extra-' + id);
+  if (extra) extra.style.display = kind === 'member' ? 'block' : 'none';
+}
+
+function removeNewEditSubItem(id) {
   const wrap = document.getElementById('edit-wrap-' + id);
-  if (wrap) wrap.scrollIntoView({ behavior:'smooth' });
+  if (wrap) wrap.remove();
 }
 
 function removeEditSubItem(siId, hasClaims) {
@@ -1541,6 +1607,37 @@ function saveGOEdits() {
         si.members = members;
         si.sets[0].slots = {};
         members.forEach(m => si.sets[0].slots[m] = null);
+      }
+    }
+  });
+  // Collect newly added sub-items from DOM rows
+  const container = document.getElementById('edit-sub-items-list');
+  container.querySelectorAll('[data-new-item="1"]').forEach(wrap => {
+    const id = wrap.id.replace('edit-wrap-', '');
+    const name = (document.getElementById('edit-si-name-' + id)||{}).value?.trim();
+    if (!name) return;
+    const price = parseFloat((document.getElementById('edit-si-price-' + id)||{}).value) || 0;
+    const kindEl = document.getElementById('edit-si-kind-' + id);
+    const kind = kindEl ? kindEl.value : (go.type === 'photocard' ? 'photocard' : 'random');
+    if (go.type === 'photocard') {
+      const members = ((document.getElementById('edit-si-members-' + id)||{}).value||'').split('\n').map(m=>m.trim()).filter(Boolean);
+      const slots = {}; members.forEach(m => slots[m] = null);
+      go.subItems.push({ id, name, members, minSecure: minSecure||7, sets:[{ status:'open', slots }] });
+    } else if (go.type === 'album') {
+      if (kind === 'member') {
+        const members = ((document.getElementById('edit-si-members-' + id)||{}).value||'').split('\n').map(m=>m.trim()).filter(Boolean);
+        const slots = {}; members.forEach(m => slots[m] = null);
+        go.subItems.push({ id, name, kind:'member', members, minSecure: minSecure||7, price, sets:[{ status:'open', slots }], claims:[] });
+      } else {
+        const versions = ((document.getElementById('edit-si-versions-' + id)||{}).value||'A,B').split(',').map(v=>v.trim()).filter(Boolean);
+        go.subItems.push({ id, name, kind:'versioned', versions, price, claims:[] });
+      }
+    } else {
+      if (kind === 'member') {
+        const members = ((document.getElementById('edit-si-members-' + id)||{}).value||'').split('\n').map(m=>m.trim()).filter(Boolean);
+        go.subItems.push({ id, name, kind:'member', members, price, claims:[] });
+      } else {
+        go.subItems.push({ id, name, kind:'random', price, claims:[] });
       }
     }
   });
