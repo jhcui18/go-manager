@@ -625,8 +625,8 @@ function renderSetSubItemPublic(si, goId) {
     si.members.forEach(member => {
       const taken = !!set.slots[member];
       const border = taken ? 'var(--border2)' : 'var(--border)';
-      const sub = taken ? 'taken' : (isSecured ? '—' : 'open');
-      const subColor = taken ? 'var(--text3)' : (isSecured ? 'var(--text3)' : 'var(--teal-600)');
+      const sub = taken ? 'taken' : 'open';
+      const subColor = taken ? 'var(--text3)' : 'var(--teal-600)';
       html += `<div style="background:var(--surface2);border-radius:8px;padding:8px 10px;border:0.5px solid ${border};">
         <div style="font-size:12px;font-weight:500;">${member}</div>
         <div style="font-size:11px;color:${subColor};margin-top:2px;">${sub}</div>
@@ -640,7 +640,7 @@ function renderSetSubItemPublic(si, goId) {
     <div class="member-grid" id="picker-${si.id}">`;
   si.members.forEach(member => {
     const key = member.replace(/\s/g,'_');
-    const openCount = si.sets.filter(s => s.status !== 'secured' && !s.slots[member]).length;
+    const openCount = si.sets.filter(s => !s.slots[member]).length;
     const label = openCount > 0 ? openCount + ' open' : 'new set';
     const labelColor = openCount > 0 ? 'var(--text3)' : 'var(--accent)';
     html += `<div class="member-tile" id="tile-${si.id}-${key}" style="position:relative;" onclick="incMember('${si.id}','${member}','${goId}')">
@@ -866,7 +866,7 @@ function submitClaim(goId) {
           let setNum = 1;
           let slotted = false;
           for (let s = 0; s < si.sets.length; s++) {
-            if (si.sets[s].status !== 'secured' && !si.sets[s].slots[member]) {
+            if (!si.sets[s].slots[member]) {
               si.sets[s].slots[member] = { user:u, payment:'unpaid', fulfillment:'Pending' };
               setNum = s + 1; slotted = true; placed = true; break;
             }
@@ -1103,7 +1103,7 @@ function renderDetailContent() {
           const border = taken ? (isSecured ? 'var(--teal-100)' : 'var(--pink-100)') : 'var(--border)';
           const nameColor = taken ? (isSecured ? 'var(--teal-800)' : 'var(--pink-800)') : 'var(--text2)';
           const subColor = taken ? (isSecured ? 'var(--teal-600)' : 'var(--accent)') : 'var(--text3)';
-          const sub = taken ? slot.user : (isSecured ? '—' : 'open');
+          const sub = taken ? slot.user : 'open';
           const fulfillHtml = taken && !isSecured ? '' : taken ? `<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
             <span class="badge ${fulfillBadge(slot.fulfillment)}" style="font-size:10px;">${slot.fulfillment}</span>
             ${nextFulfillment(slot.fulfillment) ? `<button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 6px;" onclick="advanceSetFulfill('${go.id}','${si.id}',${setIdx},'${member}')">→ ${nextFulfillment(slot.fulfillment)}</button>` : ''}
@@ -1167,7 +1167,7 @@ function logSetClaim(goId, siId) {
   for (let q = 0; q < qty; q++) {
     let placed = false;
     for (let s = 0; s < si.sets.length; s++) {
-      if (si.sets[s].status !== 'secured' && !si.sets[s].slots[member]) {
+      if (!si.sets[s].slots[member]) {
         si.sets[s].slots[member] = { user:u, payment:'unpaid', fulfillment:'Pending' };
         placed = true; break;
       }
