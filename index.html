@@ -625,8 +625,8 @@ function renderSetSubItemPublic(si, goId) {
     si.members.forEach(member => {
       const taken = !!set.slots[member];
       const border = taken ? 'var(--border2)' : 'var(--border)';
-      const sub = taken ? 'taken' : 'open';
-      const subColor = taken ? 'var(--text3)' : 'var(--teal-600)';
+      const sub = taken ? 'taken' : (isSecured ? '—' : 'open');
+      const subColor = taken ? 'var(--text3)' : (isSecured ? 'var(--text3)' : 'var(--teal-600)');
       html += `<div style="background:var(--surface2);border-radius:8px;padding:8px 10px;border:0.5px solid ${border};">
         <div style="font-size:12px;font-weight:500;">${member}</div>
         <div style="font-size:11px;color:${subColor};margin-top:2px;">${sub}</div>
@@ -1090,6 +1090,7 @@ function renderDetailContent() {
             <div style="font-size:13px;font-weight:500;">Set ${setIdx+1} — ${filled}/${total}</div>
             <div style="display:flex;gap:6px;align-items:center;">
               ${isSecured ? '<span class="badge badge-secured">Secured</span>' : ''}
+              ${isSecured ? `<button class="btn btn-sm btn-ghost" style="font-size:11px;padding:3px 8px;" onclick="unsecureSet('${go.id}','${si.id}',${setIdx})">Unsecure</button>` : ''}
               ${securable ? `<button class="btn btn-sm" style="color:var(--teal-600);border-color:var(--teal-100);" onclick="secureSet('${go.id}','${si.id}',${setIdx})">Secure</button>` : ''}
             </div>
           </div>
@@ -1102,7 +1103,7 @@ function renderDetailContent() {
           const border = taken ? (isSecured ? 'var(--teal-100)' : 'var(--pink-100)') : 'var(--border)';
           const nameColor = taken ? (isSecured ? 'var(--teal-800)' : 'var(--pink-800)') : 'var(--text2)';
           const subColor = taken ? (isSecured ? 'var(--teal-600)' : 'var(--accent)') : 'var(--text3)';
-          const sub = taken ? slot.user : 'open';
+          const sub = taken ? slot.user : (isSecured ? '—' : 'open');
           const fulfillHtml = taken && !isSecured ? '' : taken ? `<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
             <span class="badge ${fulfillBadge(slot.fulfillment)}" style="font-size:10px;">${slot.fulfillment}</span>
             ${nextFulfillment(slot.fulfillment) ? `<button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 6px;" onclick="advanceSetFulfill('${go.id}','${si.id}',${setIdx},'${member}')">→ ${nextFulfillment(slot.fulfillment)}</button>` : ''}
@@ -1200,6 +1201,16 @@ function secureSet(goId, siId, setIdx) {
   renderAdminGOList();
   renderOrdersList();
   toast('Set ' + (setIdx+1) + ' secured!');
+}
+
+function unsecureSet(goId, siId, setIdx) {
+  const si = allGOs[goId].subItems.find(s => s.id === siId);
+  si.sets[setIdx].status = 'open';
+  if (API_URL) apiPost('unsecureSet', { go_id: goId, sub_item_id: siId, set_num: setIdx + 1 });
+  renderDetailContent();
+  renderAdminGOList();
+  renderOrdersList();
+  toast('Set ' + (setIdx+1) + ' unsecured.');
 }
 
 function advanceSetFulfill(goId, siId, setIdx, member) {

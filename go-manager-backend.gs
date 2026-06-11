@@ -62,6 +62,7 @@ function doPost(e) {
     else if (action === 'updateClaim')       result = updateClaim(body.data);
     else if (action === 'deleteClaim')       result = deleteClaim(body.data.claim_id);
     else if (action === 'secureSet')         result = secureSet(body.data);
+    else if (action === 'unsecureSet')       result = unsecureSet(body.data);
     else if (action === 'submitPayment')     result = submitPayment(body.data);
     else if (action === 'updatePayment')     result = updatePayment(body.data);
     else if (action === 'submitShipping')    result = submitShipping(body.data);
@@ -206,6 +207,22 @@ function secureSet(data) {
         rows[i][headers.indexOf('sub_item_id')] === data.sub_item_id &&
         String(rows[i][headers.indexOf('set_num')]) === String(data.set_num)) {
       sheet.getRange(i+1, headers.indexOf('claim_status')+1).setValue('secured');
+      sheet.getRange(i+1, headers.indexOf('updated_at')+1).setValue(new Date().toISOString());
+    }
+  }
+  return { ok: true };
+}
+
+function unsecureSet(data) {
+  // Revert claim_status for all claims in a given go/sub_item/set_num back to open
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_JOINERS);
+  const rows = sheet.getDataRange().getValues();
+  const headers = rows[0];
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][headers.indexOf('go_id')] === data.go_id &&
+        rows[i][headers.indexOf('sub_item_id')] === data.sub_item_id &&
+        String(rows[i][headers.indexOf('set_num')]) === String(data.set_num)) {
+      sheet.getRange(i+1, headers.indexOf('claim_status')+1).setValue('');
       sheet.getRange(i+1, headers.indexOf('updated_at')+1).setValue(new Date().toISOString());
     }
   }
