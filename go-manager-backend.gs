@@ -108,9 +108,9 @@ function createGO(data) {
   const goId = data.id || ('go_' + Date.now());
   goSheet.appendRow([goId, data.name, data.type, data.deadline, data.status || 'open', data.min_secure || 7, new Date().toISOString()]);
   // Create per-GO sub-items sheet
-  const siSheet = ensureSheet(ss, 'go_' + goId, ['sub_item_id','name','kind','members','versions','price','min_secure']);
+  const siSheet = ensureSheet(ss, 'go_' + goId, ['sub_item_id','name','kind','members','versions','price','ot_price','min_secure']);
   (data.subItems || []).forEach(si => {
-    siSheet.appendRow([si.id, si.name, si.kind || data.type, JSON.stringify(si.members || []), JSON.stringify(si.versions || []), si.price || 0, si.minSecure || data.min_secure || 7]);
+    siSheet.appendRow([si.id, si.name, si.kind || data.type, JSON.stringify(si.members || []), JSON.stringify(si.versions || []), si.price || 0, si.otPrice || 0, si.minSecure || data.min_secure || 7]);
   });
   return { ok: true, go_id: goId };
 }
@@ -133,12 +133,14 @@ function updateGO(data) {
   if (data.subItems) {
     const siSheetName = 'go_' + data.go_id;
     let siSheet = ss.getSheetByName(siSheetName);
-    if (!siSheet) siSheet = ensureSheet(ss, siSheetName, ['sub_item_id','name','kind','members','versions','price','min_secure']);
+    if (!siSheet) siSheet = ensureSheet(ss, siSheetName, ['sub_item_id','name','kind','members','versions','price','ot_price','min_secure']);
+    // Rewrite header to canonical schema (migrates older sheets missing ot_price)
+    siSheet.getRange(1, 1, 1, 8).setValues([['sub_item_id','name','kind','members','versions','price','ot_price','min_secure']]);
     // Delete all data rows then rewrite (clearContent leaves ghost rows that accumulate)
     const lastRow = siSheet.getLastRow();
     if (lastRow > 1) siSheet.deleteRows(2, lastRow - 1);
     data.subItems.forEach(si => {
-      siSheet.appendRow([si.id, si.name, si.kind || '', JSON.stringify(si.members || []), JSON.stringify(si.versions || []), si.price || 0, si.minSecure || 7]);
+      siSheet.appendRow([si.id, si.name, si.kind || '', JSON.stringify(si.members || []), JSON.stringify(si.versions || []), si.price || 0, si.otPrice || 0, si.minSecure || 7]);
     });
   }
   return { ok: true };

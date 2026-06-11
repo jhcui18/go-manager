@@ -650,8 +650,19 @@ function renderSetSubItemPublic(si, goId) {
     </div>`;
   });
   html += `</div>
-    <div id="qty-display-${si.id}" style="margin-top:10px;font-size:12px;color:var(--text3);"></div>
-  </div>`;
+    <div id="qty-display-${si.id}" style="margin-top:10px;font-size:12px;color:var(--text3);"></div>`;
+  // OT (full-set) option — only when an OT price is configured
+  if (si.otPrice > 0) {
+    const otN = (si.members || []).length;
+    html += `<div style="margin-top:12px;">
+      <div class="member-tile" id="ot-tile-${si.id}" style="position:relative;text-align:left;padding:10px 12px;" onclick="incOT('${si.id}','${goId}')">
+        <button id="ot-dec-${si.id}" onclick="event.stopPropagation();decOT('${si.id}','${goId}')" style="display:none;align-items:center;justify-content:center;position:absolute;top:6px;right:6px;width:22px;height:22px;padding:0;border:none;border-radius:6px;background:transparent;color:var(--accent);font-size:18px;font-weight:600;line-height:1;cursor:pointer;">−</button>
+        <div class="member-tile-name">OT${otN} — full set</div>
+        <div class="member-tile-sub" id="ot-sub-${si.id}" data-label="$${si.otPrice.toFixed(2)} · tap to add" style="color:var(--accent);">$${si.otPrice.toFixed(2)} · tap to add</div>
+      </div>
+    </div>`;
+  }
+  html += `</div>`;
   return html;
 }
 
@@ -764,6 +775,30 @@ function updateMemberTile(siId, member, goId) {
   updateClaimSummary(goId);
 }
 
+function incOT(siId, goId) {
+  if (!claimState[siId]) claimState[siId] = { type:'set', selectedMembers:{} };
+  claimState[siId].ot = (claimState[siId].ot || 0) + 1;
+  updateOTTile(siId, goId);
+}
+
+function decOT(siId, goId) {
+  const st = claimState[siId];
+  if (!st || !st.ot) return;
+  st.ot -= 1;
+  updateOTTile(siId, goId);
+}
+
+function updateOTTile(siId, goId) {
+  const qty = (claimState[siId] && claimState[siId].ot) || 0;
+  const tile = document.getElementById('ot-tile-' + siId);
+  const sub = document.getElementById('ot-sub-' + siId);
+  const dec = document.getElementById('ot-dec-' + siId);
+  if (tile) tile.classList.toggle('selected', qty > 0);
+  if (dec) dec.style.display = qty > 0 ? 'flex' : 'none';
+  if (sub) sub.textContent = qty > 0 ? 'full set ×' + qty : (sub.dataset.label || '');
+  updateClaimSummary(goId);
+}
+
 function toggleMerchMember(siId, member, goId) {
   if (!claimState[siId]) claimState[siId] = { type:'merch-member', selectedMembers:{}, qty:1 };
   const sm = claimState[siId].selectedMembers;
@@ -820,6 +855,13 @@ function updateClaimSummary(goId) {
         lines.push(si.name + ': ' + members.map(m => m + ' ×' + sm[m]).join(', ') + (price ? ` ($${(price * totalQty).toFixed(2)})` : ''));
         total += price * totalQty;
       }
+      const otQty = state.ot || 0;
+      if (otQty) {
+        const otPrice = si.otPrice || 0;
+        const otN = (si.members || []).length;
+        lines.push(si.name + ': OT' + otN + ' full set ×' + otQty + (otPrice ? ` ($${(otPrice * otQty).toFixed(2)})` : ''));
+        total += otPrice * otQty;
+      }
     } else if (state.type === 'merch-member') {
       const selected = Object.keys(state.selectedMembers || {});
       const qty = state.qty || 1;
@@ -859,7 +901,8 @@ function submitClaim(goId) {
     if (state.type === 'set') {
       const sm = state.selectedMembers || {};
       const members = Object.keys(sm);
-      if (!members.length) return;
+      const otQty = state.ot || 0;
+      if (!members.length && !otQty) return;
       members.forEach(member => {
         const wantQty = sm[member] || 1;
         for (let n = 0; n < wantQty; n++) {
@@ -881,6 +924,17 @@ function submitClaim(goId) {
           claimsToWrite.push({ go_id:goId, go_name:go.name, sub_item_id:si.id, sub_item_name:si.name, sub_item_kind:si.kind||go.type, username:u, email, member_or_version:member, set_num:setNum, qty:1, assigned_vers:'' });
         }
       });
+      // OT full sets — each is a complete set owned by the buyer; secured manually later
+      for (let k = 0; k < otQty; k++) {
+        const fullSet = { status:'open', slots:{} };
+        si.members.forEach(m => fullSet.slots[m] = { user:u, payment:'unpaid', fulfillment:'Pending', ot:true });
+        si.sets.push(fullSet);
+        const setNum = si.sets.length;
+        si.members.forEach(m => {
+          claimsToWrite.push({ go_id:goId, go_name:go.name, sub_item_id:si.id, sub_item_name:si.name, sub_item_kind:si.kind||go.type, username:u, email, member_or_version:m, set_num:setNum, qty:1, assigned_vers:'OT' });
+        });
+        placed = true;
+      }
       const last = si.sets[si.sets.length-1];
       if (countFilled(last, si.members) > 0) {
         const empty = { status:'open', slots:{} };
@@ -928,6 +982,13 @@ function doLookup() {
         si.sets.forEach(set => {
           // use si.members if available, otherwise fall back to actual slot keys
           const membersToCheck = (si.members||[]).length ? si.members : Object.keys(set.slots);
+          // OT full set owned by this user → single line at the flat OT price
+          const isOT = membersToCheck.length && membersToCheck.every(m => { const s = set.slots[m]; return s && s.user === u && s.ot; });
+          if (isOT) {
+            const s0 = set.slots[membersToCheck[0]];
+            rows.push({ go:go.name, item:si.name, detail:'OT'+membersToCheck.length+' full set', qty:1, price:si.otPrice||0, claim:set.status==='secured'?'Secured':'Pending', payment:s0.payment, fulfillment:s0.fulfillment });
+            return;
+          }
           membersToCheck.forEach(member => {
             const slot = set.slots[member];
             if (slot && slot.user === u) {
@@ -1278,7 +1339,8 @@ function addSubItem() {
       <div>
         <div class="field" style="margin-bottom:8px;"><label>Set name</label><input type="text" id="si-name-${id}" placeholder="e.g. Main set"></div>
         <div class="field" style="margin-bottom:8px;"><label>Members (one per line)</label><textarea id="si-members-${id}" placeholder="Karina\nWinter\nGiselle\nNingning" style="min-height:80px;font-family:var(--mono);font-size:12px;"></textarea></div>
-        <div class="field" style="margin-bottom:0;"><label>Price per copy (USD)</label><input type="number" id="si-price-${id}" placeholder="0.00" step="0.01"></div>
+        <div class="field" style="margin-bottom:8px;"><label>Price per copy (USD)</label><input type="number" id="si-price-${id}" placeholder="0.00" step="0.01"></div>
+        <div class="field" style="margin-bottom:0;"><label>Full set (OT) price (USD)</label><input type="number" id="si-otprice-${id}" placeholder="0.00" step="0.01"><div class="field-hint">Optional — set to offer a whole-set (OT) claim.</div></div>
       </div>
       <button class="btn btn-sm btn-ghost" onclick="removeSubItem('${id}')" style="margin-top:24px;">×</button>
     </div>`;
@@ -1361,9 +1423,10 @@ function createGO() {
       const members = membersRaw.split('\n').map(m=>m.trim()).filter(Boolean);
       if (!members.length) return;
       const price = parseFloat((document.getElementById('si-price-' + siId)||{}).value) || 0;
+      const otPrice = parseFloat((document.getElementById('si-otprice-' + siId)||{}).value) || 0;
       const emptySet = { status:'open', slots:{} };
       members.forEach(m => emptySet.slots[m] = null);
-      subItems.push({ id: siId, name:siName, members, minSecure, price, sets:[emptySet] });
+      subItems.push({ id: siId, name:siName, members, minSecure, price, otPrice, sets:[emptySet] });
     } else if (type === 'album') {
       const kind = (document.getElementById('si-kind-' + siId)||{}).value || 'member';
       const price = parseFloat((document.getElementById('si-price-' + siId)||{}).value) || 0;
@@ -1527,6 +1590,7 @@ function renderEditSubItems() {
           <div class="field" style="margin-bottom:0;"><label>Set name</label><input type="text" id="edit-si-name-${si.id}" value="${si.name}"></div>
           <div class="field" style="margin-bottom:0;"><label>Price per copy (USD)</label><input type="number" id="edit-si-price-${si.id}" value="${si.price || 0}" step="0.01" style="width:100%;"><div class="field-hint">Applies to new claims only.</div></div>
         </div>
+        <div class="field" style="margin-bottom:8px;"><label>Full set (OT) price (USD)</label><input type="number" id="edit-si-otprice-${si.id}" value="${si.otPrice || 0}" step="0.01" style="width:100%;"><div class="field-hint">Optional — set to offer a whole-set (OT) claim.</div></div>
         <div class="field" style="margin-bottom:0;"><label>Members (one per line)</label>
           <textarea id="edit-si-members-${si.id}" style="min-height:70px;font-family:var(--mono);font-size:12px;">${si.members.join('\n')}</textarea>
           ${hasClaims ? '<div class="field-hint" style="color:var(--amber-800);">New members added will appear as open slots in existing sets.</div>' : ''}
@@ -1588,7 +1652,8 @@ function addEditSubItem() {
       <div style="flex:1;">
         <div class="field" style="margin-bottom:8px;"><label>Set name</label><input type="text" id="edit-si-name-${id}" placeholder="e.g. Main set"></div>
         <div class="field" style="margin-bottom:8px;"><label>Members (one per line)</label><textarea id="edit-si-members-${id}" placeholder="Karina&#10;Winter&#10;Giselle&#10;Ningning" style="min-height:80px;font-family:var(--mono);font-size:12px;"></textarea></div>
-        <div class="field" style="margin-bottom:0;"><label>Price per copy (USD)</label><input type="number" id="edit-si-price-${id}" placeholder="0.00" step="0.01" value="0"></div>
+        <div class="field" style="margin-bottom:8px;"><label>Price per copy (USD)</label><input type="number" id="edit-si-price-${id}" placeholder="0.00" step="0.01" value="0"></div>
+        <div class="field" style="margin-bottom:0;"><label>Full set (OT) price (USD)</label><input type="number" id="edit-si-otprice-${id}" placeholder="0.00" step="0.01" value="0"><div class="field-hint">Optional — set to offer a whole-set (OT) claim.</div></div>
       </div>
       <button class="btn btn-sm btn-ghost" style="color:var(--red-400);margin-top:20px;" onclick="removeNewEditSubItem('${id}')">×</button>
     </div>`;
@@ -1676,6 +1741,8 @@ function saveGOEdits() {
     if (nameEl) si.name = nameEl.value.trim() || si.name;
     const priceEl = document.getElementById('edit-si-price-' + si.id);
     if (priceEl) si.price = parseFloat(priceEl.value) || si.price;
+    const otPriceEl = document.getElementById('edit-si-otprice-' + si.id);
+    if (otPriceEl) si.otPrice = parseFloat(otPriceEl.value) || 0;
     if (go.type === 'photocard' || (si.kind === 'member' && si.sets)) {
       si.minSecure = minSecure || si.minSecure;
       const membersEl = document.getElementById('edit-si-members-' + si.id);
@@ -1718,12 +1785,13 @@ function saveGOEdits() {
     const name = (document.getElementById('edit-si-name-' + id)||{}).value?.trim();
     if (!name) return;
     const price = parseFloat((document.getElementById('edit-si-price-' + id)||{}).value) || 0;
+    const otPrice = parseFloat((document.getElementById('edit-si-otprice-' + id)||{}).value) || 0;
     const kindEl = document.getElementById('edit-si-kind-' + id);
     const kind = kindEl ? kindEl.value : (go.type === 'photocard' ? 'photocard' : 'random');
     if (go.type === 'photocard') {
       const members = ((document.getElementById('edit-si-members-' + id)||{}).value||'').split('\n').map(m=>m.trim()).filter(Boolean);
       const slots = {}; members.forEach(m => slots[m] = null);
-      go.subItems.push({ id, name, members, minSecure: minSecure||7, price, sets:[{ status:'open', slots }] });
+      go.subItems.push({ id, name, members, minSecure: minSecure||7, price, otPrice, sets:[{ status:'open', slots }] });
     } else if (go.type === 'album') {
       if (kind === 'member') {
         const members = ((document.getElementById('edit-si-members-' + id)||{}).value||'').split('\n').map(m=>m.trim()).filter(Boolean);
@@ -2289,6 +2357,7 @@ async function syncFromBackend() {
               id: si.sub_item_id, name: si.name || '', kind,
               members, minSecure: parseInt(si.min_secure) || 7,
               price: parseFloat(si.price) || 0,
+              otPrice: parseFloat(si.ot_price) || 0,
               sets: buildSetsFromClaims(claimsForBuild, si.sub_item_id, members)
             });
           } else if (rebuilt.type === 'album' && kind === 'versioned') {
@@ -2365,7 +2434,7 @@ function buildSetsFromClaims(claims, siId, members) {
     const slots = {};
     members.forEach(m => slots[m] = null);
     filtered.filter(c => parseInt(c.set_num) === n).forEach(c => {
-      slots[c.member_or_version] = { user: c.username, payment: c.payment_status, fulfillment: c.fulfillment, claim_id: c.claim_id };
+      slots[c.member_or_version] = { user: c.username, payment: c.payment_status, fulfillment: c.fulfillment, claim_id: c.claim_id, ot: c.assigned_vers === 'OT' };
     });
     return { status: setStatus, slots };
   });
