@@ -426,7 +426,7 @@
 </div>
 
 <script>
-const FULFILLMENT = ['Pending','On the way','Ready','Dispatched'];
+const FULFILLMENT = ['Pending','Ordered','On the way','Ready','Dispatched'];
 
 // ── DATA MODEL ──────────────────────────────────────────────────────────────
 // GO types: photocard | album | merch
@@ -472,7 +472,7 @@ function fmtDate(val) {
   return `${y}-${m}-${day}`;
 }
 function nextFulfillment(f) { const i = FULFILLMENT.indexOf(f); return i < FULFILLMENT.length-1 ? FULFILLMENT[i+1] : null; }
-function fulfillBadge(f) { return f==='Ready'?'badge-ready':f==='On the way'?'badge-transit':'badge-pending'; }
+function fulfillBadge(f) { return f==='Ready'?'badge-ready':f==='On the way'?'badge-transit':f==='Ordered'?'badge-waitlist':'badge-pending'; }
 function assignVersions(qty, versions) {
   if (!versions || versions.length === 0) return Array(qty).fill('random');
   const result = [];
