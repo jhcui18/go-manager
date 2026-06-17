@@ -460,6 +460,9 @@ function setDisplayOrder(sets, members) {
   };
   return (sets||[]).map((set, idx) => ({ set, idx })).sort((a, b) => rank(a.set) - rank(b.set) || a.idx - b.idx);
 }
+// Next free persistent set number. set.num is the stable identity that ties claims
+// to a set (NOT the array position, which drifts after syncs/gaps).
+function nextSetNum(sets) { return (sets||[]).reduce((m, s) => Math.max(m, s.num || 0), 0) + 1; }
 function fmtDate(val) {
   if (!val) return '';
   // Already a clean YYYY-MM-DD string
@@ -925,25 +928,25 @@ function submitClaim(goId) {
           for (let s = 0; s < si.sets.length; s++) {
             if (!si.sets[s].slots[member]) {
               si.sets[s].slots[member] = { user:u, payment:'unpaid', fulfillment:'Pending' };
-              setNum = s + 1; slotted = true; placed = true; break;
+              setNum = si.sets[s].num || (s + 1); slotted = true; placed = true; break;
             }
           }
           if (!slotted) {
-            const newSet = { status:'open', slots:{} };
+            const newSet = { status:'open', slots:{}, num: nextSetNum(si.sets) };
             si.members.forEach(m => newSet.slots[m] = null);
             newSet.slots[member] = { user:u, payment:'unpaid', fulfillment:'Pending' };
             si.sets.push(newSet);
-            setNum = si.sets.length; placed = true;
+            setNum = newSet.num; placed = true;
           }
           claimsToWrite.push({ go_id:goId, go_name:go.name, sub_item_id:si.id, sub_item_name:si.name, sub_item_kind:si.kind||go.type, username:u, email, member_or_version:member, set_num:setNum, qty:1, assigned_vers:'' });
         }
       });
       // OT full sets — each is a complete set owned by the buyer; secured manually later
       for (let k = 0; k < otQty; k++) {
-        const fullSet = { status:'open', slots:{} };
+        const fullSet = { status:'open', slots:{}, num: nextSetNum(si.sets) };
         si.members.forEach(m => fullSet.slots[m] = { user:u, payment:'unpaid', fulfillment:'Pending', ot:true });
         si.sets.push(fullSet);
-        const setNum = si.sets.length;
+        const setNum = fullSet.num;
         si.members.forEach(m => {
           claimsToWrite.push({ go_id:goId, go_name:go.name, sub_item_id:si.id, sub_item_name:si.name, sub_item_kind:si.kind||go.type, username:u, email, member_or_version:m, set_num:setNum, qty:1, assigned_vers:'OT' });
         });
@@ -951,7 +954,7 @@ function submitClaim(goId) {
       }
       const last = si.sets[si.sets.length-1];
       if (countFilled(last, si.members) > 0) {
-        const empty = { status:'open', slots:{} };
+        const empty = { status:'open', slots:{}, num: nextSetNum(si.sets) };
         si.members.forEach(m => empty.slots[m] = null);
         si.sets.push(empty);
       }
@@ -1250,7 +1253,7 @@ function logSetClaim(goId, siId) {
       }
     }
     if (!placed) {
-      const newSet = { status:'open', slots:{} };
+      const newSet = { status:'open', slots:{}, num: nextSetNum(si.sets) };
       si.members.forEach(m => newSet.slots[m] = null);
       newSet.slots[member] = { user:u, payment:'unpaid', fulfillment:'Pending' };
       si.sets.push(newSet);
@@ -1258,7 +1261,7 @@ function logSetClaim(goId, siId) {
   }
   const last = si.sets[si.sets.length-1];
   if (countFilled(last, si.members) > 0) {
-    const empty = { status:'open', slots:{} };
+    const empty = { status:'open', slots:{}, num: nextSetNum(si.sets) };
     si.members.forEach(m => empty.slots[m] = null);
     si.sets.push(empty);
   }
@@ -1273,21 +1276,23 @@ function logSetClaim(goId, siId) {
 function secureSet(goId, siId, setIdx) {
   const si = allGOs[goId].subItems.find(s => s.id === siId);
   si.sets[setIdx].status = 'secured';
-  if (API_URL) apiPost('secureSet', { go_id: goId, sub_item_id: siId, set_num: setIdx + 1 });
+  const setNum = si.sets[setIdx].num || (setIdx + 1);
+  if (API_URL) apiPost('secureSet', { go_id: goId, sub_item_id: siId, set_num: setNum });
   renderDetailContent();
   renderAdminGOList();
   renderOrdersList();
-  toast('Set ' + (setIdx+1) + ' secured!');
+  toast('Set secured!');
 }
 
 function unsecureSet(goId, siId, setIdx) {
   const si = allGOs[goId].subItems.find(s => s.id === siId);
   si.sets[setIdx].status = 'open';
-  if (API_URL) apiPost('unsecureSet', { go_id: goId, sub_item_id: siId, set_num: setIdx + 1 });
+  const setNum = si.sets[setIdx].num || (setIdx + 1);
+  if (API_URL) apiPost('unsecureSet', { go_id: goId, sub_item_id: siId, set_num: setNum });
   renderDetailContent();
   renderAdminGOList();
   renderOrdersList();
-  toast('Set ' + (setIdx+1) + ' unsecured.');
+  toast('Set unsecured.');
 }
 
 function advanceSetFulfill(goId, siId, setIdx, member) {
@@ -1441,7 +1446,7 @@ function createGO() {
       if (!members.length) return;
       const price = parseFloat((document.getElementById('si-price-' + siId)||{}).value) || 0;
       const otPrice = parseFloat((document.getElementById('si-otprice-' + siId)||{}).value) || 0;
-      const emptySet = { status:'open', slots:{} };
+      const emptySet = { status:'open', slots:{}, num:1 };
       members.forEach(m => emptySet.slots[m] = null);
       subItems.push({ id: siId, name:siName, members, minSecure, price, otPrice, sets:[emptySet] });
     } else if (type === 'album') {
@@ -1451,7 +1456,7 @@ function createGO() {
         const membersRaw = (document.getElementById('si-members-' + siId)||{}).value || '';
         const members = membersRaw.split('\n').map(m=>m.trim()).filter(Boolean);
         if (!members.length) return;
-        const emptySet = { status:'open', slots:{} };
+        const emptySet = { status:'open', slots:{}, num:1 };
         members.forEach(m => emptySet.slots[m] = null);
         subItems.push({ id:siId, name:siName, kind:'member', members, minSecure, price, sets:[emptySet] });
       } else {
@@ -1791,6 +1796,7 @@ function saveGOEdits() {
         const members = membersEl.value.split('\n').map(m => m.trim()).filter(Boolean);
         si.members = members;
         si.sets[0].slots = {};
+        if (!si.sets[0].num) si.sets[0].num = 1;
         members.forEach(m => si.sets[0].slots[m] = null);
       }
     }
@@ -1808,12 +1814,12 @@ function saveGOEdits() {
     if (go.type === 'photocard') {
       const members = ((document.getElementById('edit-si-members-' + id)||{}).value||'').split('\n').map(m=>m.trim()).filter(Boolean);
       const slots = {}; members.forEach(m => slots[m] = null);
-      go.subItems.push({ id, name, members, minSecure: minSecure||7, price, otPrice, sets:[{ status:'open', slots }] });
+      go.subItems.push({ id, name, members, minSecure: minSecure||7, price, otPrice, sets:[{ status:'open', slots, num:1 }] });
     } else if (go.type === 'album') {
       if (kind === 'member') {
         const members = ((document.getElementById('edit-si-members-' + id)||{}).value||'').split('\n').map(m=>m.trim()).filter(Boolean);
         const slots = {}; members.forEach(m => slots[m] = null);
-        go.subItems.push({ id, name, kind:'member', members, minSecure: minSecure||7, price, sets:[{ status:'open', slots }], claims:[] });
+        go.subItems.push({ id, name, kind:'member', members, minSecure: minSecure||7, price, sets:[{ status:'open', slots, num:1 }], claims:[] });
       } else {
         const versions = ((document.getElementById('edit-si-versions-' + id)||{}).value||'A,B').split(',').map(v=>v.trim()).filter(Boolean);
         go.subItems.push({ id, name, kind:'versioned', versions, price, claims:[] });
@@ -2441,11 +2447,11 @@ function parseMembers(val) {
 function buildSetsFromClaims(claims, siId, members) {
   const filtered = (claims || []).filter(c => c.sub_item_id === siId);
   if (!filtered.length) {
-    const empty = { status:'open', slots:{} };
+    const empty = { status:'open', slots:{}, num:1 };
     members.forEach(m => empty.slots[m] = null);
     return [empty];
   }
-  const setNums = [...new Set(filtered.map(c => parseInt(c.set_num) || 1))].sort();
+  const setNums = [...new Set(filtered.map(c => parseInt(c.set_num) || 1))].sort((a,b) => a - b);
   const sets = setNums.map(n => {
     const setStatus = filtered.find(c => parseInt(c.set_num) === n && c.claim_status === 'secured') ? 'secured' : 'open';
     const slots = {};
@@ -2453,12 +2459,12 @@ function buildSetsFromClaims(claims, siId, members) {
     filtered.filter(c => parseInt(c.set_num) === n).forEach(c => {
       slots[c.member_or_version] = { user: c.username, payment: c.payment_status, fulfillment: c.fulfillment, claim_id: c.claim_id, ot: c.assigned_vers === 'OT' };
     });
-    return { status: setStatus, slots };
+    return { status: setStatus, slots, num: n };
   });
   const last = sets[sets.length - 1];
   const hasEmpty = members.every(m => !last.slots[m]);
   if (!hasEmpty) {
-    const empty = { status:'open', slots:{} };
+    const empty = { status:'open', slots:{}, num: nextSetNum(sets) };
     members.forEach(m => empty.slots[m] = null);
     sets.push(empty);
   }
