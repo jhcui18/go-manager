@@ -992,6 +992,19 @@ function submitClaim(goId) {
 }
 
 // ── LOOKUP ───────────────────────────────────────────────────────────────────
+// Sum a looked-up user's UNPAID claim rows into an owed total per GO.
+// rows: [{ go_id, go, price, qty, payment, ... }] (from doLookup).
+function computeOwedByGO(rows) {
+  const byGo = {};
+  rows.forEach(r => {
+    if (r.payment === 'paid') return;
+    const key = r.go_id || r.go;
+    if (!byGo[key]) byGo[key] = { go_id: r.go_id, go: r.go, owed: 0 };
+    byGo[key].owed += (r.price || 0) * (r.qty || 0);
+  });
+  return Object.values(byGo).filter(g => g.owed > 0);
+}
+
 function doLookup() {
   const val = document.getElementById('lookup-input').value.trim();
   if (!val) return;
