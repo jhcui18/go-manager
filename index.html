@@ -1074,6 +1074,41 @@ function doLookup() {
   : '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px;">No claims found for ' + u + '.</td></tr>';
   document.getElementById('lookup-form').style.display = 'none';
   document.getElementById('lookup-result').style.display = 'block';
+  // ── Pay panels (one per GO with an unpaid balance) ──
+  const payEl = document.getElementById('lookup-pay-panels');
+  if (payEl) {
+    const owed = computeOwedByGO(rows);
+    const handles = PAYMENT_METHODS.map(p =>
+      `<span class="tag">${p.method}${p.note ? ' ' + p.note : ''}: ${p.handle}</span>`
+    ).join(' ');
+    if (!owed.length) {
+      payEl.innerHTML = rows.length
+        ? `<div class="card" style="margin-top:12px;"><div style="font-size:13px;color:var(--teal-600);font-weight:500;">All paid ✓</div></div>`
+        : '';
+    } else {
+      payEl.innerHTML = owed.map(g => `
+        <div class="card" style="margin-top:12px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+            <div style="font-weight:500;font-size:15px;">${g.go}</div>
+            <div style="font-size:13px;">Owed: <strong style="font-family:var(--mono);">$${g.owed.toFixed(2)}</strong></div>
+          </div>
+          <div style="font-size:12px;color:var(--text2);margin-bottom:6px;">Send payment to one of:</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">${handles}</div>
+          <div class="field-row">
+            <div class="field" style="margin-bottom:0;"><label>Method</label>
+              <select id="pay-method-${g.go_id}">${PAYMENT_METHODS.map(p=>`<option>${p.method}</option>`).join('')}</select>
+            </div>
+            <div class="field" style="margin-bottom:0;"><label>Amount paid</label>
+              <input type="number" id="pay-amount-${g.go_id}" step="0.01" value="${g.owed.toFixed(2)}">
+            </div>
+          </div>
+          <div class="field" style="margin-top:8px;margin-bottom:8px;"><label>Transaction ID / note</label>
+            <input type="text" id="pay-txid-${g.go_id}" placeholder="e.g. PayPal txn ID or a note">
+          </div>
+          <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="submitGoPayment('${g.go_id}')">I paid</button>
+        </div>`).join('');
+    }
+  }
 }
 
 function resetLookup() {
