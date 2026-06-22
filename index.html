@@ -1111,6 +1111,36 @@ function doLookup() {
   }
 }
 
+function submitGoPayment(goId) {
+  const rawUser = (document.getElementById('lookup-input')||{}).value || '';
+  const username = rawUser.trim();
+  if (!username) { toast('Look up your username first.'); return; }
+  const u = username.startsWith('@') ? username : '@' + username;
+  const go = allGOs[goId];
+  const amount = parseFloat((document.getElementById('pay-amount-'+goId)||{}).value) || 0;
+  const method = (document.getElementById('pay-method-'+goId)||{}).value || '';
+  const txid = (document.getElementById('pay-txid-'+goId)||{}).value || '';
+  if (amount <= 0) { toast('Enter the amount you paid.'); return; }
+  const proof = {
+    payment_id: 'pay_' + Date.now(),
+    username: u,
+    go_name: go ? go.name : '',
+    go_id: goId,
+    amount,
+    method,
+    transaction_id: txid,
+    proof_url: '',
+    status: 'pending',
+    created_at: new Date().toISOString()
+  };
+  addPaymentProof(proof);
+  if (API_URL) apiPost('submitPayment', proof).catch(()=>{});
+  toast('Payment submitted — the manager will confirm it.');
+  // Disable the button to prevent double-submit until next lookup refresh
+  const btn = document.querySelector(`#lookup-pay-panels button[onclick="submitGoPayment('${goId}')"]`);
+  if (btn) { btn.disabled = true; btn.textContent = 'Submitted ✓'; }
+}
+
 function resetLookup() {
   document.getElementById('lookup-form').style.display = 'block';
   document.getElementById('lookup-result').style.display = 'none';
