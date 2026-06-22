@@ -427,6 +427,13 @@
 
 <script>
 const FULFILLMENT = ['Pending','Ordered','On the way','Ready','Dispatched'];
+// Single source of truth for the manager's payment handles (mirrors the Rules page).
+const PAYMENT_METHODS = [
+  { method: 'PayPal', handle: '@jinghanc',          note: 'F&F (no note)' },
+  { method: 'Venmo',  handle: '@Jinghan-Cui',       note: '' },
+  { method: 'Zelle',  handle: 'jhcui1818@gmail.com', note: '' },
+  { method: 'Wise',   handle: '@jinghanc3',         note: '' },
+];
 
 // ── DATA MODEL ──────────────────────────────────────────────────────────────
 // GO types: photocard | album | merch
