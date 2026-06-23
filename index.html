@@ -1262,7 +1262,7 @@ function renderDetailContent() {
         const total = si.members.length;
         const pct = Math.round(filled/total*100);
         const isSecured = set.status === 'secured';
-        const securable = !isSecured && filled >= si.minSecure;
+        const reachedMin = filled >= si.minSecure; // hit the 7/8-style rule threshold
         const isEmpty = filled === 0;
         if (isEmpty && setIdx === si.sets.length - 1) {
           admSetNo++;
@@ -1271,13 +1271,13 @@ function renderDetailContent() {
         }
         if (isEmpty) return;
         admSetNo++;
-        const barColor = isSecured ? 'var(--teal-400)' : securable ? 'var(--teal-400)' : 'var(--accent)';
+        const barColor = isSecured ? 'var(--teal-400)' : reachedMin ? 'var(--teal-400)' : 'var(--accent)';
         html += `<div class="card" style="margin-bottom:10px;${isSecured?'border-color:var(--teal-100);':''}">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
             <div style="font-size:13px;font-weight:500;">Set ${admSetNo} — ${filled}/${total}</div>
             <div style="display:flex;gap:6px;align-items:center;">
               ${isSecured ? `<span class="badge badge-secured" style="cursor:pointer;" title="Click to unsecure" onclick="unsecureSet('${go.id}','${si.id}',${setIdx})">Secured ✕</span>` : ''}
-              ${securable ? `<button class="btn btn-sm" style="color:var(--teal-600);border-color:var(--teal-100);" onclick="secureSet('${go.id}','${si.id}',${setIdx})">Secure</button>` : ''}
+              ${!isSecured ? `<button class="btn btn-sm" style="color:${reachedMin?'var(--teal-600)':'var(--text3)'};border-color:var(--border2);" title="${reachedMin?'Secure this set':'Below '+si.minSecure+' — secure early'}" onclick="secureSet('${go.id}','${si.id}',${setIdx})">${reachedMin?'Secure':'Secure early'}</button>` : ''}
             </div>
           </div>
           <div style="background:var(--gray-100);border-radius:4px;height:4px;margin-bottom:12px;"><div style="background:${barColor};width:${pct}%;height:4px;border-radius:4px;"></div></div>
