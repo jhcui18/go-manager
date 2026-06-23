@@ -2124,16 +2124,6 @@ function confirmPayment(idx) {
     });
   }
   if (API_URL && p.payment_id) apiPost('updatePayment', { payment_id: p.payment_id, status:'confirmed', username: p.username, go_id: p.go_id });
-  // Reflect paid status locally so My Orders updates without waiting for a sync.
-  const goLocal = p.go_id && allGOs[p.go_id];
-  if (goLocal) {
-    goLocal.subItems.forEach(si => {
-      if (si.sets) si.sets.forEach(set => {
-        (si.members||[]).forEach(m => { const s = set.slots[m]; if (s && s.user === p.username) s.payment = 'paid'; });
-      });
-      if (si.claims) si.claims.forEach(c => { if (c.user === p.username) c.payment = 'paid'; });
-    });
-  }
   renderPaymentProofs();
   renderDetailContent();
   toast('Payment confirmed for ' + p.username);
