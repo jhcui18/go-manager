@@ -2528,6 +2528,19 @@ async function syncFromBackend() {
       }
       toast('Synced from Google Sheets.');
     }
+    // Load payment proofs from the sheet so the admin sees buyer-submitted payments
+    // (previously paymentProofs was only populated locally per session).
+    const payResult = await apiGet('getPayments');
+    if (payResult && Array.isArray(payResult.payments)) {
+      paymentProofs = payResult.payments
+        .filter(p => p && p.payment_id)
+        .map(p => ({
+          payment_id: p.payment_id, username: p.username, go_id: p.go_id, go_name: p.go_name,
+          amount: p.amount, method: p.method, transaction_id: p.transaction_id,
+          proof_url: p.proof_url, status: p.status || 'pending', created_at: p.created_at
+        }));
+      renderPaymentProofs();
+    }
   } catch(e) {
     console.error('Sync error at stack:', e.stack || e);
     toast('Sync failed: ' + (e.message || String(e)));
