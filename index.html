@@ -1125,14 +1125,17 @@ function doLookup() {
           <div class="field" style="margin-top:8px;margin-bottom:8px;"><label>Transaction ID</label>
             <input type="text" id="pay-txid-${g.go_id}" placeholder="e.g. PayPal transaction ID">
           </div>
-          <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="submitGoPayment('${g.go_id}')">I paid</button>
+          <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="submitGoPayment('${g.go_id}','${u}')">I paid</button>
         </div>`).join('');
     }
   }
 }
 
-function submitGoPayment(goId) {
-  const rawUser = (document.getElementById('lookup-input')||{}).value || '';
+function submitGoPayment(goId, lookedUpUser) {
+  // Use the username bound to THIS panel when it was rendered, not the live
+  // lookup-input (which may have been edited after the panels rendered) — that
+  // mismatch was pairing a panel's transaction_id with the wrong buyer.
+  const rawUser = (lookedUpUser || (document.getElementById('lookup-input')||{}).value || '');
   const username = rawUser.trim();
   if (!username) { toast('Look up your username first.'); return; }
   const u = username.startsWith('@') ? username : '@' + username;
@@ -1157,7 +1160,7 @@ function submitGoPayment(goId) {
   if (API_URL) apiPost('submitPayment', proof).catch(()=>{});
   toast('Payment submitted — the manager will confirm it.');
   // Disable the button to prevent double-submit until next lookup refresh
-  const btn = document.querySelector(`#lookup-pay-panels button[onclick="submitGoPayment('${goId}')"]`);
+  const btn = document.querySelector(`#lookup-pay-panels button[onclick^="submitGoPayment('${goId}'"]`);
   if (btn) { btn.disabled = true; btn.textContent = 'Submitted ✓'; }
 }
 
