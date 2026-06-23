@@ -2109,7 +2109,7 @@ function renderPaymentProofs() {
     tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px;">No pending proofs.</td></tr>';
     return;
   }
-  tbody.innerHTML = paymentProofs.filter(p => p.status === 'pending').map((p, i) => `
+  tbody.innerHTML = paymentProofs.filter(p => p.status === 'pending').map(p => `
     <tr>
       <td style="font-weight:500;">${p.username}</td>
       <td style="font-size:12px;">${p.go_name}</td>
@@ -2120,9 +2120,9 @@ function renderPaymentProofs() {
       <td>
         <div style="display:flex;gap:4px;">
           ${p.proof_url ? `<button class="btn btn-sm btn-ghost" onclick="viewProofImage('${p.proof_url}')">View</button>` : ''}
-          <button class="btn btn-sm" style="color:var(--teal-600);border-color:var(--teal-100);" onclick="confirmPayment(${i})">✓ Confirm</button>
-          <button class="btn btn-sm btn-ghost" style="color:var(--red-400);" onclick="rejectPayment(${i})">Reject</button>
-          <button class="btn btn-sm btn-ghost" onclick="openEditProofModal(${i})">Edit</button>
+          <button class="btn btn-sm" style="color:var(--teal-600);border-color:var(--teal-100);" onclick="confirmPayment('${p.payment_id}')">✓ Confirm</button>
+          <button class="btn btn-sm btn-ghost" style="color:var(--red-400);" onclick="rejectPayment('${p.payment_id}')">Reject</button>
+          <button class="btn btn-sm btn-ghost" onclick="openEditProofModal('${p.payment_id}')">Edit</button>
         </div>
       </td>
     </tr>`).join('');
@@ -2135,8 +2135,11 @@ function viewProofImage(url) {
     <button class="btn btn-ghost" onclick="closeModal()" style="margin-top:16px;width:100%;justify-content:center;">Close</button>`);
 }
 
-function confirmPayment(idx) {
-  const p = paymentProofs[idx];
+function findProof(id) { return paymentProofs.find(p => p.payment_id === id); }
+
+function confirmPayment(id) {
+  const p = findProof(id);
+  if (!p) return;
   p.status = 'confirmed';
   // Mark all claims for this user + GO as paid
   const go = Object.values(allGOs).find(g => g.name === p.go_name || g.id === p.go_id);
@@ -2152,16 +2155,19 @@ function confirmPayment(idx) {
   toast('Payment confirmed for ' + p.username);
 }
 
-function rejectPayment(idx) {
+function rejectPayment(id) {
   if (!confirm('Reject this payment proof?')) return;
-  paymentProofs[idx].status = 'rejected';
-  if (API_URL && paymentProofs[idx].payment_id) apiPost('updatePayment', { payment_id: paymentProofs[idx].payment_id, status:'rejected' });
+  const p = findProof(id);
+  if (!p) return;
+  p.status = 'rejected';
+  if (API_URL && p.payment_id) apiPost('updatePayment', { payment_id: p.payment_id, status:'rejected' });
   renderPaymentProofs();
   toast('Payment rejected.');
 }
 
-function openEditProofModal(idx) {
-  const p = paymentProofs[idx];
+function openEditProofModal(id) {
+  const p = findProof(id);
+  if (!p) return;
   showModal(`
     <div style="font-size:16px;font-weight:500;margin-bottom:4px;">Edit payment proof</div>
     <div style="font-size:13px;color:var(--text2);margin-bottom:20px;">${p.username} — ${p.go_name}</div>
@@ -2183,13 +2189,14 @@ function openEditProofModal(idx) {
       </select>
     </div>
     <div style="display:flex;gap:8px;margin-top:8px;">
-      <button class="btn btn-primary" onclick="saveProofEdit(${idx})" style="flex:1;justify-content:center;">Save</button>
+      <button class="btn btn-primary" onclick="saveProofEdit('${p.payment_id}')" style="flex:1;justify-content:center;">Save</button>
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
     </div>`);
 }
 
-function saveProofEdit(idx) {
-  const p = paymentProofs[idx];
+function saveProofEdit(id) {
+  const p = findProof(id);
+  if (!p) return;
   p.username = document.getElementById('ep-user').value.trim() || p.username;
   p.amount = document.getElementById('ep-amount').value;
   p.method = document.getElementById('ep-method').value;
