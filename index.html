@@ -483,6 +483,7 @@ function fmtDate(val) {
   return `${y}-${m}-${day}`;
 }
 function nextFulfillment(f) { const i = FULFILLMENT.indexOf(f); return i < FULFILLMENT.length-1 ? FULFILLMENT[i+1] : null; }
+function prevFulfillment(f) { const i = FULFILLMENT.indexOf(f); return i > 0 ? FULFILLMENT[i-1] : null; }
 function fulfillBadge(f) { return f==='Ready'?'badge-ready':f==='On the way'?'badge-transit':f==='Ordered'?'badge-waitlist':'badge-pending'; }
 function assignVersions(qty, versions) {
   if (!versions || versions.length === 0) return Array(qty).fill('random');
@@ -1272,6 +1273,7 @@ function renderDetailContent() {
           const sub = taken ? slot.user : 'open';
           const fulfillHtml = taken && !isSecured ? '' : taken ? `<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
             <span class="badge ${fulfillBadge(slot.fulfillment)}" style="font-size:10px;">${slot.fulfillment}</span>
+            ${prevFulfillment(slot.fulfillment) ? `<button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 6px;" title="Back to ${prevFulfillment(slot.fulfillment)}" onclick="advanceSetFulfill('${go.id}','${si.id}',${setIdx},'${member}','prev')">←</button>` : ''}
             ${nextFulfillment(slot.fulfillment) ? `<button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 6px;" onclick="advanceSetFulfill('${go.id}','${si.id}',${setIdx},'${member}')">→ ${nextFulfillment(slot.fulfillment)}</button>` : ''}
             <button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 6px;" onclick="openEditClaimModal('${go.id}','${si.id}',${setIdx},'${member}')">Edit</button>
           </div>` : '';
@@ -1296,6 +1298,7 @@ function renderDetailContent() {
       } else {
         claims.forEach((c, ci) => {
           const nf = nextFulfillment(c.fulfillment);
+          const pf = prevFulfillment(c.fulfillment);
           const memberOrVer = c.member || (c.assignedVers||[]).join(' + ');
           html += `<tr>
             <td style="color:var(--text3);font-family:var(--mono);">${ci+1}</td>
@@ -1306,6 +1309,7 @@ function renderDetailContent() {
             <td><span class="badge ${c.payment==='paid'?'badge-paid':'badge-unpaid'}">${c.payment==='paid'?'Paid':'Unpaid'}</span></td>
             <td><div style="display:flex;align-items:center;gap:6px;">
               <span class="badge ${fulfillBadge(c.fulfillment)}">${c.fulfillment}</span>
+              ${pf ? `<button class="btn btn-sm btn-ghost" style="font-size:11px;padding:3px 8px;" title="Back to ${pf}" onclick="advanceFCFSFulfill('${go.id}','${si.id}',${ci},'prev')">←</button>` : ''}
               ${nf ? `<button class="btn btn-sm btn-ghost" style="font-size:11px;padding:3px 8px;" onclick="advanceFCFSFulfill('${go.id}','${si.id}',${ci})">→ ${nf}</button>` : ''}
             </div></td>
             <td><div style="display:flex;gap:4px;">
@@ -1381,11 +1385,11 @@ function unsecureSet(goId, siId, setIdx) {
   toast('Set unsecured.');
 }
 
-function advanceSetFulfill(goId, siId, setIdx, member) {
+function advanceSetFulfill(goId, siId, setIdx, member, dir) {
   const si = allGOs[goId].subItems.find(s => s.id === siId);
   const slot = si.sets[setIdx].slots[member];
   if (!slot) return;
-  const nf = nextFulfillment(slot.fulfillment);
+  const nf = dir === 'prev' ? prevFulfillment(slot.fulfillment) : nextFulfillment(slot.fulfillment);
   if (nf) {
     slot.fulfillment = nf;
     if (API_URL && slot.claim_id) apiPost('updateClaim', { claim_id: slot.claim_id, fulfillment: nf });
@@ -1394,10 +1398,10 @@ function advanceSetFulfill(goId, siId, setIdx, member) {
   }
 }
 
-function advanceFCFSFulfill(goId, siId, claimIdx) {
+function advanceFCFSFulfill(goId, siId, claimIdx, dir) {
   const si = allGOs[goId].subItems.find(s => s.id === siId);
   const claim = si.claims[claimIdx];
-  const nf = nextFulfillment(claim.fulfillment);
+  const nf = dir === 'prev' ? prevFulfillment(claim.fulfillment) : nextFulfillment(claim.fulfillment);
   if (nf) {
     claim.fulfillment = nf;
     if (API_URL && claim.claim_id) apiPost('updateClaim', { claim_id: claim.claim_id, fulfillment: nf });
