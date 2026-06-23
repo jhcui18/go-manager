@@ -1008,12 +1008,14 @@ function submitClaim(goId) {
 }
 
 // ── LOOKUP ───────────────────────────────────────────────────────────────────
-// Sum a looked-up user's UNPAID claim rows into an owed total per GO.
-// rows: [{ go_id, go, price, qty, payment, ... }] (from doLookup).
+// Sum a looked-up user's SECURED, UNPAID claim rows into an owed total per GO.
+// Only secured claims are owed — pending/unsecured spots aren't charged yet.
+// rows: [{ go_id, go, price, qty, payment, claim, ... }] (from doLookup).
 function computeOwedByGO(rows) {
   const byGo = {};
   rows.forEach(r => {
     if (r.payment === 'paid') return;
+    if (r.claim !== 'Secured') return;
     const key = r.go_id || r.go;
     if (!byGo[key]) byGo[key] = { go_id: r.go_id, go: r.go, owed: 0 };
     byGo[key].owed += (r.price || 0) * (r.qty || 0);
@@ -1097,7 +1099,10 @@ function doLookup() {
       `<span class="tag">${p.method}${p.note ? ' ' + p.note : ''}: ${p.handle}</span>`
     ).join(' ');
     if (!owed.length) {
-      payEl.innerHTML = rows.length
+      // Show "All paid ✓" only if the buyer has secured claims (all paid).
+      // If they only have pending/unsecured claims, nothing is owed yet — show nothing.
+      const hasSecured = rows.some(r => r.claim === 'Secured');
+      payEl.innerHTML = hasSecured
         ? `<div class="card" style="margin-top:12px;"><div style="font-size:13px;color:var(--teal-600);font-weight:500;">All paid ✓</div></div>`
         : '';
     } else {
