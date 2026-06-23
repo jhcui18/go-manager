@@ -508,7 +508,10 @@ function renderOrdersList() {
   let html = '<p class="page-title">Active group orders</p><p class="page-sub">Claim a spot or browse available items.</p>';
   Object.values(allGOs).forEach(go => {
     const typeLabel = go.type === 'photocard' ? 'Photocard' : go.type === 'album' ? 'Album' : 'Merch';
-    const badgeClass = go.type === 'photocard' ? 'badge-set' : go.type === 'album' ? 'badge-fcfs' : 'badge-waitlist';
+    // Photocard uses amber here (not the pink badge-set) so it doesn't clash with the red Closed badge.
+    const typeBadge = go.type === 'photocard'
+      ? '<span class="badge" style="background:var(--amber-50);color:var(--amber-800);">Photocard</span>'
+      : `<span class="badge ${go.type === 'album' ? 'badge-fcfs' : 'badge-waitlist'}">${typeLabel}</span>`;
     const isClosed = go.status === 'closed';
     const statusBadge = isClosed
       ? '<span class="badge" style="background:var(--red-50);color:var(--red-800);">● Closed</span>'
@@ -517,7 +520,7 @@ function renderOrdersList() {
       <div class="go-card-header">
         <div><div class="go-name">${go.name}</div><div class="go-meta">Deadline: ${fmtDate(go.deadline)} &nbsp;·&nbsp; ${go.subItems.length} ${go.type === 'merch' ? 'items' : go.type === 'album' ? 'versions' : 'sets'}</div></div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
-          <span class="badge ${badgeClass}">${typeLabel}</span>
+          ${typeBadge}
           ${statusBadge}
         </div>
       </div>
