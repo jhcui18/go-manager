@@ -509,10 +509,17 @@ function renderOrdersList() {
   Object.values(allGOs).forEach(go => {
     const typeLabel = go.type === 'photocard' ? 'Photocard' : go.type === 'album' ? 'Album' : 'Merch';
     const badgeClass = go.type === 'photocard' ? 'badge-set' : go.type === 'album' ? 'badge-fcfs' : 'badge-waitlist';
+    const isClosed = go.status === 'closed';
+    const statusBadge = isClosed
+      ? '<span class="badge" style="background:var(--red-50);color:var(--red-800);">● Closed</span>'
+      : '<span class="badge" style="background:var(--teal-50);color:var(--teal-800);">● Open</span>';
     html += `<div class="go-card" onclick="openClaimPage('${go.id}')">
       <div class="go-card-header">
         <div><div class="go-name">${go.name}</div><div class="go-meta">Deadline: ${fmtDate(go.deadline)} &nbsp;·&nbsp; ${go.subItems.length} ${go.type === 'merch' ? 'items' : go.type === 'album' ? 'versions' : 'sets'}</div></div>
-        <span class="badge ${badgeClass}">${typeLabel}</span>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+          <span class="badge ${badgeClass}">${typeLabel}</span>
+          ${statusBadge}
+        </div>
       </div>
       <div id="go-preview-${go.id}"></div>
     </div>`;
