@@ -159,9 +159,30 @@ function deleteGO(goId) {
 }
 
 // ── Claims ────────────────────────────────────────────────────────────────────
+function isGOClosed(ss, goId) {
+  const goSheet = ss.getSheetByName(SHEET_GOS);
+  if (!goSheet) return false;
+  const rows = goSheet.getDataRange().getValues();
+  const headers = rows[0];
+  const idCol = headers.indexOf('go_id');
+  const statusCol = headers.indexOf('status');
+  if (idCol < 0 || statusCol < 0) return false;
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][idCol] === goId) return String(rows[i][statusCol]).toLowerCase() === 'closed';
+  }
+  return false;
+}
+
 function submitClaim(data) {
   bootstrapSheets();
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_JOINERS);
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  // Authoritative guard: refuse claims for a GO that is closed in the sheet, even if
+  // the client's cached status is stale (loaded before the GO was closed).
+  const firstGoId = (data.claims && data.claims[0] && data.claims[0].go_id) || '';
+  if (firstGoId && isGOClosed(ss, firstGoId)) {
+    return { ok: false, error: 'closed', message: 'This GO is closed and no longer accepting claims.' };
+  }
+  const sheet = ss.getSheetByName(SHEET_JOINERS);
   const now = new Date().toISOString();
   const claimIds = [];
   // data.claims is an array of individual slot claims — each gets its own unique ID

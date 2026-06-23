@@ -914,6 +914,7 @@ function submitClaim(goId) {
   if (!username) { toast('Please enter your username.'); return; }
   const u = username.startsWith('@') ? username : '@' + username;
   const go = allGOs[goId];
+  if (go.status === 'closed') { toast('This GO is closed and no longer accepting claims.'); return; }
   const claimsToWrite = [];
   let placed = false;
   go.subItems.forEach(si => {
@@ -980,8 +981,15 @@ function submitClaim(goId) {
     }
   });
   if (!placed) { toast('Please select at least one item.'); return; }
-  if (go.status === 'closed') { toast('This GO is closed and no longer accepting claims.'); return; }
-  if (API_URL && claimsToWrite.length) apiPost('submitClaim', { claims: claimsToWrite }).catch(() => {});
+  if (API_URL && claimsToWrite.length) {
+    apiPost('submitClaim', { claims: claimsToWrite }).then(res => {
+      // Backend may reject if the GO was closed after this client loaded it.
+      if (res && res.ok === false && res.error === 'closed') {
+        toast('This GO just closed — your claim was not recorded.');
+        syncFromBackend();
+      }
+    }).catch(() => {});
+  }
   claimState = {};
   renderOrdersList();
   renderAdminGOList();
