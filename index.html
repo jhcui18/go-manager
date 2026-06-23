@@ -549,13 +549,9 @@ function renderGoPreview(goId) {
     html += '</div>';
     el.innerHTML = html;
   } else {
-    let html = '<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;">';
-    go.subItems.forEach(si => {
-      const count = si.claims.reduce((a,c) => a+c.qty, 0);
-      html += `<div class="tag">${si.name} $${si.price} · ${count} claimed</div>`;
-    });
-    html += '</div>';
-    el.innerHTML = html;
+    // Merch: no per-item summary on the Group orders page (keeps the card short on
+    // phone); the header already shows the item count. Details are on the claim page.
+    el.innerHTML = '';
   }
 }
 
