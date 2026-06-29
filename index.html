@@ -2467,7 +2467,8 @@ async function syncFromBackend() {
   if (!API_URL) return;
   showLoadingOverlay(true);
   try {
-    const result = await apiGet('getAllGOs');
+    // Fetch GOs and payments in parallel so the two round-trips overlap.
+    const [result, payResult] = await Promise.all([apiGet('getAllGOs'), apiGet('getPayments')]);
     if (result && result.gos && result.gos.length) {
       allGOs = {};
       result.gos.forEach(go => {
@@ -2553,9 +2554,7 @@ async function syncFromBackend() {
       }
       toast('Synced from Google Sheets.');
     }
-    // Load payment proofs from the sheet so the admin sees buyer-submitted payments
-    // (previously paymentProofs was only populated locally per session).
-    const payResult = await apiGet('getPayments');
+    // Payment proofs (fetched in parallel above) so the admin sees buyer-submitted payments.
     if (payResult && Array.isArray(payResult.payments)) {
       paymentProofs = payResult.payments
         .filter(p => p && p.payment_id)
