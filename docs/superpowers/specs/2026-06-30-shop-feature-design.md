@@ -53,6 +53,15 @@ The shop is its own subsystem with clear boundaries, reusing existing UI/pattern
 - `payment_status`: `unpaid | paid`.
 - `fulfillment`: same ladder as GOs (`Pending → Ordered → On the way → Ready → Dispatched`).
 
+## Shipping
+
+No per-order shipping preference. Shipping is handled by the unified **"Request
+shipping"** flow in My orders (a separate feature), which bundles ALL of a buyer's
+Ready items — GO claims and shop orders alike — into one shipping request with one
+address. This works for shop-only buyers too (their bundle just contains shop items).
+The only requirement the shop places on that flow: shop orders carry a `fulfillment`
+status, so they reach **Ready** and get included in the buyer's shipping bundle.
+
 ## Backend endpoints (new) — `go-manager-backend.gs`
 
 - `getListings()` → `{ listings: [...] }` (all listings; frontend filters active).
@@ -77,7 +86,7 @@ Extend `updatePayment(data)`: when `data.go_id === 'shop'` and status becomes
 - Grid of listing cards for `status==='active'`: lazy-loaded image, name, category
   chip, price, stock ("3 left" or red "Sold out" when `qty===0`).
 - Tapping a card opens an order view: quantity stepper (max = `qty`), username
-  input, **Place order** button.
+  input, and a **Place order** button.
 - On order: call `placeShopOrder`. On success, decrement local stock, toast
   "Order placed — pay in My orders", route to My orders. On `oversold`, toast the
   available count and refresh.
