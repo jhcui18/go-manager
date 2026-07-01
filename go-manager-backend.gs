@@ -71,6 +71,9 @@ function doPost(e) {
     else if (action === 'unsecureSet')       result = unsecureSet(body.data);
     else if (action === 'submitPayment')     result = submitPayment(body.data);
     else if (action === 'updatePayment')     result = updatePayment(body.data);
+    else if (action === 'createListing')     result = createListing(body.data);
+    else if (action === 'updateListing')     result = updateListing(body.data);
+    else if (action === 'deleteListing')     result = deleteListing(body.data.listing_id);
     else if (action === 'submitShipping')    result = submitShipping(body.data);
     else if (action === 'updateShipping')    result = updateShipping(body.data);
     else if (action === 'bootstrap')         result = { ok: true, msg: bootstrapSheets() || 'Sheets ready' };
@@ -298,6 +301,34 @@ function getListings() {
 function getShopOrders() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_SHOP_ORDERS);
   return { shop_orders: sheet ? sheetToObjects(sheet) : [] };
+}
+
+function createListing(data) {
+  bootstrapSheets();
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_LISTINGS);
+  const id = 'lst_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
+  sheet.appendRow([
+    id, data.name || '', data.category || '', data.price || 0, data.image_url || '',
+    data.qty || 0, data.note || '', 'active', new Date().toISOString()
+  ]);
+  return { ok: true, listing_id: id };
+}
+
+function updateListing(data) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_LISTINGS);
+  const fields = {};
+  ['name','category','price','image_url','qty','note','status'].forEach(k => {
+    if (data[k] !== undefined) fields[k] = data[k];
+  });
+  updateRowWhere(sheet, 'listing_id', data.listing_id, fields);
+  return { ok: true };
+}
+
+function deleteListing(listing_id) {
+  // Soft-delete: hide it, preserve order history.
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_LISTINGS);
+  updateRowWhere(sheet, 'listing_id', listing_id, { status: 'hidden' });
+  return { ok: true };
 }
 
 // ── Shipping ──────────────────────────────────────────────────────────────────
