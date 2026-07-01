@@ -9,6 +9,8 @@ const SHEET_GOS       = '_gos';        // master GO registry
 const SHEET_JOINERS   = 'joiners';     // all claims across GOs
 const SHEET_SHIPPING  = 'shipping';    // shipping requests
 const SHEET_PAYMENTS  = 'payments';    // payment proof submissions
+const SHEET_LISTINGS   = 'listings';     // shop listings (leftover stock)
+const SHEET_SHOP_ORDERS = 'shop_orders'; // shop purchase orders
 
 // ── Bootstrap: create all required sheets if missing ─────────────────────────
 function bootstrapSheets() {
@@ -17,6 +19,8 @@ function bootstrapSheets() {
   ensureSheet(ss, SHEET_JOINERS,  ['claim_id','go_id','go_name','sub_item_id','sub_item_name','sub_item_kind','username','email','member_or_version','set_num','qty','assigned_vers','claim_status','payment_status','fulfillment','created_at','updated_at']);
   ensureSheet(ss, SHEET_SHIPPING, ['request_id','username','go_ids','full_name','address1','address2','city','state','postal','country','notes','email','card_count','ems_fee','dom_fee','total_fee','shipped','created_at']);
   ensureSheet(ss, SHEET_PAYMENTS, ['payment_id','username','go_id','go_name','amount','method','transaction_id','proof_url','email','status','created_at']);
+  ensureSheet(ss, SHEET_LISTINGS,    ['listing_id','name','category','price','image_url','qty','note','status','created_at']);
+  ensureSheet(ss, SHEET_SHOP_ORDERS, ['order_id','listing_id','listing_name','username','email','qty','unit_price','payment_status','fulfillment','created_at','updated_at']);
   // Per-GO sub-item sheets are created when a GO is created.
 }
 
@@ -42,6 +46,8 @@ function doGet(e) {
     else if (action === 'getJoiners')      result = getJoiners(e.parameter.username);
     else if (action === 'getShipping')     result = getShipping();
     else if (action === 'getPayments')     result = getPayments();
+    else if (action === 'getListings')     result = getListings();
+    else if (action === 'getShopOrders')   result = getShopOrders();
     else if (action === 'ping')            result = { ok: true };
     else result = { error: 'Unknown action: ' + action };
     return jsonResponse(result);
@@ -282,6 +288,16 @@ function updatePayment(data) {
 function getPayments() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_PAYMENTS);
   return { payments: sheet ? sheetToObjects(sheet) : [] };
+}
+
+function getListings() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_LISTINGS);
+  return { listings: sheet ? sheetToObjects(sheet) : [] };
+}
+
+function getShopOrders() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_SHOP_ORDERS);
+  return { shop_orders: sheet ? sheetToObjects(sheet) : [] };
 }
 
 // ── Shipping ──────────────────────────────────────────────────────────────────
