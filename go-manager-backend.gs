@@ -74,6 +74,8 @@ function doPost(e) {
     else if (action === 'createListing')     result = createListing(body.data);
     else if (action === 'updateListing')     result = updateListing(body.data);
     else if (action === 'deleteListing')     result = deleteListing(body.data.listing_id);
+    else if (action === 'placeShopOrder')    result = placeShopOrder(body.data);
+    else if (action === 'updateShopOrder')   result = updateShopOrder(body.data);
     else if (action === 'submitShipping')    result = submitShipping(body.data);
     else if (action === 'updateShipping')    result = updateShipping(body.data);
     else if (action === 'bootstrap')         result = { ok: true, msg: bootstrapSheets() || 'Sheets ready' };
@@ -328,6 +330,46 @@ function deleteListing(listing_id) {
   // Soft-delete: hide it, preserve order history.
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_LISTINGS);
   updateRowWhere(sheet, 'listing_id', listing_id, { status: 'hidden' });
+  return { ok: true };
+}
+
+function placeShopOrder(data) {
+  bootstrapSheets();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const listSheet = ss.getSheetByName(SHEET_LISTINGS);
+  const rows = listSheet.getDataRange().getValues();
+  const headers = rows[0];
+  const idCol = headers.indexOf('listing_id');
+  const qtyCol = headers.indexOf('qty');
+  const nameCol = headers.indexOf('name');
+  const priceCol = headers.indexOf('price');
+  const want = parseInt(data.qty) || 1;
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][idCol] === data.listing_id) {
+      const have = parseInt(rows[i][qtyCol]) || 0;
+      if (have < want) return { ok: false, error: 'oversold', available: have };
+      // Decrement stock authoritatively, then append the order.
+      listSheet.getRange(i+1, qtyCol+1).setValue(have - want);
+      const orderSheet = ss.getSheetByName(SHEET_SHOP_ORDERS);
+      const oid = 'sho_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
+      const now = new Date().toISOString();
+      orderSheet.appendRow([
+        oid, data.listing_id, rows[i][nameCol], data.username, data.email || '',
+        want, rows[i][priceCol], 'unpaid', 'Pending', now, now
+      ]);
+      return { ok: true, order_id: oid };
+    }
+  }
+  return { ok: false, error: 'not_found' };
+}
+
+function updateShopOrder(data) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_SHOP_ORDERS);
+  const fields = {};
+  if (data.payment_status !== undefined) fields.payment_status = data.payment_status;
+  if (data.fulfillment !== undefined)    fields.fulfillment = data.fulfillment;
+  fields.updated_at = new Date().toISOString();
+  updateRowWhere(sheet, 'order_id', data.order_id, fields);
   return { ok: true };
 }
 
