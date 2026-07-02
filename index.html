@@ -1155,6 +1155,14 @@ function doLookup() {
       }
     });
   });
+  // Shop orders for this user — grouped under a "Shop" pseudo-GO.
+  shopOrders.filter(o => o.username === u).forEach(o => {
+    rows.push({
+      go_id: 'shop', go: 'Shop', item: o.listing_name, detail: '',
+      qty: parseInt(o.qty) || 1, price: parseFloat(o.unit_price) || 0,
+      claim: 'Secured', payment: o.payment_status, fulfillment: o.fulfillment
+    });
+  });
   document.getElementById('result-count').textContent = rows.length + ' active claim' + (rows.length!==1?'s':'');
   const tbody = document.getElementById('lookup-tbody');
   const grandTotal = rows.reduce((a, r) => a + (r.price * r.qty), 0);
@@ -1240,7 +1248,7 @@ function submitGoPayment(goId, lookedUpUser) {
   const proof = {
     payment_id: 'pay_' + Date.now(),
     username: u,
-    go_name: go ? go.name : '',
+    go_name: go ? go.name : (goId === 'shop' ? 'Shop' : ''),
     go_id: goId,
     amount,
     method,
@@ -2262,6 +2270,10 @@ function confirmPayment(id) {
       if (si.sets) si.sets.forEach(s => Object.values(s.slots).forEach(slot => { if (slot && slot.user === p.username) slot.payment = 'paid'; }));
       if (si.claims) si.claims.forEach(c => { if (c.user === p.username) c.payment = 'paid'; });
     });
+  }
+  if (p.go_id === 'shop') {
+    shopOrders.forEach(o => { if (o.username === p.username) o.payment_status = 'paid'; });
+    renderShopOrders();
   }
   if (API_URL && p.payment_id) apiPost('updatePayment', { payment_id: p.payment_id, status:'confirmed', username: p.username, go_id: p.go_id });
   renderPaymentProofs();
