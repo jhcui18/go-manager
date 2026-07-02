@@ -596,6 +596,35 @@ function adjustShopQty(delta, max) {
   if (el) el.textContent = shopOrderQty;
 }
 
+function submitShopOrder(listingId) {
+  const rawUser = (document.getElementById('shop-order-user')||{}).value || '';
+  const username = rawUser.trim();
+  if (!username) { toast('Enter your username.'); return; }
+  const u = username.startsWith('@') ? username : '@' + username;
+  const l = listings.find(x => x.listing_id === listingId);
+  if (!l) return;
+  const qty = shopOrderQty;
+  if (!API_URL) { toast('Shop needs the backend configured.'); return; }
+  apiPost('placeShopOrder', { listing_id: listingId, username: u, qty }).then(res => {
+    if (res && res.ok) {
+      // Reflect stock locally so the grid updates without a full sync.
+      l.qty = (parseInt(l.qty) || 0) - qty;
+      closeModal();
+      renderShopPage();
+      toast('Order placed — pay in My orders.');
+      document.getElementById('lookup-input').value = u;
+      showPage('lookup');
+      doLookup();
+    } else if (res && res.error === 'oversold') {
+      toast('Only ' + (res.available || 0) + ' left — please retry.');
+      l.qty = res.available || 0;
+      renderShopPage();
+    } else {
+      toast('Could not place order.');
+    }
+  }).catch(() => toast('Could not place order.'));
+}
+
 function renderGoPreview(goId) {
   const go = allGOs[goId];
   const el = document.getElementById('go-preview-' + goId);
