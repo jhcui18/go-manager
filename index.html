@@ -103,6 +103,7 @@
   <div class="nav-logo">✦ go manager</div>
   <div class="nav-tabs">
     <div class="nav-tab active" onclick="showPage('orders')">Group orders</div>
+    <div class="nav-tab" onclick="showPage('shop')">Shop</div>
     <div class="nav-tab" onclick="showPage('lookup')">My orders</div>
     <div class="nav-tab" onclick="showPage('rules')">Rules</div>
     <div class="nav-tab" id="admin-nav-tab" onclick="requireAdmin()" style="display:none;">Admin</div>
@@ -132,6 +133,7 @@
 
 <!-- ORDERS PAGE -->
 <div class="page active" id="page-orders"></div>
+<div class="page" id="page-shop"></div>
 
 <!-- LOOKUP PAGE -->
 <div class="page" id="page-lookup">
@@ -530,6 +532,68 @@ function renderOrdersList() {
   container.innerHTML = html;
   Object.values(allGOs).forEach(go => renderGoPreview(go.id));
   renderPaymentGoSelect();
+}
+
+function renderShopPage() {
+  const el = document.getElementById('page-shop');
+  if (!el) return;
+  const active = listings.filter(l => (l.status || 'active') === 'active');
+  let html = '<p class="page-title">Shop</p><p class="page-sub">Leftover photocards, merch & albums. First come, first served.</p>';
+  if (!active.length) {
+    html += '<div style="text-align:center;color:var(--text3);padding:30px;">Nothing for sale right now.</div>';
+    el.innerHTML = html;
+    return;
+  }
+  html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;">';
+  active.forEach(l => {
+    const qty = parseInt(l.qty) || 0;
+    const sold = qty <= 0;
+    html += `<div class="card" style="padding:0;overflow:hidden;${sold?'opacity:0.6;':'cursor:pointer;'}" ${sold?'':`onclick="openShopListing('${l.listing_id}')"`}>
+      ${l.image_url ? `<img src="${l.image_url}" loading="lazy" style="width:100%;aspect-ratio:1;object-fit:cover;display:block;" onerror="this.style.display='none'">` : '<div style="width:100%;aspect-ratio:1;background:var(--surface2);"></div>'}
+      <div style="padding:8px 10px;">
+        <div style="font-size:11px;color:var(--text3);">${l.category || ''}</div>
+        <div style="font-size:13px;font-weight:500;">${l.name}</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;">
+          <span style="font-size:13px;font-weight:500;font-family:var(--mono);">$${(parseFloat(l.price)||0).toFixed(2)}</span>
+          ${sold ? '<span class="badge badge-unpaid" style="font-size:10px;">Sold out</span>' : `<span style="font-size:11px;color:var(--teal-600);">${qty} left</span>`}
+        </div>
+      </div>
+    </div>`;
+  });
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+let shopOrderQty = 1;
+function openShopListing(listingId) {
+  const l = listings.find(x => x.listing_id === listingId);
+  if (!l) return;
+  const max = parseInt(l.qty) || 0;
+  shopOrderQty = 1;
+  showModal(`
+    <div style="font-size:16px;font-weight:500;margin-bottom:4px;">${l.name}</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:12px;">${l.category || ''} · $${(parseFloat(l.price)||0).toFixed(2)} · ${max} left</div>
+    ${l.image_url ? `<img src="${l.image_url}" style="width:100%;border-radius:var(--radius);margin-bottom:12px;" onerror="this.style.display='none'">` : ''}
+    ${l.note ? `<div style="font-size:12px;color:var(--text2);margin-bottom:12px;">${l.note}</div>` : ''}
+    <div class="field"><label>Your username</label><input type="text" id="shop-order-user" placeholder="@username"></div>
+    <div style="display:flex;align-items:center;gap:10px;margin:10px 0;">
+      <span style="font-size:12px;color:var(--text2);">Qty:</span>
+      <div class="qty-row">
+        <button class="qty-btn" onclick="adjustShopQty(-1,${max})">−</button>
+        <span id="shop-qty-val" style="min-width:24px;text-align:center;font-weight:500;">1</span>
+        <button class="qty-btn" onclick="adjustShopQty(1,${max})">+</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <button class="btn btn-primary" style="flex:1;justify-content:center;" onclick="submitShopOrder('${l.listing_id}')">Place order</button>
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+    </div>`);
+}
+
+function adjustShopQty(delta, max) {
+  shopOrderQty = Math.max(1, Math.min(max, shopOrderQty + delta));
+  const el = document.getElementById('shop-qty-val');
+  if (el) el.textContent = shopOrderQty;
 }
 
 function renderGoPreview(goId) {
@@ -1682,13 +1746,14 @@ function requireAdmin() {
 function showPage(id) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-  const pageMap = { orders:0, lookup:1, rules:2, admin:3 };
+  const pageMap = { orders:0, shop:1, lookup:2, rules:3, admin:4 };
   const page = document.getElementById('page-' + id);
   if (page) {
     page.classList.add('active');
     const idx = pageMap[id];
     if (idx !== undefined) document.querySelectorAll('.nav-tab')[idx].classList.add('active');
     if (id === 'orders') renderOrdersList();
+    if (id === 'shop') renderShopPage();
     if (id === 'admin') { if (!isAdmin) { promptAdmin(); page.classList.remove('active'); return; } showAdminPanel('home'); }
   }
 }
