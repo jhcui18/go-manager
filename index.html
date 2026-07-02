@@ -1733,7 +1733,7 @@ function showAdminPanel(panel) {
     const el = document.getElementById(p === 'home' ? 'admin-home' : 'admin-panel-' + p);
     if (el) el.style.display = p === panel ? 'block' : 'none';
   });
-  if (panel === 'home') renderAdminGOList();
+  if (panel === 'home') { renderAdminGOList(); renderAdminListings(); renderShopOrders(); }
   if (panel === 'new-go') { newGoSubItems = []; document.getElementById('sub-items-list').innerHTML = ''; addSubItem(); }
 }
 
