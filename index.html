@@ -2341,6 +2341,52 @@ function hideListing(listingId) {
   toast('Listing hidden.');
 }
 
+function renderShopOrders() {
+  const tbody = document.getElementById('shop-orders-tbody');
+  if (!tbody) return;
+  if (!shopOrders.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px;">No shop orders.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = shopOrders.map(o => {
+    const amt = (parseFloat(o.unit_price)||0) * (parseInt(o.qty)||1);
+    const nf = nextFulfillment(o.fulfillment);
+    const pf = prevFulfillment(o.fulfillment);
+    return `<tr>
+      <td style="font-weight:500;">${o.username}</td>
+      <td style="font-size:12px;">${o.listing_name}</td>
+      <td>${o.qty}</td>
+      <td style="font-family:var(--mono);">$${amt.toFixed(2)}</td>
+      <td><span class="badge ${o.payment_status==='paid'?'badge-paid':'badge-unpaid'}" style="cursor:pointer;" onclick="toggleShopOrderPayment('${o.order_id}')">${o.payment_status==='paid'?'Paid':'Unpaid'}</span></td>
+      <td><div style="display:flex;align-items:center;gap:6px;">
+        <span class="badge ${fulfillBadge(o.fulfillment)}">${o.fulfillment}</span>
+        ${pf ? `<button class="btn btn-sm btn-ghost" style="font-size:11px;padding:3px 8px;" title="Back to ${pf}" onclick="advanceShopFulfill('${o.order_id}','prev')">←</button>` : ''}
+        ${nf ? `<button class="btn btn-sm btn-ghost" style="font-size:11px;padding:3px 8px;" onclick="advanceShopFulfill('${o.order_id}')">→ ${nf}</button>` : ''}
+      </div></td>
+    </tr>`;
+  }).join('');
+}
+
+function toggleShopOrderPayment(orderId) {
+  const o = shopOrders.find(x => x.order_id === orderId);
+  if (!o) return;
+  o.payment_status = o.payment_status === 'paid' ? 'unpaid' : 'paid';
+  if (API_URL) apiPost('updateShopOrder', { order_id: orderId, payment_status: o.payment_status });
+  renderShopOrders();
+  toast(o.listing_name + ': ' + (o.payment_status==='paid'?'Paid':'Unpaid'));
+}
+
+function advanceShopFulfill(orderId, dir) {
+  const o = shopOrders.find(x => x.order_id === orderId);
+  if (!o) return;
+  const nf = dir === 'prev' ? prevFulfillment(o.fulfillment) : nextFulfillment(o.fulfillment);
+  if (!nf) return;
+  o.fulfillment = nf;
+  if (API_URL) apiPost('updateShopOrder', { order_id: orderId, fulfillment: nf });
+  renderShopOrders();
+  toast('Fulfillment: ' + nf);
+}
+
 function viewProofImage(url) {
   showModal(`
     <div style="font-size:14px;font-weight:500;margin-bottom:16px;">Payment screenshot</div>
