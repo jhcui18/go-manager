@@ -276,14 +276,31 @@ function updatePayment(data) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_PAYMENTS);
   updateRowWhere(sheet, 'payment_id', data.payment_id, { status: data.status });
   if (data.status === 'confirmed') {
-    // Mark all matching claims as paid
-    const claimSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_JOINERS);
-    const rows = claimSheet.getDataRange().getValues();
-    const headers = rows[0];
-    for (let i = 1; i < rows.length; i++) {
-      if (rows[i][headers.indexOf('username')] === data.username && rows[i][headers.indexOf('go_id')] === data.go_id) {
-        claimSheet.getRange(i+1, headers.indexOf('payment_status')+1).setValue('paid');
-        claimSheet.getRange(i+1, headers.indexOf('updated_at')+1).setValue(new Date().toISOString());
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (data.go_id === 'shop') {
+      // Mark this user's shop orders paid.
+      const orderSheet = ss.getSheetByName(SHEET_SHOP_ORDERS);
+      const rows = orderSheet.getDataRange().getValues();
+      const headers = rows[0];
+      const uCol = headers.indexOf('username');
+      const payCol = headers.indexOf('payment_status');
+      const updCol = headers.indexOf('updated_at');
+      for (let i = 1; i < rows.length; i++) {
+        if (rows[i][uCol] === data.username) {
+          orderSheet.getRange(i+1, payCol+1).setValue('paid');
+          orderSheet.getRange(i+1, updCol+1).setValue(new Date().toISOString());
+        }
+      }
+    } else {
+      // Mark all matching GO claims as paid.
+      const claimSheet = ss.getSheetByName(SHEET_JOINERS);
+      const rows = claimSheet.getDataRange().getValues();
+      const headers = rows[0];
+      for (let i = 1; i < rows.length; i++) {
+        if (rows[i][headers.indexOf('username')] === data.username && rows[i][headers.indexOf('go_id')] === data.go_id) {
+          claimSheet.getRange(i+1, headers.indexOf('payment_status')+1).setValue('paid');
+          claimSheet.getRange(i+1, headers.indexOf('updated_at')+1).setValue(new Date().toISOString());
+        }
       }
     }
   }
