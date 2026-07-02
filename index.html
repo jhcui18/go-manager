@@ -2114,6 +2114,8 @@ function saveFCFSClaimEdit(goId, siId, claimIdx) {
 
 // ── PAYMENT PROOFS ────────────────────────────────────────────────────────────
 let paymentProofs = [];
+let listings = [];    // shop listings from backend
+let shopOrders = [];  // shop orders from backend
 
 function addPaymentProof(proof) {
   paymentProofs.push(proof);
@@ -2468,7 +2470,9 @@ async function syncFromBackend() {
   showLoadingOverlay(true);
   try {
     // Fetch GOs and payments in parallel so the two round-trips overlap.
-    const [result, payResult] = await Promise.all([apiGet('getAllGOs'), apiGet('getPayments')]);
+    const [result, payResult, listResult, orderResult] = await Promise.all([
+      apiGet('getAllGOs'), apiGet('getPayments'), apiGet('getListings'), apiGet('getShopOrders')
+    ]);
     if (result && result.gos && result.gos.length) {
       allGOs = {};
       result.gos.forEach(go => {
@@ -2565,6 +2569,15 @@ async function syncFromBackend() {
         }));
       renderPaymentProofs();
     }
+    if (listResult && Array.isArray(listResult.listings)) {
+      listings = listResult.listings.filter(l => l && l.listing_id);
+    }
+    if (orderResult && Array.isArray(orderResult.shop_orders)) {
+      shopOrders = orderResult.shop_orders.filter(o => o && o.order_id);
+    }
+    renderShopPage();
+    renderAdminListings();
+    renderShopOrders();
   } catch(e) {
     console.error('Sync error at stack:', e.stack || e);
     toast('Sync failed: ' + (e.message || String(e)));
