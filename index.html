@@ -311,6 +311,20 @@
       <div id="admin-go-list"></div>
     </div>
     <div class="admin-section">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <div class="section-label" style="margin:0;">Shop listings</div>
+        <button class="btn btn-sm btn-primary" onclick="openListingModal()">+ New listing</button>
+      </div>
+      <div id="admin-listings-list"></div>
+    </div>
+    <div class="admin-section">
+      <div class="admin-section-title">Shop orders</div>
+      <div class="card"><div class="table-wrap"><table>
+        <thead><tr><th>Buyer</th><th>Item</th><th>Qty</th><th>Amount</th><th>Payment</th><th>Fulfillment</th></tr></thead>
+        <tbody id="shop-orders-tbody"><tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px;">No shop orders.</td></tr></tbody>
+      </table></div></div>
+    </div>
+    <div class="admin-section">
       <div class="admin-section-title">Pending payment proofs</div>
       <div class="card">
         <div class="table-wrap">
@@ -2248,6 +2262,83 @@ function renderPaymentProofs() {
         </div>
       </td>
     </tr>`).join('');
+}
+
+function renderAdminListings() {
+  const el = document.getElementById('admin-listings-list');
+  if (!el) return;
+  const active = listings.filter(l => (l.status || 'active') === 'active');
+  if (!active.length) { el.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:8px 0;">No listings yet.</div>'; return; }
+  el.innerHTML = active.map(l => `
+    <div class="card-sm" style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+      ${l.image_url ? `<img src="${l.image_url}" style="width:40px;height:40px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'">` : ''}
+      <div style="flex:1;">
+        <div style="font-size:13px;font-weight:500;">${l.name} <span style="font-size:11px;color:var(--text3);">${l.category||''}</span></div>
+        <div style="font-size:12px;color:var(--text3);">$${(parseFloat(l.price)||0).toFixed(2)} · ${parseInt(l.qty)||0} in stock</div>
+      </div>
+      <button class="btn btn-sm btn-ghost" onclick="openListingModal('${l.listing_id}')">Edit</button>
+      <button class="btn btn-sm btn-ghost" style="color:var(--red-400);" onclick="hideListing('${l.listing_id}')">Hide</button>
+    </div>`).join('');
+}
+
+function openListingModal(listingId) {
+  const l = listingId ? listings.find(x => x.listing_id === listingId) : null;
+  showModal(`
+    <div style="font-size:16px;font-weight:500;margin-bottom:16px;">${l ? 'Edit' : 'New'} listing</div>
+    <div class="field"><label>Name</label><input type="text" id="lst-name" value="${l ? l.name : ''}"></div>
+    <div class="field-row">
+      <div class="field"><label>Category</label>
+        <select id="lst-category">
+          ${['Photocard','Merch','Album'].map(c => `<option ${l && l.category===c?'selected':''}>${c}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>Price (USD)</label><input type="number" id="lst-price" step="0.01" value="${l ? l.price : 0}"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Quantity</label><input type="number" id="lst-qty" min="0" value="${l ? l.qty : 1}"></div>
+      <div class="field"><label>Image URL</label><input type="text" id="lst-image" placeholder="https://..." value="${l ? (l.image_url||'') : ''}"></div>
+    </div>
+    <div class="field"><label>Note (optional)</label><input type="text" id="lst-note" value="${l ? (l.note||'') : ''}"></div>
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <button class="btn btn-primary" style="flex:1;justify-content:center;" onclick="saveListing(${l ? `'${l.listing_id}'` : 'null'})">Save</button>
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+    </div>`);
+}
+
+function saveListing(listingId) {
+  const data = {
+    name: document.getElementById('lst-name').value.trim(),
+    category: document.getElementById('lst-category').value,
+    price: parseFloat(document.getElementById('lst-price').value) || 0,
+    qty: parseInt(document.getElementById('lst-qty').value) || 0,
+    image_url: document.getElementById('lst-image').value.trim(),
+    note: document.getElementById('lst-note').value.trim()
+  };
+  if (!data.name) { toast('Enter a name.'); return; }
+  if (listingId) {
+    data.listing_id = listingId;
+    const local = listings.find(x => x.listing_id === listingId);
+    if (local) Object.assign(local, data);
+    if (API_URL) apiPost('updateListing', data).catch(()=>{});
+  } else {
+    const tempId = 'lst_' + Date.now();
+    listings.push({ listing_id: tempId, status: 'active', created_at: new Date().toISOString(), ...data });
+    if (API_URL) apiPost('createListing', data).catch(()=>{});
+  }
+  closeModal();
+  renderAdminListings();
+  renderShopPage();
+  toast('Listing saved.');
+}
+
+function hideListing(listingId) {
+  if (!confirm('Hide this listing from the shop?')) return;
+  const local = listings.find(x => x.listing_id === listingId);
+  if (local) local.status = 'hidden';
+  if (API_URL) apiPost('deleteListing', { listing_id: listingId }).catch(()=>{});
+  renderAdminListings();
+  renderShopPage();
+  toast('Listing hidden.');
 }
 
 function viewProofImage(url) {
