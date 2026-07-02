@@ -2400,11 +2400,12 @@ function confirmPayment(id) {
   const p = findProof(id);
   if (!p) return;
   p.status = 'confirmed';
-  // Mark all claims for this user + GO as paid
+  // Mark this user's OWED claims paid: set slots only in SECURED sets (unsecured
+  // slots aren't billed); claims-based items (FCFS/merch/versioned) are always owed.
   const go = Object.values(allGOs).find(g => g.name === p.go_name || g.id === p.go_id);
   if (go) {
     go.subItems.forEach(si => {
-      if (si.sets) si.sets.forEach(s => Object.values(s.slots).forEach(slot => { if (slot && slot.user === p.username) slot.payment = 'paid'; }));
+      if (si.sets) si.sets.forEach(s => { if (s.status === 'secured') Object.values(s.slots).forEach(slot => { if (slot && slot.user === p.username) slot.payment = 'paid'; }); });
       if (si.claims) si.claims.forEach(c => { if (c.user === p.username) c.payment = 'paid'; });
     });
   }

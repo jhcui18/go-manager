@@ -292,15 +292,25 @@ function updatePayment(data) {
         }
       }
     } else {
-      // Mark all matching GO claims as paid.
+      // Mark this user's OWED GO claims paid: set-based slots only if their set is
+      // secured; claims-based items (FCFS/merch/versioned, no set_num) always. This
+      // matches what the buyer was billed for — unsecured set slots are NOT owed.
       const claimSheet = ss.getSheetByName(SHEET_JOINERS);
       const rows = claimSheet.getDataRange().getValues();
       const headers = rows[0];
+      const uCol = headers.indexOf('username');
+      const goCol = headers.indexOf('go_id');
+      const setCol = headers.indexOf('set_num');
+      const csCol = headers.indexOf('claim_status');
+      const payCol = headers.indexOf('payment_status');
+      const updCol = headers.indexOf('updated_at');
       for (let i = 1; i < rows.length; i++) {
-        if (rows[i][headers.indexOf('username')] === data.username && rows[i][headers.indexOf('go_id')] === data.go_id) {
-          claimSheet.getRange(i+1, headers.indexOf('payment_status')+1).setValue('paid');
-          claimSheet.getRange(i+1, headers.indexOf('updated_at')+1).setValue(new Date().toISOString());
-        }
+        if (rows[i][uCol] !== data.username || rows[i][goCol] !== data.go_id) continue;
+        const isSetBased = String(rows[i][setCol]).trim() !== '';
+        const isSecured = String(rows[i][csCol]).toLowerCase() === 'secured';
+        if (isSetBased && !isSecured) continue; // unsecured set slot — not owed, skip
+        claimSheet.getRange(i+1, payCol+1).setValue('paid');
+        claimSheet.getRange(i+1, updCol+1).setValue(new Date().toISOString());
       }
     }
   }
