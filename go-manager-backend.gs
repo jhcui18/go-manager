@@ -277,44 +277,75 @@ function updatePayment(data) {
   updateRowWhere(sheet, 'payment_id', data.payment_id, { status: data.status });
   if (data.status === 'confirmed') {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const now = new Date().toISOString();
     if (data.go_id === 'shop') {
-      // Mark this user's shop orders paid.
       const orderSheet = ss.getSheetByName(SHEET_SHOP_ORDERS);
-      const rows = orderSheet.getDataRange().getValues();
-      const headers = rows[0];
-      const uCol = headers.indexOf('username');
-      const payCol = headers.indexOf('payment_status');
-      const updCol = headers.indexOf('updated_at');
-      for (let i = 1; i < rows.length; i++) {
-        if (rows[i][uCol] === data.username) {
-          orderSheet.getRange(i+1, payCol+1).setValue('paid');
-          orderSheet.getRange(i+1, updCol+1).setValue(new Date().toISOString());
-        }
+      if (data.paid_order_ids || data.unpaid_order_ids) {
+        setPaymentByIds(orderSheet, 'order_id', data.paid_order_ids || [], data.unpaid_order_ids || [], now);
+      } else {
+        // Fallback (no explicit lists): mark this user's shop orders paid.
+        markUserRowsPaid(orderSheet, 'username', data.username, null, null, now);
       }
     } else {
-      // Mark this user's OWED GO claims paid: set-based slots only if their set is
-      // secured; claims-based items (FCFS/merch/versioned, no set_num) always. This
-      // matches what the buyer was billed for — unsecured set slots are NOT owed.
       const claimSheet = ss.getSheetByName(SHEET_JOINERS);
-      const rows = claimSheet.getDataRange().getValues();
-      const headers = rows[0];
-      const uCol = headers.indexOf('username');
-      const goCol = headers.indexOf('go_id');
-      const setCol = headers.indexOf('set_num');
-      const csCol = headers.indexOf('claim_status');
-      const payCol = headers.indexOf('payment_status');
-      const updCol = headers.indexOf('updated_at');
-      for (let i = 1; i < rows.length; i++) {
-        if (rows[i][uCol] !== data.username || rows[i][goCol] !== data.go_id) continue;
-        const isSetBased = String(rows[i][setCol]).trim() !== '';
-        const isSecured = String(rows[i][csCol]).toLowerCase() === 'secured';
-        if (isSetBased && !isSecured) continue; // unsecured set slot — not owed, skip
-        claimSheet.getRange(i+1, payCol+1).setValue('paid');
-        claimSheet.getRange(i+1, updCol+1).setValue(new Date().toISOString());
+      if (data.paid_claim_ids || data.unpaid_claim_ids) {
+        // Frontend computed exactly which claims the payment covers (partial accounting).
+        setPaymentByIds(claimSheet, 'claim_id', data.paid_claim_ids || [], data.unpaid_claim_ids || [], now);
+      } else {
+        // Fallback: mark this user's OWED claims paid (secured set slots + claims-based).
+        markUserRowsPaid(claimSheet, 'username', data.username, data.go_id, 'go_id', now);
       }
     }
   }
   return { ok: true };
+}
+
+// Set payment_status='paid' for rows whose id is in paidIds, 'unpaid' for unpaidIds.
+function setPaymentByIds(sheet, idCol, paidIds, unpaidIds, now) {
+  if (!sheet) return;
+  const rows = sheet.getDataRange().getValues();
+  const headers = rows[0];
+  const iCol = headers.indexOf(idCol);
+  const payCol = headers.indexOf('payment_status');
+  const updCol = headers.indexOf('updated_at');
+  const paidSet = {}, unpaidSet = {};
+  (paidIds || []).forEach(id => { paidSet[id] = true; });
+  (unpaidIds || []).forEach(id => { unpaidSet[id] = true; });
+  for (let i = 1; i < rows.length; i++) {
+    const id = rows[i][iCol];
+    let val = null;
+    if (paidSet[id]) val = 'paid';
+    else if (unpaidSet[id]) val = 'unpaid';
+    if (val !== null) {
+      sheet.getRange(i+1, payCol+1).setValue(val);
+      if (updCol >= 0) sheet.getRange(i+1, updCol+1).setValue(now);
+    }
+  }
+}
+
+// Fallback marking by username (+ optional go_id): mark OWED rows paid. For joiners,
+// skip unsecured set slots. goCol null = no go filter (shop).
+function markUserRowsPaid(sheet, userColName, username, goId, goColName, now) {
+  if (!sheet) return;
+  const rows = sheet.getDataRange().getValues();
+  const headers = rows[0];
+  const uCol = headers.indexOf(userColName);
+  const goCol = goColName ? headers.indexOf(goColName) : -1;
+  const setCol = headers.indexOf('set_num');
+  const csCol = headers.indexOf('claim_status');
+  const payCol = headers.indexOf('payment_status');
+  const updCol = headers.indexOf('updated_at');
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][uCol] !== username) continue;
+    if (goCol >= 0 && rows[i][goCol] !== goId) continue;
+    if (setCol >= 0) {
+      const isSetBased = String(rows[i][setCol]).trim() !== '';
+      const isSecured = String(rows[i][csCol]).toLowerCase() === 'secured';
+      if (isSetBased && !isSecured) continue; // unsecured set slot — not owed
+    }
+    sheet.getRange(i+1, payCol+1).setValue('paid');
+    if (updCol >= 0) sheet.getRange(i+1, updCol+1).setValue(now);
+  }
 }
 
 function getPayments() {

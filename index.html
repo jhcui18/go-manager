@@ -2396,27 +2396,97 @@ function viewProofImage(url) {
 
 function findProof(id) { return paymentProofs.find(p => p.payment_id === id); }
 
+// Ordered OWED units for a buyer in a GO (or shop): secured set slots + claims-based
+// items, in the order shown in My orders. Each: { id, value, kind, ref }.
+function paymentOwedUnits(username, goId) {
+  const units = [];
+  if (goId === 'shop') {
+    shopOrders.filter(o => o.username === username).forEach(o => {
+      units.push({ id: o.order_id, value: (parseFloat(o.unit_price)||0) * (parseInt(o.qty)||1), kind: 'shop', ref: o });
+    });
+    return units;
+  }
+  const go = allGOs[goId] || Object.values(allGOs).find(g => g.name === goId);
+  if (!go) return units;
+  go.subItems.forEach(si => {
+    if (si.sets) {
+      setDisplayOrder(si.sets, si.members).forEach(({ set }) => {
+        if (set.status !== 'secured') return;
+        (si.members||[]).forEach(m => {
+          const slot = set.slots[m];
+          if (slot && slot.user === username) {
+            units.push({ id: slot.claim_id, value: slot.ot ? (si.otPrice||0) : (si.price||0), kind: 'slot', ref: slot });
+          }
+        });
+      });
+    }
+    if (si.claims) si.claims.forEach(c => {
+      if (c.user === username) units.push({ id: c.claim_id, value: (si.price||0) * (c.qty||1), kind: 'claim', ref: c });
+    });
+  });
+  return units;
+}
+
+function setUnitPaid(u, paid) {
+  if (u.kind === 'shop') u.ref.payment_status = paid ? 'paid' : 'unpaid';
+  else u.ref.payment = paid ? 'paid' : 'unpaid';
+}
+
+let pendingConfirm = null;
 function confirmPayment(id) {
   const p = findProof(id);
   if (!p) return;
-  p.status = 'confirmed';
-  // Mark this user's OWED claims paid: set slots only in SECURED sets (unsecured
-  // slots aren't billed); claims-based items (FCFS/merch/versioned) are always owed.
-  const go = Object.values(allGOs).find(g => g.name === p.go_name || g.id === p.go_id);
-  if (go) {
-    go.subItems.forEach(si => {
-      if (si.sets) si.sets.forEach(s => { if (s.status === 'secured') Object.values(s.slots).forEach(slot => { if (slot && slot.user === p.username) slot.payment = 'paid'; }); });
-      if (si.claims) si.claims.forEach(c => { if (c.user === p.username) c.payment = 'paid'; });
-    });
+  const units = paymentOwedUnits(p.username, p.go_id);
+  const securedTotal = units.reduce((a, u) => a + u.value, 0);
+  // Total the buyer has paid for THIS GO (already-confirmed payments + this one).
+  const totalPaid = paymentProofs
+    .filter(pp => pp.username === p.username && pp.go_id === p.go_id && (pp.status === 'confirmed' || pp.payment_id === p.payment_id))
+    .reduce((a, pp) => a + (parseFloat(pp.amount)||0), 0);
+  // Greedily mark items paid in display order until the money runs out.
+  const eps = 0.001; let acc = 0, cutoff = false; const paid = [], unpaid = [];
+  units.forEach(u => {
+    if (!cutoff && acc + u.value <= totalPaid + eps) { paid.push(u); acc += u.value; }
+    else { cutoff = true; unpaid.push(u); }
+  });
+  pendingConfirm = { paymentId: id, goId: p.go_id, username: p.username, paid, unpaid };
+  const matches = Math.abs(acc - securedTotal) < eps && Math.abs(totalPaid - securedTotal) < eps;
+  showModal(`
+    <div style="font-size:16px;font-weight:500;margin-bottom:4px;">Confirm payment — ${p.username}</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:14px;">${p.go_name || (p.go_id==='shop'?'Shop':'')}</div>
+    <div style="display:flex;flex-direction:column;gap:6px;font-size:13px;margin-bottom:14px;">
+      <div style="display:flex;justify-content:space-between;"><span style="color:var(--text2);">Secured total (owed)</span><strong style="font-family:var(--mono);">$${securedTotal.toFixed(2)}</strong></div>
+      <div style="display:flex;justify-content:space-between;"><span style="color:var(--text2);">This payment</span><strong style="font-family:var(--mono);">$${(parseFloat(p.amount)||0).toFixed(2)}</strong></div>
+      <div style="display:flex;justify-content:space-between;"><span style="color:var(--text2);">Total paid for this GO</span><strong style="font-family:var(--mono);">$${totalPaid.toFixed(2)}</strong></div>
+      <div style="display:flex;justify-content:space-between;border-top:0.5px solid var(--border);padding-top:6px;"><span style="color:var(--text2);">Will mark paid</span><strong style="font-family:var(--mono);color:var(--teal-600);">${paid.length} of ${units.length} items · $${acc.toFixed(2)}</strong></div>
+    </div>
+    ${matches ? '' : `<div style="font-size:12px;color:var(--amber-800);background:var(--amber-50);border-radius:var(--radius);padding:8px 10px;margin-bottom:12px;">Amount doesn't fully cover the secured total — only the ${paid.length} item(s) that $${totalPaid.toFixed(2)} adds up to will be marked paid.</div>`}
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-primary" style="flex:1;justify-content:center;" onclick="applyConfirmPayment()">Confirm</button>
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+    </div>`);
+}
+
+function applyConfirmPayment() {
+  const pc = pendingConfirm;
+  if (!pc) return;
+  const p = findProof(pc.paymentId);
+  if (p) p.status = 'confirmed';
+  pc.paid.forEach(u => setUnitPaid(u, true));
+  pc.unpaid.forEach(u => setUnitPaid(u, false));
+  const paidIds = pc.paid.map(u => u.id).filter(Boolean);
+  const unpaidIds = pc.unpaid.map(u => u.id).filter(Boolean);
+  if (API_URL && p) {
+    const payload = { payment_id: p.payment_id, status: 'confirmed', username: pc.username, go_id: pc.goId };
+    if (pc.goId === 'shop') { payload.paid_order_ids = paidIds; payload.unpaid_order_ids = unpaidIds; }
+    else { payload.paid_claim_ids = paidIds; payload.unpaid_claim_ids = unpaidIds; }
+    apiPost('updatePayment', payload).catch(()=>{});
   }
-  if (p.go_id === 'shop') {
-    shopOrders.forEach(o => { if (o.username === p.username) o.payment_status = 'paid'; });
-    renderShopOrders();
-  }
-  if (API_URL && p.payment_id) apiPost('updatePayment', { payment_id: p.payment_id, status:'confirmed', username: p.username, go_id: p.go_id });
+  pendingConfirm = null;
+  closeModal();
   renderPaymentProofs();
   renderDetailContent();
-  toast('Payment confirmed for ' + p.username);
+  if (pc.goId === 'shop') renderShopOrders();
+  toast('Payment confirmed for ' + pc.username);
 }
 
 function rejectPayment(id) {
