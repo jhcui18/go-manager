@@ -1139,6 +1139,16 @@ function submitClaim(goId) {
         claimsToWrite.push({ go_id:goId, go_name:go.name, sub_item_id:si.id, sub_item_name:si.name, sub_item_kind:'member', username:u, email, member_or_version:member, set_num:'', qty, assigned_vers:'' });
         placed = true;
       });
+    } else if (state.type === 'version-select') {
+      const sel = state.selected || {};
+      const versions = Object.keys(sel);
+      if (!versions.length) return;
+      versions.forEach(version => {
+        const qty = sel[version];
+        si.claims.push({ user:u, qty, member:version, assignedVers:[version], payment:'unpaid', fulfillment:'Pending' });
+        claimsToWrite.push({ go_id:goId, go_name:go.name, sub_item_id:si.id, sub_item_name:si.name, sub_item_kind:si.kind||go.type, username:u, email, member_or_version:version, set_num:'', qty, assigned_vers:version });
+        placed = true;
+      });
     } else if (state.qty > 0) {
       const assigned = si.versions ? assignVersions(state.qty, si.versions) : [];
       si.claims.push({ user:u, qty:state.qty, assignedVers:assigned, payment:'unpaid', fulfillment:'Pending' });
