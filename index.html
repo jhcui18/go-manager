@@ -922,6 +922,39 @@ function updateMemberTile(siId, member, goId) {
   updateClaimSummary(goId);
 }
 
+function incVersion(siId, version, goId) {
+  if (!claimState[siId] || claimState[siId].type !== 'version-select') claimState[siId] = { type:'version-select', selected:{} };
+  const sel = claimState[siId].selected;
+  sel[version] = (sel[version] || 0) + 1;
+  updateVersionTile(siId, version, goId);
+}
+
+function decVersion(siId, version, goId) {
+  const st = claimState[siId];
+  if (!st || !st.selected) return;
+  const sel = st.selected;
+  if (sel[version]) { sel[version] -= 1; if (sel[version] <= 0) delete sel[version]; }
+  updateVersionTile(siId, version, goId);
+}
+
+function updateVersionTile(siId, version, goId) {
+  const key = version.replace(/\s/g,'_');
+  const sel = (claimState[siId] && claimState[siId].selected) || {};
+  const qty = sel[version] || 0;
+  const tile = document.getElementById('vtile-' + siId + '-' + key);
+  const sub = document.getElementById('vsub-' + siId + '-' + key);
+  const dec = document.getElementById('vdec-' + siId + '-' + key);
+  if (tile) tile.classList.toggle('selected', qty > 0);
+  if (dec) dec.style.display = qty > 0 ? 'flex' : 'none';
+  if (sub) sub.textContent = qty > 0 ? '×' + qty : (sub.dataset.label || '');
+  const display = document.getElementById('qty-display-' + siId);
+  if (display) {
+    const parts = Object.keys(sel).map(v => v + ' ×' + sel[v]);
+    display.textContent = parts.length ? 'Selected: ' + parts.join(', ') : '';
+  }
+  updateClaimSummary(goId);
+}
+
 function incOT(siId, goId) {
   if (!claimState[siId]) claimState[siId] = { type:'set', selectedMembers:{} };
   claimState[siId].ot = (claimState[siId].ot || 0) + 1;
