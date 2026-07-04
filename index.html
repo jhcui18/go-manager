@@ -548,6 +548,24 @@ function renderOrdersList() {
   renderPaymentGoSelect();
 }
 
+// Total remaining stock for a listing: per-variant sum, or the single qty.
+function listingStock(l) {
+  if (l.variants && l.variants.length) return l.variants.reduce((a, v) => a + (parseInt(v.qty) || 0), 0);
+  return parseInt(l.qty) || 0;
+}
+// Parse the admin Variants textarea: one per line "Name, stock". Bad lines dropped.
+function parseVariantLines(text) {
+  return (text || '').split('\n').map(line => {
+    const t = line.trim();
+    if (!t) return null;
+    const idx = t.lastIndexOf(',');
+    if (idx < 0) return null;
+    const name = t.slice(0, idx).trim();
+    const qty = parseInt(t.slice(idx + 1).trim());
+    if (!name || isNaN(qty)) return null;
+    return { name, qty };
+  }).filter(Boolean);
+}
 function renderShopPage() {
   const el = document.getElementById('page-shop');
   if (!el) return;
@@ -2333,7 +2351,7 @@ function renderAdminListings() {
       ${l.image_url ? `<img src="${l.image_url}" style="width:40px;height:40px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'">` : ''}
       <div style="flex:1;">
         <div style="font-size:13px;font-weight:500;">${l.name} <span style="font-size:11px;color:var(--text3);">${l.category||''}</span></div>
-        <div style="font-size:12px;color:var(--text3);">$${(parseFloat(l.price)||0).toFixed(2)} · ${parseInt(l.qty)||0} in stock</div>
+        <div style="font-size:12px;color:var(--text3);">$${(parseFloat(l.price)||0).toFixed(2)} · ${(l.variants&&l.variants.length) ? l.variants.map(v=>v.name+' ('+(parseInt(v.qty)||0)+')').join(', ') : (parseInt(l.qty)||0) + ' in stock'}</div>
       </div>
       <button class="btn btn-sm btn-ghost" onclick="openListingModal('${l.listing_id}')">Edit</button>
       <button class="btn btn-sm btn-ghost" style="color:var(--red-400);" onclick="hideListing('${l.listing_id}')">Hide</button>
@@ -2354,8 +2372,12 @@ function openListingModal(listingId) {
       <div class="field"><label>Price (USD)</label><input type="number" id="lst-price" step="0.01" value="${l ? l.price : 0}"></div>
     </div>
     <div class="field-row">
-      <div class="field"><label>Quantity</label><input type="number" id="lst-qty" min="0" value="${l ? l.qty : 1}"></div>
+      <div class="field"><label>Quantity (if no variants)</label><input type="number" id="lst-qty" min="0" value="${l ? l.qty : 1}"></div>
       <div class="field"><label>Image URL</label><input type="text" id="lst-image" placeholder="https://..." value="${l ? (l.image_url||'') : ''}"></div>
+    </div>
+    <div class="field"><label>Variants (optional)</label>
+      <textarea id="lst-variants" placeholder="One per line: Name, stock&#10;Ver A, 2&#10;Ver B, 1" style="min-height:70px;font-family:var(--mono);font-size:12px;">${l && l.variants && l.variants.length ? l.variants.map(v => v.name + ', ' + v.qty).join('\n') : ''}</textarea>
+      <div class="field-hint">Leave empty for a single-quantity listing. With variants, each has its own stock and buyers pick one.</div>
     </div>
     <div class="field"><label>Note (optional)</label><input type="text" id="lst-note" value="${l ? (l.note||'') : ''}"></div>
     <div style="display:flex;gap:8px;margin-top:8px;">
@@ -2365,13 +2387,15 @@ function openListingModal(listingId) {
 }
 
 function saveListing(listingId) {
+  const variants = parseVariantLines(document.getElementById('lst-variants').value);
   const data = {
     name: document.getElementById('lst-name').value.trim(),
     category: document.getElementById('lst-category').value,
     price: parseFloat(document.getElementById('lst-price').value) || 0,
-    qty: parseInt(document.getElementById('lst-qty').value) || 0,
+    qty: variants.length ? 0 : (parseInt(document.getElementById('lst-qty').value) || 0),
     image_url: document.getElementById('lst-image').value.trim(),
-    note: document.getElementById('lst-note').value.trim()
+    note: document.getElementById('lst-note').value.trim(),
+    variants: variants
   };
   if (!data.name) { toast('Enter a name.'); return; }
   if (listingId) {
@@ -2943,7 +2967,8 @@ async function syncFromBackend() {
       renderPaymentProofs();
     }
     if (listResult && Array.isArray(listResult.listings)) {
-      listings = listResult.listings.filter(l => l && l.listing_id);
+      listings = listResult.listings.filter(l => l && l.listing_id)
+        .map(l => ({ ...l, variants: tryParse(l.variants, []) }));
     }
     if (orderResult && Array.isArray(orderResult.shop_orders)) {
       shopOrders = orderResult.shop_orders.filter(o => o && o.order_id);
