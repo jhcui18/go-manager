@@ -20,7 +20,7 @@ function bootstrapSheets() {
   ensureSheet(ss, SHEET_SHIPPING, ['request_id','username','go_ids','full_name','address1','address2','city','state','postal','country','notes','email','card_count','ems_fee','dom_fee','total_fee','shipped','created_at']);
   ensureSheet(ss, SHEET_PAYMENTS, ['payment_id','username','go_id','go_name','amount','method','transaction_id','proof_url','email','status','created_at']);
   ensureSheet(ss, SHEET_LISTINGS,    ['listing_id','name','category','price','image_url','qty','note','status','created_at','variants']);
-  ensureSheet(ss, SHEET_SHOP_ORDERS, ['order_id','listing_id','listing_name','username','email','qty','unit_price','payment_status','fulfillment','created_at','updated_at']);
+  ensureSheet(ss, SHEET_SHOP_ORDERS, ['order_id','listing_id','listing_name','username','email','qty','unit_price','payment_status','fulfillment','created_at','updated_at','variant']);
   // Per-GO sub-item sheets are created when a GO is created.
 }
 
@@ -404,18 +404,34 @@ function placeShopOrder(data) {
   const nameCol = headers.indexOf('name');
   const priceCol = headers.indexOf('price');
   const want = parseInt(data.qty) || 1;
+  const varCol = headers.indexOf('variants');
   for (let i = 1; i < rows.length; i++) {
     if (rows[i][idCol] === data.listing_id) {
-      const have = parseInt(rows[i][qtyCol]) || 0;
-      if (have < want) return { ok: false, error: 'oversold', available: have };
-      // Decrement stock authoritatively, then append the order.
-      listSheet.getRange(i+1, qtyCol+1).setValue(have - want);
       const orderSheet = ss.getSheetByName(SHEET_SHOP_ORDERS);
       const oid = 'sho_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
       const now = new Date().toISOString();
+      if (data.variant) {
+        // Variant listing: guard + decrement the chosen variant's stock.
+        let variants = [];
+        try { variants = JSON.parse(rows[i][varCol] || '[]'); } catch (e) { variants = []; }
+        const v = variants.find(x => x.name === data.variant);
+        const avail = v ? (parseInt(v.qty) || 0) : 0;
+        if (!v || avail < want) return { ok: false, error: 'oversold', available: avail };
+        v.qty = avail - want;
+        listSheet.getRange(i+1, varCol+1).setValue(JSON.stringify(variants));
+        orderSheet.appendRow([
+          oid, data.listing_id, rows[i][nameCol], data.username, data.email || '',
+          want, rows[i][priceCol], 'unpaid', 'Pending', now, now, data.variant
+        ]);
+        return { ok: true, order_id: oid };
+      }
+      // Simple listing: single qty column.
+      const have = parseInt(rows[i][qtyCol]) || 0;
+      if (have < want) return { ok: false, error: 'oversold', available: have };
+      listSheet.getRange(i+1, qtyCol+1).setValue(have - want);
       orderSheet.appendRow([
         oid, data.listing_id, rows[i][nameCol], data.username, data.email || '',
-        want, rows[i][priceCol], 'unpaid', 'Pending', now, now
+        want, rows[i][priceCol], 'unpaid', 'Pending', now, now, ''
       ]);
       return { ok: true, order_id: oid };
     }
