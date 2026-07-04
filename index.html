@@ -1049,6 +1049,14 @@ function updateClaimSummary(goId) {
         lines.push(si.name + ': ' + selected.map(m => m + ' ×' + qty).join(', ') + (price ? ` ($${(price * selected.length * qty).toFixed(2)})` : ''));
         total += price * selected.length * qty;
       }
+    } else if (state.type === 'version-select') {
+      const sel = state.selected || {};
+      const versions = Object.keys(sel);
+      if (versions.length) {
+        const totalQty = versions.reduce((a, v) => a + sel[v], 0);
+        lines.push(si.name + ': ' + versions.map(v => v + ' ×' + sel[v]).join(', ') + (price ? ` ($${(price * totalQty).toFixed(2)})` : ''));
+        total += price * totalQty;
+      }
     } else {
       if (state.qty > 0) {
         lines.push(si.name + ' ×' + state.qty + (price ? ` ($${(price * state.qty).toFixed(2)})` : ''));
