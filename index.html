@@ -578,7 +578,7 @@ function renderShopPage() {
   }
   html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;">';
   active.forEach(l => {
-    const qty = parseInt(l.qty) || 0;
+    const qty = listingStock(l);
     const sold = qty <= 0;
     html += `<div class="card" style="padding:0;overflow:hidden;${sold?'opacity:0.6;':'cursor:pointer;'}" ${sold?'':`onclick="openShopListing('${l.listing_id}')"`}>
       ${l.image_url ? `<img src="${l.image_url}" loading="lazy" style="width:100%;aspect-ratio:1;object-fit:cover;display:block;" onerror="this.style.display='none'">` : '<div style="width:100%;aspect-ratio:1;background:var(--surface2);"></div>'}
@@ -597,23 +597,46 @@ function renderShopPage() {
 }
 
 let shopOrderQty = 1;
+let shopOrderVariant = '';
+function shopSelectedMax(l) {
+  if (l.variants && l.variants.length) {
+    const v = l.variants.find(x => x.name === shopOrderVariant);
+    return v ? (parseInt(v.qty) || 0) : 0;
+  }
+  return parseInt(l.qty) || 0;
+}
 function openShopListing(listingId) {
   const l = listings.find(x => x.listing_id === listingId);
   if (!l) return;
-  const max = parseInt(l.qty) || 0;
+  const hasVariants = !!(l.variants && l.variants.length);
   shopOrderQty = 1;
+  shopOrderVariant = '';
+  let variantHtml = '';
+  if (hasVariants) {
+    variantHtml = `<div style="font-size:12px;color:var(--text2);margin:6px 0;">Pick a version:</div>
+      <div class="member-grid" id="shop-variant-grid">` +
+      l.variants.map(v => {
+        const vq = parseInt(v.qty) || 0;
+        const key = v.name.replace(/\s/g,'_');
+        return `<div class="member-tile" id="shop-vtile-${key}" ${vq>0?`onclick="selectShopVariant('${listingId}','${v.name}')"`:'style="opacity:0.5;"'}>
+          <div class="member-tile-name">${v.name}</div>
+          <div class="member-tile-sub" style="color:${vq>0?'var(--teal-600)':'var(--text3)'};">${vq>0?vq+' left':'Sold out'}</div>
+        </div>`;
+      }).join('') + `</div>`;
+  }
   showModal(`
     <div style="font-size:16px;font-weight:500;margin-bottom:4px;">${l.name}</div>
-    <div style="font-size:12px;color:var(--text3);margin-bottom:12px;">${l.category || ''} · $${(parseFloat(l.price)||0).toFixed(2)} · ${max} left</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:12px;">${l.category || ''} · $${(parseFloat(l.price)||0).toFixed(2)} · ${listingStock(l)} left</div>
     ${l.image_url ? `<img src="${l.image_url}" style="width:100%;border-radius:var(--radius);margin-bottom:12px;" onerror="this.style.display='none'">` : ''}
     ${l.note ? `<div style="font-size:12px;color:var(--text2);margin-bottom:12px;">${l.note}</div>` : ''}
-    <div class="field"><label>Your username</label><input type="text" id="shop-order-user" placeholder="@username"></div>
+    ${variantHtml}
+    <div class="field" style="margin-top:10px;"><label>Your username</label><input type="text" id="shop-order-user" placeholder="@username"></div>
     <div style="display:flex;align-items:center;gap:10px;margin:10px 0;">
       <span style="font-size:12px;color:var(--text2);">Qty:</span>
       <div class="qty-row">
-        <button class="qty-btn" onclick="adjustShopQty(-1,${max})">−</button>
+        <button class="qty-btn" onclick="adjustShopQty('${listingId}',-1)">−</button>
         <span id="shop-qty-val" style="min-width:24px;text-align:center;font-weight:500;">1</span>
-        <button class="qty-btn" onclick="adjustShopQty(1,${max})">+</button>
+        <button class="qty-btn" onclick="adjustShopQty('${listingId}',1)">+</button>
       </div>
     </div>
     <div style="display:flex;gap:8px;margin-top:8px;">
@@ -622,8 +645,22 @@ function openShopListing(listingId) {
     </div>`);
 }
 
-function adjustShopQty(delta, max) {
-  shopOrderQty = Math.max(1, Math.min(max, shopOrderQty + delta));
+function selectShopVariant(listingId, name) {
+  shopOrderVariant = name;
+  shopOrderQty = 1;
+  const l = listings.find(x => x.listing_id === listingId);
+  (l.variants || []).forEach(v => {
+    const tile = document.getElementById('shop-vtile-' + v.name.replace(/\s/g,'_'));
+    if (tile) tile.classList.toggle('selected', v.name === name);
+  });
+  const el = document.getElementById('shop-qty-val');
+  if (el) el.textContent = shopOrderQty;
+}
+
+function adjustShopQty(listingId, delta) {
+  const l = listings.find(x => x.listing_id === listingId);
+  const max = shopSelectedMax(l);
+  shopOrderQty = Math.max(1, Math.min(max || 1, shopOrderQty + delta));
   const el = document.getElementById('shop-qty-val');
   if (el) el.textContent = shopOrderQty;
 }
@@ -635,12 +672,21 @@ function submitShopOrder(listingId) {
   const u = username.startsWith('@') ? username : '@' + username;
   const l = listings.find(x => x.listing_id === listingId);
   if (!l) return;
+  const hasVariants = !!(l.variants && l.variants.length);
+  if (hasVariants && !shopOrderVariant) { toast('Pick a version first.'); return; }
   const qty = shopOrderQty;
   if (!API_URL) { toast('Shop needs the backend configured.'); return; }
-  apiPost('placeShopOrder', { listing_id: listingId, username: u, qty }).then(res => {
+  const payload = { listing_id: listingId, username: u, qty };
+  if (hasVariants) payload.variant = shopOrderVariant;
+  apiPost('placeShopOrder', payload).then(res => {
     if (res && res.ok) {
       // Reflect stock locally so the grid updates without a full sync.
-      l.qty = (parseInt(l.qty) || 0) - qty;
+      if (hasVariants) {
+        const v = l.variants.find(x => x.name === shopOrderVariant);
+        if (v) v.qty = (parseInt(v.qty) || 0) - qty;
+      } else {
+        l.qty = (parseInt(l.qty) || 0) - qty;
+      }
       closeModal();
       renderShopPage();
       toast('Order placed — pay in My orders.');
@@ -649,7 +695,8 @@ function submitShopOrder(listingId) {
       doLookup();
     } else if (res && res.error === 'oversold') {
       toast('Only ' + (res.available || 0) + ' left — please retry.');
-      l.qty = res.available || 0;
+      if (hasVariants) { const v = l.variants.find(x => x.name === shopOrderVariant); if (v) v.qty = res.available || 0; }
+      else l.qty = res.available || 0;
       renderShopPage();
     } else {
       toast('Could not place order.');
