@@ -1669,11 +1669,11 @@ function addSubItem() {
     </div>`;
   } else if (type === 'album') {
     inner = `<div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end;">
-      <div class="field" style="margin-bottom:0;"><label>Version name</label><input type="text" id="si-name-${id}" placeholder="e.g. Member ver"></div>
+      <div class="field" style="margin-bottom:0;"><label>Sub-item name</label><input type="text" id="si-name-${id}" placeholder="e.g. Photobook ver"></div>
       <div class="field" style="margin-bottom:0;"><label>Kind</label>
         <select id="si-kind-${id}" onchange="onSubItemKindChange('${id}')">
-          <option value="member">Member ver (set-based)</option>
-          <option value="versioned">Other ver (A/B/random)</option>
+          <option value="member">Member ver (pick a member)</option>
+          <option value="versioned">Version pick (buyer selects A/B/…)</option>
         </select>
       </div>
       <button class="btn btn-sm btn-ghost" onclick="removeSubItem('${id}')">×</button>
@@ -1983,11 +1983,11 @@ function addEditSubItem() {
     </div>`;
   } else if (go.type === 'album') {
     inner = `<div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end;">
-      <div class="field" style="margin-bottom:0;"><label>Version name</label><input type="text" id="edit-si-name-${id}" placeholder="e.g. Member ver"></div>
+      <div class="field" style="margin-bottom:0;"><label>Sub-item name</label><input type="text" id="edit-si-name-${id}" placeholder="e.g. Photobook ver"></div>
       <div class="field" style="margin-bottom:0;"><label>Kind</label>
         <select id="edit-si-kind-${id}" onchange="onEditSubItemKindChange('${id}')">
-          <option value="member">Member ver (set-based)</option>
-          <option value="versioned">Other ver (A/B/random)</option>
+          <option value="member">Member ver (pick a member)</option>
+          <option value="versioned">Version pick (buyer selects A/B/…)</option>
         </select>
       </div>
       <button class="btn btn-sm btn-ghost" style="color:var(--red-400);" onclick="removeNewEditSubItem('${id}')">×</button>
