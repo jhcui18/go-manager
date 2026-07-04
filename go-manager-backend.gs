@@ -19,7 +19,7 @@ function bootstrapSheets() {
   ensureSheet(ss, SHEET_JOINERS,  ['claim_id','go_id','go_name','sub_item_id','sub_item_name','sub_item_kind','username','email','member_or_version','set_num','qty','assigned_vers','claim_status','payment_status','fulfillment','created_at','updated_at']);
   ensureSheet(ss, SHEET_SHIPPING, ['request_id','username','go_ids','full_name','address1','address2','city','state','postal','country','notes','email','card_count','ems_fee','dom_fee','total_fee','shipped','created_at']);
   ensureSheet(ss, SHEET_PAYMENTS, ['payment_id','username','go_id','go_name','amount','method','transaction_id','proof_url','email','status','created_at']);
-  ensureSheet(ss, SHEET_LISTINGS,    ['listing_id','name','category','price','image_url','qty','note','status','created_at']);
+  ensureSheet(ss, SHEET_LISTINGS,    ['listing_id','name','category','price','image_url','qty','note','status','created_at','variants']);
   ensureSheet(ss, SHEET_SHOP_ORDERS, ['order_id','listing_id','listing_name','username','email','qty','unit_price','payment_status','fulfillment','created_at','updated_at']);
   // Per-GO sub-item sheets are created when a GO is created.
 }
@@ -369,7 +369,8 @@ function createListing(data) {
   const id = 'lst_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
   sheet.appendRow([
     id, data.name || '', data.category || '', data.price || 0, data.image_url || '',
-    data.qty || 0, data.note || '', 'active', new Date().toISOString()
+    data.qty || 0, data.note || '', 'active', new Date().toISOString(),
+    JSON.stringify(data.variants || [])
   ]);
   return { ok: true, listing_id: id };
 }
@@ -380,6 +381,7 @@ function updateListing(data) {
   ['name','category','price','image_url','qty','note','status'].forEach(k => {
     if (data[k] !== undefined) fields[k] = data[k];
   });
+  if (data.variants !== undefined) fields.variants = JSON.stringify(data.variants);
   updateRowWhere(sheet, 'listing_id', data.listing_id, fields);
   return { ok: true };
 }
