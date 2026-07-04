@@ -1296,7 +1296,7 @@ function doLookup() {
   // Shop orders for this user — grouped under a "Shop" pseudo-GO.
   shopOrders.filter(o => o.username === u).forEach(o => {
     rows.push({
-      go_id: 'shop', go: 'Shop', item: o.listing_name, detail: '',
+      go_id: 'shop', go: 'Shop', item: o.listing_name, detail: o.variant || '',
       qty: parseInt(o.qty) || 1, price: parseFloat(o.unit_price) || 0,
       claim: 'Secured', payment: o.payment_status, fulfillment: o.fulfillment
     });
@@ -2484,7 +2484,7 @@ function renderShopOrders() {
     const pf = prevFulfillment(o.fulfillment);
     return `<tr>
       <td style="font-weight:500;">${o.username}</td>
-      <td style="font-size:12px;">${o.listing_name}</td>
+      <td style="font-size:12px;">${o.listing_name}${o.variant ? ' — ' + o.variant : ''}</td>
       <td>${o.qty}</td>
       <td style="font-family:var(--mono);">$${amt.toFixed(2)}</td>
       <td><span class="badge ${o.payment_status==='paid'?'badge-paid':'badge-unpaid'}" style="cursor:pointer;" onclick="toggleShopOrderPayment('${o.order_id}')">${o.payment_status==='paid'?'Paid':'Unpaid'}</span></td>
