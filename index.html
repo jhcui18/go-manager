@@ -2383,6 +2383,7 @@ function renderPaymentProofs() {
           <button class="btn btn-sm" style="color:var(--teal-600);border-color:var(--teal-100);" onclick="confirmPayment('${p.payment_id}')">✓ Confirm</button>
           <button class="btn btn-sm btn-ghost" style="color:var(--red-400);" onclick="rejectPayment('${p.payment_id}')">Reject</button>
           <button class="btn btn-sm btn-ghost" onclick="openEditProofModal('${p.payment_id}')">Edit</button>
+          <button class="btn btn-sm btn-ghost" style="color:var(--red-400);" onclick="deletePaymentProof('${p.payment_id}')">Delete</button>
         </div>
       </td>
     </tr>`).join('');
@@ -2492,9 +2493,32 @@ function renderShopOrders() {
         <span class="badge ${fulfillBadge(o.fulfillment)}">${o.fulfillment}</span>
         ${pf ? `<button class="btn btn-sm btn-ghost" style="font-size:11px;padding:3px 8px;" title="Back to ${pf}" onclick="advanceShopFulfill('${o.order_id}','prev')">←</button>` : ''}
         ${nf ? `<button class="btn btn-sm btn-ghost" style="font-size:11px;padding:3px 8px;" onclick="advanceShopFulfill('${o.order_id}')">→ ${nf}</button>` : ''}
+        <button class="btn btn-sm btn-ghost" style="font-size:11px;padding:3px 8px;color:var(--red-400);" title="Delete order (returns stock)" onclick="deleteShopOrder('${o.order_id}')">×</button>
       </div></td>
     </tr>`;
   }).join('');
+}
+
+function deleteShopOrder(orderId) {
+  const o = shopOrders.find(x => x.order_id === orderId);
+  if (!o) return;
+  if (!confirm('Delete this shop order and return its stock?')) return;
+  // Restore stock on the local listing (variant or single qty).
+  const l = listings.find(x => x.listing_id === o.listing_id);
+  if (l) {
+    if (o.variant && l.variants && l.variants.length) {
+      const v = l.variants.find(x => x.name === o.variant);
+      if (v) v.qty = (parseInt(v.qty) || 0) + (parseInt(o.qty) || 0);
+    } else {
+      l.qty = (parseInt(l.qty) || 0) + (parseInt(o.qty) || 0);
+    }
+  }
+  shopOrders = shopOrders.filter(x => x.order_id !== orderId);
+  if (API_URL) apiPost('deleteShopOrder', { order_id: orderId }).catch(()=>{});
+  renderShopOrders();
+  renderAdminListings();
+  renderShopPage();
+  toast('Shop order deleted.');
 }
 
 function toggleShopOrderPayment(orderId) {
@@ -2617,6 +2641,14 @@ function applyConfirmPayment() {
   renderDetailContent();
   if (pc.goId === 'shop') renderShopOrders();
   toast('Payment confirmed for ' + pc.username);
+}
+
+function deletePaymentProof(id) {
+  if (!confirm('Delete this payment record? This cannot be undone.')) return;
+  paymentProofs = paymentProofs.filter(p => p.payment_id !== id);
+  if (API_URL) apiPost('deletePayment', { payment_id: id }).catch(()=>{});
+  renderPaymentProofs();
+  toast('Payment record deleted.');
 }
 
 function rejectPayment(id) {

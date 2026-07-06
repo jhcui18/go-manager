@@ -76,6 +76,8 @@ function doPost(e) {
     else if (action === 'deleteListing')     result = deleteListing(body.data.listing_id);
     else if (action === 'placeShopOrder')    result = placeShopOrder(body.data);
     else if (action === 'updateShopOrder')   result = updateShopOrder(body.data);
+    else if (action === 'deleteShopOrder')   result = deleteShopOrder(body.data.order_id);
+    else if (action === 'deletePayment')     result = deletePayment(body.data.payment_id);
     else if (action === 'submitShipping')    result = submitShipping(body.data);
     else if (action === 'updateShipping')    result = updateShipping(body.data);
     else if (action === 'bootstrap')         result = { ok: true, msg: bootstrapSheets() || 'Sheets ready' };
@@ -491,6 +493,56 @@ function sheetToObjects(sheet) {
     headers.forEach((h, i) => { obj[h] = row[i]; });
     return obj;
   });
+}
+
+function deleteShopOrder(order_id) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const orderSheet = ss.getSheetByName(SHEET_SHOP_ORDERS);
+  const rows = orderSheet.getDataRange().getValues();
+  const headers = rows[0];
+  const oidCol = headers.indexOf('order_id');
+  const lidCol = headers.indexOf('listing_id');
+  const qtyCol = headers.indexOf('qty');
+  const varCol = headers.indexOf('variant');
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][oidCol] === order_id) {
+      restoreListingStock(ss, rows[i][lidCol], parseInt(rows[i][qtyCol]) || 0, rows[i][varCol]);
+      break;
+    }
+  }
+  deleteRowWhere(orderSheet, 'order_id', order_id);
+  return { ok: true };
+}
+
+function restoreListingStock(ss, listing_id, qty, variant) {
+  const listSheet = ss.getSheetByName(SHEET_LISTINGS);
+  if (!listSheet) return;
+  const rows = listSheet.getDataRange().getValues();
+  const headers = rows[0];
+  const idCol = headers.indexOf('listing_id');
+  const qtyCol = headers.indexOf('qty');
+  const varCol = headers.indexOf('variants');
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][idCol] === listing_id) {
+      if (variant) {
+        let variants = [];
+        try { variants = JSON.parse(rows[i][varCol] || '[]'); } catch (e) { variants = []; }
+        const v = variants.find(x => x.name === variant);
+        if (v) {
+          v.qty = (parseInt(v.qty) || 0) + qty;
+          listSheet.getRange(i+1, varCol+1).setValue(JSON.stringify(variants));
+        }
+      } else {
+        listSheet.getRange(i+1, qtyCol+1).setValue((parseInt(rows[i][qtyCol]) || 0) + qty);
+      }
+      return;
+    }
+  }
+}
+
+function deletePayment(payment_id) {
+  deleteRowWhere(SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_PAYMENTS), 'payment_id', payment_id);
+  return { ok: true };
 }
 
 function deleteRowWhere(sheet, col, val) {
