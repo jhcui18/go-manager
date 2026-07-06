@@ -687,6 +687,13 @@ function submitShopOrder(listingId) {
       } else {
         l.qty = (parseInt(l.qty) || 0) - qty;
       }
+      // Add the order to the local list so it shows in My orders immediately.
+      shopOrders.push({
+        order_id: res.order_id, listing_id: listingId, listing_name: l.name,
+        username: u, email: '', qty, unit_price: l.price,
+        variant: hasVariants ? shopOrderVariant : '',
+        payment_status: 'unpaid', fulfillment: 'Pending'
+      });
       closeModal();
       renderShopPage();
       toast('Order placed — pay in My orders.');
