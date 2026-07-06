@@ -33,6 +33,17 @@ function ensureSheet(ss, name, headers) {
       .setFontWeight('bold')
       .setBackground('#F1EFE8');
     sheet.setFrozenRows(1);
+  } else {
+    // Migrate: append any header columns added to the schema after this sheet
+    // was first created (ensures e.g. new 'variants'/'variant' columns exist).
+    const lastCol = sheet.getLastColumn();
+    const existing = lastCol > 0 ? sheet.getRange(1, 1, 1, lastCol).getValues()[0] : [];
+    const missing = headers.filter(h => existing.indexOf(h) === -1);
+    if (missing.length) {
+      sheet.getRange(1, existing.length + 1, 1, missing.length).setValues([missing]);
+      sheet.getRange(1, existing.length + 1, 1, missing.length)
+        .setFontWeight('bold').setBackground('#F1EFE8');
+    }
   }
   return sheet;
 }
