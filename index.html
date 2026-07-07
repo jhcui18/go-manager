@@ -2648,11 +2648,14 @@ function findProof(id) { return paymentProofs.find(p => p.payment_id === id); }
 
 // Ordered OWED units for a buyer in a GO (or shop): secured set slots + claims-based
 // items, in the order shown in My orders. Each: { id, value, kind, ref }.
+// Owed "units" for a buyer, each { ids:[...], value, kind, refs:[...] }. A unit can
+// cover multiple rows (an OT full set = one unit at the flat OT price covering all
+// its slots) so it's priced once and its slots are marked paid together.
 function paymentOwedUnits(username, goId) {
   const units = [];
   if (goId === 'shop') {
     shopOrders.filter(o => o.username === username).forEach(o => {
-      units.push({ id: o.order_id, value: (parseFloat(o.unit_price)||0) * (parseInt(o.qty)||1), kind: 'shop', ref: o });
+      units.push({ ids: [o.order_id], value: (parseFloat(o.unit_price)||0) * (parseInt(o.qty)||1), kind: 'shop', refs: [o] });
     });
     return units;
   }
@@ -2662,24 +2665,30 @@ function paymentOwedUnits(username, goId) {
     if (si.sets) {
       setDisplayOrder(si.sets, si.members).forEach(({ set }) => {
         if (set.status !== 'secured') return;
+        const otSlots = [], normalSlots = [];
         (si.members||[]).forEach(m => {
           const slot = set.slots[m];
-          if (slot && slot.user === username) {
-            units.push({ id: slot.claim_id, value: slot.ot ? (si.otPrice||0) : (si.price||0), kind: 'slot', ref: slot });
-          }
+          if (slot && slot.user === username) (slot.ot ? otSlots : normalSlots).push(slot);
         });
+        // OT full set → one unit at the flat OT price, covering all its slots.
+        if (otSlots.length) {
+          units.push({ ids: otSlots.map(s => s.claim_id).filter(Boolean), value: si.otPrice||0, kind: 'slot', refs: otSlots });
+        }
+        normalSlots.forEach(slot => units.push({ ids: [slot.claim_id].filter(Boolean), value: si.price||0, kind: 'slot', refs: [slot] }));
       });
     }
     if (si.claims) si.claims.forEach(c => {
-      if (c.user === username) units.push({ id: c.claim_id, value: (si.price||0) * (c.qty||1), kind: 'claim', ref: c });
+      if (c.user === username) units.push({ ids: [c.claim_id].filter(Boolean), value: (si.price||0) * (c.qty||1), kind: 'claim', refs: [c] });
     });
   });
   return units;
 }
 
 function setUnitPaid(u, paid) {
-  if (u.kind === 'shop') u.ref.payment_status = paid ? 'paid' : 'unpaid';
-  else u.ref.payment = paid ? 'paid' : 'unpaid';
+  u.refs.forEach(ref => {
+    if (u.kind === 'shop') ref.payment_status = paid ? 'paid' : 'unpaid';
+    else ref.payment = paid ? 'paid' : 'unpaid';
+  });
 }
 
 let pendingConfirm = null;
@@ -2723,8 +2732,8 @@ function applyConfirmPayment() {
   if (p) p.status = 'confirmed';
   pc.paid.forEach(u => setUnitPaid(u, true));
   pc.unpaid.forEach(u => setUnitPaid(u, false));
-  const paidIds = pc.paid.map(u => u.id).filter(Boolean);
-  const unpaidIds = pc.unpaid.map(u => u.id).filter(Boolean);
+  const paidIds = pc.paid.flatMap(u => u.ids).filter(Boolean);
+  const unpaidIds = pc.unpaid.flatMap(u => u.ids).filter(Boolean);
   if (API_URL && p) {
     const payload = { payment_id: p.payment_id, status: 'confirmed', username: pc.username, go_id: pc.goId };
     if (pc.goId === 'shop') { payload.paid_order_ids = paidIds; payload.unpaid_order_ids = unpaidIds; }
