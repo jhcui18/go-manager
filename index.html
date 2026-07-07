@@ -505,7 +505,7 @@ const SHOP_FULFILLMENT = ['Pending','Ready','Shipped'];
 function shopNextFulfillment(f) { const i = SHOP_FULFILLMENT.indexOf(f); return (i >= 0 && i < SHOP_FULFILLMENT.length-1) ? SHOP_FULFILLMENT[i+1] : null; }
 function shopPrevFulfillment(f) { const i = SHOP_FULFILLMENT.indexOf(f); return i > 0 ? SHOP_FULFILLMENT[i-1] : null; }
 function shopFulfillBadge(f) { return f === 'Shipped' ? 'badge-secured' : f === 'Ready' ? 'badge-ready' : 'badge-pending'; }
-function fulfillBadge(f) { return f==='Ready'?'badge-ready':f==='On the way'?'badge-transit':f==='Ordered'?'badge-waitlist':'badge-pending'; }
+function fulfillBadge(f) { return f==='Ready'?'badge-ready':f==='On the way'?'badge-transit':f==='Ordered'?'badge-waitlist':(f==='Shipped'||f==='Dispatched')?'badge-secured':'badge-pending'; }
 function assignVersions(qty, versions) {
   if (!versions || versions.length === 0) return Array(qty).fill('random');
   const result = [];
@@ -2896,6 +2896,10 @@ function markShipped(requestId) {
   renderShippingQueue();
   renderDetailContent();
   renderShopOrders();
+  // If a My-orders lookup is on screen, refresh it so shipped statuses update.
+  const lr = document.getElementById('lookup-result');
+  const li = document.getElementById('lookup-input');
+  if (lr && lr.style.display !== 'none' && li && li.value.trim()) doLookup();
   toast('Marked shipped for ' + r.username);
 }
 
