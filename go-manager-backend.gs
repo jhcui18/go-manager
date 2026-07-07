@@ -17,7 +17,7 @@ function bootstrapSheets() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   ensureSheet(ss, SHEET_GOS,      ['go_id','name','type','deadline','status','min_secure','created_at']);
   ensureSheet(ss, SHEET_JOINERS,  ['claim_id','go_id','go_name','sub_item_id','sub_item_name','sub_item_kind','username','email','member_or_version','set_num','qty','assigned_vers','claim_status','payment_status','fulfillment','created_at','updated_at']);
-  ensureSheet(ss, SHEET_SHIPPING, ['request_id','username','go_ids','full_name','address1','address2','city','state','postal','country','notes','email','card_count','ems_fee','dom_fee','total_fee','shipped','created_at']);
+  ensureSheet(ss, SHEET_SHIPPING, ['request_id','username','go_ids','full_name','address1','address2','city','state','postal','country','notes','email','card_count','ems_fee','dom_fee','total_fee','shipped','created_at','items']);
   ensureSheet(ss, SHEET_PAYMENTS, ['payment_id','username','go_id','go_name','amount','method','transaction_id','proof_url','email','status','created_at']);
   ensureSheet(ss, SHEET_LISTINGS,    ['listing_id','name','category','price','image_url','qty','note','status','created_at','variants']);
   ensureSheet(ss, SHEET_SHOP_ORDERS, ['order_id','listing_id','listing_name','username','email','qty','unit_price','payment_status','fulfillment','created_at','updated_at','variant']);
@@ -466,20 +466,57 @@ function updateShopOrder(data) {
 function submitShipping(data) {
   bootstrapSheets();
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_SHIPPING);
-  const id = 'ship_' + Date.now();
-  sheet.appendRow([id, data.username, data.go_ids || '', data.full_name, data.address1, data.address2 || '', data.city, data.state, data.postal, data.country, data.notes || '', data.email || '', data.card_count || 0, '', '', '', false, new Date().toISOString()]);
+  const id = 'ship_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
+  const items = data.items || [];
+  sheet.appendRow([id, data.username, data.go_ids || '', data.full_name || '', data.address1 || '', data.address2 || '', data.city || '', data.state || '', data.postal || '', data.country || '', data.notes || '', data.email || '', items.length, '', '', '', false, new Date().toISOString(), JSON.stringify(items)]);
   return { ok: true, request_id: id };
 }
 
 function updateShipping(data) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_SHIPPING);
-  updateRowWhere(sheet, 'request_id', data.request_id, {
-    ems_fee: data.ems_fee,
-    dom_fee: data.dom_fee,
-    total_fee: data.total_fee,
-    shipped: data.shipped
-  });
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_SHIPPING);
+  const fields = {};
+  if (data.ems_fee !== undefined)   fields.ems_fee = data.ems_fee;
+  if (data.dom_fee !== undefined)   fields.dom_fee = data.dom_fee;
+  if (data.total_fee !== undefined) fields.total_fee = data.total_fee;
+  if (data.shipped !== undefined)   fields.shipped = data.shipped;
+  updateRowWhere(sheet, 'request_id', data.request_id, fields);
+  if (data.shipped === true) {
+    // Read the request's bundled items and mark each shipped.
+    const rows = sheet.getDataRange().getValues();
+    const headers = rows[0];
+    const ridCol = headers.indexOf('request_id');
+    const itemsCol = headers.indexOf('items');
+    let items = [];
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][ridCol] === data.request_id) {
+        try { items = JSON.parse(rows[i][itemsCol] || '[]'); } catch (e) { items = []; }
+        break;
+      }
+    }
+    const claimIds = items.filter(it => it.type === 'claim').map(it => it.id);
+    const orderIds = items.filter(it => it.type === 'shop').map(it => it.id);
+    if (claimIds.length) setFulfillmentByIds(ss.getSheetByName(SHEET_JOINERS), 'claim_id', claimIds, 'Dispatched');
+    if (orderIds.length) setFulfillmentByIds(ss.getSheetByName(SHEET_SHOP_ORDERS), 'order_id', orderIds, 'Shipped');
+  }
   return { ok: true };
+}
+
+function setFulfillmentByIds(sheet, idCol, ids, value) {
+  if (!sheet || !ids.length) return;
+  const rows = sheet.getDataRange().getValues();
+  const headers = rows[0];
+  const iCol = headers.indexOf(idCol);
+  const fCol = headers.indexOf('fulfillment');
+  const uCol = headers.indexOf('updated_at');
+  const idSet = {};
+  ids.forEach(id => { idSet[id] = true; });
+  for (let i = 1; i < rows.length; i++) {
+    if (idSet[rows[i][iCol]]) {
+      if (fCol >= 0) sheet.getRange(i+1, fCol+1).setValue(value);
+      if (uCol >= 0) sheet.getRange(i+1, uCol+1).setValue(new Date().toISOString());
+    }
+  }
 }
 
 function getShipping() {
