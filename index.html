@@ -2957,8 +2957,8 @@ async function syncFromBackend() {
   showLoadingOverlay(true);
   try {
     // Fetch GOs and payments in parallel so the two round-trips overlap.
-    const [result, payResult, listResult, orderResult] = await Promise.all([
-      apiGet('getAllGOs'), apiGet('getPayments'), apiGet('getListings'), apiGet('getShopOrders')
+    const [result, payResult, listResult, orderResult, shipResult] = await Promise.all([
+      apiGet('getAllGOs'), apiGet('getPayments'), apiGet('getListings'), apiGet('getShopOrders'), apiGet('getShipping')
     ]);
     if (result && result.gos && result.gos.length) {
       allGOs = {};
@@ -3063,9 +3063,15 @@ async function syncFromBackend() {
     if (orderResult && Array.isArray(orderResult.shop_orders)) {
       shopOrders = orderResult.shop_orders.filter(o => o && o.order_id);
     }
+    if (shipResult && Array.isArray(shipResult.requests)) {
+      shippingRequests = shipResult.requests
+        .filter(r => r && r.request_id)
+        .map(r => ({ ...r, items: tryParse(r.items, []), shipped: r.shipped === true || r.shipped === 'true' }));
+    }
     renderShopPage();
     renderAdminListings();
     renderShopOrders();
+    renderShippingQueue();
   } catch(e) {
     console.error('Sync error at stack:', e.stack || e);
     toast('Sync failed: ' + (e.message || String(e)));
