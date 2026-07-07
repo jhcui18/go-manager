@@ -500,6 +500,10 @@ function fmtDate(val) {
 }
 function nextFulfillment(f) { const i = FULFILLMENT.indexOf(f); return i < FULFILLMENT.length-1 ? FULFILLMENT[i+1] : null; }
 function prevFulfillment(f) { const i = FULFILLMENT.indexOf(f); return i > 0 ? FULFILLMENT[i-1] : null; }
+const SHOP_FULFILLMENT = ['Pending','Ready','Shipped'];
+function shopNextFulfillment(f) { const i = SHOP_FULFILLMENT.indexOf(f); return (i >= 0 && i < SHOP_FULFILLMENT.length-1) ? SHOP_FULFILLMENT[i+1] : null; }
+function shopPrevFulfillment(f) { const i = SHOP_FULFILLMENT.indexOf(f); return i > 0 ? SHOP_FULFILLMENT[i-1] : null; }
+function shopFulfillBadge(f) { return f === 'Shipped' ? 'badge-secured' : f === 'Ready' ? 'badge-ready' : 'badge-pending'; }
 function fulfillBadge(f) { return f==='Ready'?'badge-ready':f==='On the way'?'badge-transit':f==='Ordered'?'badge-waitlist':'badge-pending'; }
 function assignVersions(qty, versions) {
   if (!versions || versions.length === 0) return Array(qty).fill('random');
@@ -2488,8 +2492,8 @@ function renderShopOrders() {
   }
   tbody.innerHTML = shopOrders.map(o => {
     const amt = (parseFloat(o.unit_price)||0) * (parseInt(o.qty)||1);
-    const nf = nextFulfillment(o.fulfillment);
-    const pf = prevFulfillment(o.fulfillment);
+    const nf = shopNextFulfillment(o.fulfillment);
+    const pf = shopPrevFulfillment(o.fulfillment);
     return `<tr>
       <td style="font-weight:500;">${o.username}</td>
       <td style="font-size:12px;">${o.listing_name}${o.variant ? ' — ' + o.variant : ''}</td>
@@ -2497,7 +2501,7 @@ function renderShopOrders() {
       <td style="font-family:var(--mono);">$${amt.toFixed(2)}</td>
       <td><span class="badge ${o.payment_status==='paid'?'badge-paid':'badge-unpaid'}" style="cursor:pointer;" onclick="toggleShopOrderPayment('${o.order_id}')">${o.payment_status==='paid'?'Paid':'Unpaid'}</span></td>
       <td><div style="display:flex;align-items:center;gap:6px;">
-        <span class="badge ${fulfillBadge(o.fulfillment)}">${o.fulfillment}</span>
+        <span class="badge ${shopFulfillBadge(o.fulfillment)}">${o.fulfillment}</span>
         ${pf ? `<button class="btn btn-sm btn-ghost" style="font-size:11px;padding:3px 8px;" title="Back to ${pf}" onclick="advanceShopFulfill('${o.order_id}','prev')">←</button>` : ''}
         ${nf ? `<button class="btn btn-sm btn-ghost" style="font-size:11px;padding:3px 8px;" onclick="advanceShopFulfill('${o.order_id}')">→ ${nf}</button>` : ''}
         <button class="btn btn-sm btn-ghost" style="font-size:11px;padding:3px 8px;color:var(--red-400);" title="Delete order (returns stock)" onclick="deleteShopOrder('${o.order_id}')">×</button>
@@ -2540,7 +2544,7 @@ function toggleShopOrderPayment(orderId) {
 function advanceShopFulfill(orderId, dir) {
   const o = shopOrders.find(x => x.order_id === orderId);
   if (!o) return;
-  const nf = dir === 'prev' ? prevFulfillment(o.fulfillment) : nextFulfillment(o.fulfillment);
+  const nf = dir === 'prev' ? shopPrevFulfillment(o.fulfillment) : shopNextFulfillment(o.fulfillment);
   if (!nf) return;
   o.fulfillment = nf;
   if (API_URL) apiPost('updateShopOrder', { order_id: orderId, fulfillment: nf });
