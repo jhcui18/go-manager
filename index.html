@@ -444,7 +444,7 @@
 </div>
 
 <script>
-const FULFILLMENT = ['Pending','Ordered','On the way','Ready','Dispatched'];
+const FULFILLMENT = ['Pending','Ordered','On the way','Ready','Shipped'];
 // Single source of truth for the manager's payment handles (mirrors the Rules page).
 const PAYMENT_METHODS = [
   { method: 'PayPal', handle: '@jinghanc',          note: 'F&F (no note)' },
@@ -2899,16 +2899,16 @@ function viewShippingAddress(requestId) {
 function markShipped(requestId) {
   const r = shippingRequests.find(x => x.request_id === requestId);
   if (!r) return;
-  if (!confirm('Mark shipped for ' + r.username + '? Their bundled items will be set to Dispatched/Shipped.')) return;
+  if (!confirm('Mark shipped for ' + r.username + '? Their bundled items will be set to Shipped.')) return;
   r.shipped = true;
   // Flip bundled items locally.
   const claimIds = {}, orderIds = {};
   (r.items || []).forEach(it => { if (it.type === 'claim') claimIds[it.id] = true; else if (it.type === 'shop') orderIds[it.id] = true; });
   Object.values(allGOs).forEach(go => (go.subItems || []).forEach(si => {
     if (si.sets) si.sets.forEach(set => (si.members || []).forEach(m => {
-      const slot = set.slots[m]; if (slot && slot.claim_id && claimIds[slot.claim_id]) slot.fulfillment = 'Dispatched';
+      const slot = set.slots[m]; if (slot && slot.claim_id && claimIds[slot.claim_id]) slot.fulfillment = 'Shipped';
     }));
-    if (si.claims) si.claims.forEach(c => { if (c.claim_id && claimIds[c.claim_id]) c.fulfillment = 'Dispatched'; });
+    if (si.claims) si.claims.forEach(c => { if (c.claim_id && claimIds[c.claim_id]) c.fulfillment = 'Shipped'; });
   }));
   shopOrders.forEach(o => { if (orderIds[o.order_id]) o.fulfillment = 'Shipped'; });
   if (API_URL) apiPost('updateShipping', { request_id: r.request_id, ems_fee: r.ems_fee || '', dom_fee: r.dom_fee || '', total_fee: r.total_fee || '', shipped: true }).catch(()=>{});

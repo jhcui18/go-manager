@@ -496,7 +496,7 @@ function updateShipping(data) {
     }
     const claimIds = items.filter(it => it.type === 'claim').map(it => it.id);
     const orderIds = items.filter(it => it.type === 'shop').map(it => it.id);
-    if (claimIds.length) setFulfillmentByIds(ss.getSheetByName(SHEET_JOINERS), 'claim_id', claimIds, 'Dispatched');
+    if (claimIds.length) setFulfillmentByIds(ss.getSheetByName(SHEET_JOINERS), 'claim_id', claimIds, 'Shipped');
     if (orderIds.length) setFulfillmentByIds(ss.getSheetByName(SHEET_SHOP_ORDERS), 'order_id', orderIds, 'Shipped');
   }
   return { ok: true };
