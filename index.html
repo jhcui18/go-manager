@@ -2824,188 +2824,79 @@ const _submitPaymentForm = () => {
 let shippingRequests = [];
 
 function refreshShippingQueue() {
-  // Auto-populate from joiners with all items Ready
-  const readyByUser = {};
-  Object.values(allGOs).forEach(go => {
-    go.subItems.forEach(si => {
-      if (si.sets) {
-        si.sets.forEach(set => {
-          si.members && si.members.forEach(member => {
-            const slot = set.slots[member];
-            if (slot && slot.fulfillment === 'Ready') {
-              if (!readyByUser[slot.user]) readyByUser[slot.user] = { user:slot.user, cards:0, others:[], items:[] };
-              readyByUser[slot.user].cards++;
-              readyByUser[slot.user].items.push({ go: go.name, item: si.name + ' ' + member });
-            }
-          });
-        });
-      }
-      if (si.claims) {
-        si.claims.forEach(c => {
-          if (c.fulfillment === 'Ready') {
-            if (!readyByUser[c.user]) readyByUser[c.user] = { user:c.user, cards:0, others:[], items:[] };
-            readyByUser[c.user].others.push(si.name + ' ×' + c.qty);
-            readyByUser[c.user].items.push({ go: go.name, item: si.name });
-          }
-        });
-      }
-    });
-  });
-  // Merge with existing shipping requests
-  Object.values(readyByUser).forEach(r => {
-    if (!shippingRequests.find(s => s.username === r.user && s.shipped !== true)) {
-      shippingRequests.push({ request_id: 'ship_' + Date.now() + '_' + r.user, username: r.user, cards: r.cards, others: r.others.join(', '), items: r.items, ems_fee: (r.cards * 0.5).toFixed(2), dom_fee: '', total: '', address: '', shipped: false });
-    }
-  });
-  renderShippingQueue();
+  if (API_URL) syncFromBackend(); else renderShippingQueue();
 }
 
 function renderShippingQueue() {
   const tbody = document.getElementById('shipping-queue-tbody');
   if (!tbody) return;
-  const pending = shippingRequests.filter(r => !r.shipped);
+  const pending = (shippingRequests || []).filter(r => !r.shipped);
   if (!pending.length) {
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px;">No shipping requests yet.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px;">No shipping requests.</td></tr>';
     return;
   }
-  tbody.innerHTML = pending.map((r, i) => {
-    const emsNum = parseFloat(r.ems_fee) || 0;
-    const domNum = parseFloat(r.dom_fee) || 0;
-    const total = r.total || (emsNum + domNum > 0 ? (emsNum + domNum).toFixed(2) : '—');
+  tbody.innerHTML = pending.map(r => {
+    const items = r.items || [];
+    const ems = parseFloat(r.ems_fee) || 0;
+    const dom = parseFloat(r.dom_fee) || 0;
+    const total = (ems + dom) > 0 ? (ems + dom).toFixed(2) : '—';
     return `<tr>
       <td style="font-weight:500;">${r.username}</td>
-      <td style="font-size:12px;color:var(--text2);">${r.items ? r.items.length : '—'} items</td>
-      <td>${r.cards || 0}</td>
-      <td style="font-family:var(--mono);">$${emsNum.toFixed(2)}</td>
-      <td><input type="number" placeholder="0.00" step="0.01" value="${r.dom_fee||''}" oninput="updateShipFee(${i},this.value)" style="width:72px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);"></td>
-      <td style="font-family:var(--mono);font-weight:500;" id="ship-total-${i}">${total !== '—' ? '$'+total : '—'}</td>
-      <td><button class="btn btn-sm btn-ghost" onclick="viewShippingAddress(${i})">${r.address ? '✓ Set' : 'View'}</button></td>
-      <td>
-        <div style="display:flex;gap:4px;">
-          <button class="btn btn-sm btn-primary" onclick="markShipped(${i})">Mark shipped</button>
-          <button class="btn btn-sm btn-ghost" onclick="openEditShippingModal(${i})">Edit</button>
-        </div>
-      </td>
+      <td style="font-size:12px;color:var(--text2);">${items.map(it => it.label).join('<br>') || '—'}</td>
+      <td>${items.length}</td>
+      <td><input type="number" placeholder="0.00" step="0.01" value="${r.ems_fee||''}" oninput="updateShipFee('${r.request_id}','ems',this.value)" style="width:72px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);"></td>
+      <td><input type="number" placeholder="0.00" step="0.01" value="${r.dom_fee||''}" oninput="updateShipFee('${r.request_id}','dom',this.value)" style="width:72px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);"></td>
+      <td style="font-family:var(--mono);font-weight:500;" id="ship-total-${r.request_id}">${total !== '—' ? '$'+total : '—'}</td>
+      <td><button class="btn btn-sm btn-ghost" onclick="viewShippingAddress('${r.request_id}')">View</button></td>
+      <td><button class="btn btn-sm btn-primary" onclick="markShipped('${r.request_id}')">Mark shipped</button></td>
     </tr>`;
   }).join('');
 }
 
-function updateShipFee(idx, val) {
-  const r = shippingRequests.filter(r => !r.shipped)[idx];
+function updateShipFee(requestId, which, val) {
+  const r = shippingRequests.find(x => x.request_id === requestId);
   if (!r) return;
-  r.dom_fee = val;
+  if (which === 'ems') r.ems_fee = val; else r.dom_fee = val;
   const ems = parseFloat(r.ems_fee) || 0;
-  const dom = parseFloat(val) || 0;
-  r.total = (ems + dom).toFixed(2);
-  const el = document.getElementById('ship-total-' + idx);
-  if (el) el.textContent = '$' + r.total;
+  const dom = parseFloat(r.dom_fee) || 0;
+  r.total_fee = (ems + dom).toFixed(2);
+  const el = document.getElementById('ship-total-' + requestId);
+  if (el) el.textContent = (ems + dom) > 0 ? '$' + r.total_fee : '—';
 }
 
-function viewShippingAddress(idx) {
-  const r = shippingRequests.filter(s => !s.shipped)[idx];
+function viewShippingAddress(requestId) {
+  const r = shippingRequests.find(x => x.request_id === requestId);
   if (!r) return;
-  const addr = r.address || 'No address on file.';
+  const addr = [r.full_name, r.address1, r.address2, [r.city, r.state, r.postal].filter(Boolean).join(', '), r.country, r.notes ? ('Notes: ' + r.notes) : ''].filter(Boolean).join('\n');
   showModal(`
     <div style="font-size:16px;font-weight:500;margin-bottom:4px;">Shipping address</div>
-    <div style="font-size:13px;font-weight:500;margin-bottom:4px;">${r.username}</div>
-    <div style="font-size:13px;color:var(--text2);white-space:pre-line;margin-bottom:16px;">${addr}</div>
-    <div style="font-size:13px;font-weight:500;margin-bottom:8px;">Items ready:</div>
-    <div style="font-size:12px;color:var(--text2);">${(r.items||[]).map(it=>`• ${it.go} — ${it.item}`).join('<br>') || '—'}</div>
+    <div style="font-size:13px;font-weight:500;margin-bottom:8px;">${r.username}</div>
+    <div style="font-size:13px;color:var(--text2);white-space:pre-line;margin-bottom:16px;">${addr || 'No address.'}</div>
+    <div style="font-size:13px;font-weight:500;margin-bottom:6px;">Items:</div>
+    <div style="font-size:12px;color:var(--text2);">${(r.items||[]).map(it => '• ' + it.label).join('<br>') || '—'}</div>
     <button class="btn btn-ghost" onclick="closeModal()" style="margin-top:20px;width:100%;justify-content:center;">Close</button>`);
 }
 
-function markShipped(idx) {
-  const pending = shippingRequests.filter(s => !s.shipped);
-  const r = pending[idx];
+function markShipped(requestId) {
+  const r = shippingRequests.find(x => x.request_id === requestId);
   if (!r) return;
-  if (!r.total || r.total === '—') { toast('Enter domestic fee before marking shipped.'); return; }
-  if (!confirm('Mark as shipped for ' + r.username + '? This will update all their ready items to dispatched.')) return;
+  if (!confirm('Mark shipped for ' + r.username + '? Their bundled items will be set to Dispatched/Shipped.')) return;
   r.shipped = true;
-  // Advance fulfillment for all their ready items
-  Object.values(allGOs).forEach(go => {
-    go.subItems.forEach(si => {
-      if (si.sets) si.sets.forEach(set => {
-        si.members && si.members.forEach(member => {
-          const slot = set.slots[member];
-          if (slot && slot.user === r.username && slot.fulfillment === 'Ready') slot.fulfillment = 'Dispatched';
-        });
-      });
-      if (si.claims) si.claims.forEach(c => { if (c.user === r.username && c.fulfillment === 'Ready') c.fulfillment = 'Dispatched'; });
-    });
-  });
-  if (API_URL && r.request_id) apiPost('updateShipping', { request_id: r.request_id, ems_fee: r.ems_fee, dom_fee: r.dom_fee, total_fee: r.total, shipped: true });
+  // Flip bundled items locally.
+  const claimIds = {}, orderIds = {};
+  (r.items || []).forEach(it => { if (it.type === 'claim') claimIds[it.id] = true; else if (it.type === 'shop') orderIds[it.id] = true; });
+  Object.values(allGOs).forEach(go => (go.subItems || []).forEach(si => {
+    if (si.sets) si.sets.forEach(set => (si.members || []).forEach(m => {
+      const slot = set.slots[m]; if (slot && slot.claim_id && claimIds[slot.claim_id]) slot.fulfillment = 'Dispatched';
+    }));
+    if (si.claims) si.claims.forEach(c => { if (c.claim_id && claimIds[c.claim_id]) c.fulfillment = 'Dispatched'; });
+  }));
+  shopOrders.forEach(o => { if (orderIds[o.order_id]) o.fulfillment = 'Shipped'; });
+  if (API_URL) apiPost('updateShipping', { request_id: r.request_id, ems_fee: r.ems_fee || '', dom_fee: r.dom_fee || '', total_fee: r.total_fee || '', shipped: true }).catch(()=>{});
   renderShippingQueue();
   renderDetailContent();
+  renderShopOrders();
   toast('Marked shipped for ' + r.username);
-}
-
-function openEditShippingModal(idx) {
-  const r = shippingRequests.filter(s => !s.shipped)[idx];
-  if (!r) return;
-  showModal(`
-    <div style="font-size:16px;font-weight:500;margin-bottom:4px;">Edit shipping request</div>
-    <div style="font-size:13px;color:var(--text2);margin-bottom:20px;">${r.username}</div>
-    <div class="field"><label>Username</label><input type="text" id="es-user" value="${r.username}"></div>
-    <div class="field-row">
-      <div class="field"><label>EMS fee ($)</label><input type="number" id="es-ems" value="${r.ems_fee||0}" step="0.01"></div>
-      <div class="field"><label>Domestic fee ($)</label><input type="number" id="es-dom" value="${r.dom_fee||''}" step="0.01"></div>
-    </div>
-    <div class="field"><label>Shipping address</label><textarea id="es-addr" style="min-height:80px;">${r.address||''}</textarea></div>
-    <div class="field"><label>Notes</label><textarea id="es-notes" style="min-height:60px;">${r.notes||''}</textarea></div>
-    <div style="display:flex;gap:8px;margin-top:8px;">
-      <button class="btn btn-primary" onclick="saveShippingEdit(${idx})" style="flex:1;justify-content:center;">Save</button>
-      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-    </div>`);
-}
-
-function saveShippingEdit(idx) {
-  const r = shippingRequests.filter(s => !s.shipped)[idx];
-  if (!r) return;
-  r.username = document.getElementById('es-user').value.trim() || r.username;
-  r.ems_fee = document.getElementById('es-ems').value;
-  r.dom_fee = document.getElementById('es-dom').value;
-  r.total = (parseFloat(r.ems_fee||0) + parseFloat(r.dom_fee||0)).toFixed(2);
-  r.address = document.getElementById('es-addr').value;
-  r.notes = document.getElementById('es-notes').value;
-  closeModal();
-  renderShippingQueue();
-  toast('Shipping request updated.');
-}
-
-// Hook up shipping form submission to populate queue
-const _origSubmitShipping = () => {
-  const username = document.querySelector('#page-shipping input[placeholder="@username"]')?.value?.trim() || '';
-  const fullName = document.querySelector('#page-shipping input[placeholder="As on shipping label"]')?.value || '';
-  const addr1 = document.querySelectorAll('#page-shipping input[type=text]')?.[2]?.value || '';
-  const addr2 = document.querySelectorAll('#page-shipping input[type=text]')?.[3]?.value || '';
-  const city = document.querySelectorAll('#page-shipping input[type=text]')?.[4]?.value || '';
-  const state = document.querySelectorAll('#page-shipping input[type=text]')?.[5]?.value || '';
-  const postal = document.querySelectorAll('#page-shipping input[type=text]')?.[6]?.value || '';
-  const country = document.querySelectorAll('#page-shipping input[type=text]')?.[7]?.value || '';
-  const addressStr = [fullName, addr1, addr2, city + ' ' + state, postal, country].filter(Boolean).join('\n');
-  // Find or create shipping request for this user
-  let req = shippingRequests.find(r => r.username === (username.startsWith('@')?username:'@'+username) && !r.shipped);
-  if (req) {
-    req.address = addressStr;
-  } else {
-    const u = username.startsWith('@') ? username : '@' + username;
-    const cards = countUserCards(u);
-    shippingRequests.push({ request_id:'ship_'+Date.now(), username:u, cards, others:'', items:[], ems_fee:(cards*0.5).toFixed(2), dom_fee:'', total:'', address:addressStr, shipped:false });
-  }
-  renderShippingQueue();
-  toast('Shipping request submitted!');
-};
-
-function countUserCards(username) {
-  let count = 0;
-  Object.values(allGOs).forEach(go => {
-    go.subItems.forEach(si => {
-      if (si.sets) si.sets.forEach(set => {
-        (si.members||[]).forEach(m => { if (set.slots[m]?.user === username && set.slots[m]?.fulfillment === 'Ready') count++; });
-      });
-    });
-  });
-  return count;
 }
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
