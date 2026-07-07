@@ -2020,10 +2020,13 @@ function showPage(id) {
     if (id === 'shop') renderShopPage();
     if (id === 'lookup' && API_URL) {
       // Auto-sync when My orders opens so buyers see the latest status without reloading.
-      const li = document.getElementById('lookup-input');
-      const lr = document.getElementById('lookup-result');
-      const hadResult = li && li.value.trim() && lr && lr.style.display !== 'none';
-      syncFromBackend().then(() => { if (hadResult) doLookup(); }).catch(()=>{});
+      // Re-check at completion (not open) so a lookup done DURING the sync re-renders
+      // with fresh data (e.g. a shop order just marked Ready shows in Request shipping).
+      syncFromBackend().then(() => {
+        const li = document.getElementById('lookup-input');
+        const lr = document.getElementById('lookup-result');
+        if (li && li.value.trim() && lr && lr.style.display !== 'none') doLookup();
+      }).catch(()=>{});
     }
     if (id === 'admin') { if (!isAdmin) { promptAdmin(); page.classList.remove('active'); return; } showAdminPanel('home'); }
   }
