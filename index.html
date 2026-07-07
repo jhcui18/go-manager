@@ -166,6 +166,7 @@
       </div>
     </div>
     <div id="lookup-pay-panels"></div>
+    <div id="lookup-ship-panel"></div>
   </div>
 </div>
 
@@ -1379,6 +1380,83 @@ function doLookup() {
         </div>`).join('');
     }
   }
+  renderShipPanel(u);
+}
+
+// A buyer's items that are Paid AND Ready and not already in a shipping request.
+function shipEligibleItems(username) {
+  const items = [];
+  Object.values(allGOs).forEach(go => {
+    (go.subItems || []).forEach(si => {
+      if (si.sets) si.sets.forEach(set => (si.members || []).forEach(m => {
+        const slot = set.slots[m];
+        if (slot && slot.user === username && slot.payment === 'paid' && slot.fulfillment === 'Ready' && slot.claim_id) {
+          items.push({ type: 'claim', id: slot.claim_id, label: go.name + ' — ' + si.name + ' ' + m });
+        }
+      }));
+      if (si.claims) si.claims.forEach(c => {
+        if (c.user === username && c.payment === 'paid' && c.fulfillment === 'Ready' && c.claim_id) {
+          items.push({ type: 'claim', id: c.claim_id, label: go.name + ' — ' + si.name + (c.member ? (' ' + c.member) : '') });
+        }
+      });
+    });
+  });
+  shopOrders.forEach(o => {
+    if (o.username === username && o.payment_status === 'paid' && o.fulfillment === 'Ready') {
+      items.push({ type: 'shop', id: o.order_id, label: o.listing_name + (o.variant ? (' — ' + o.variant) : '') });
+    }
+  });
+  const requested = {};
+  (shippingRequests || []).forEach(r => (r.items || []).forEach(it => { requested[it.id] = true; }));
+  return items.filter(it => !requested[it.id]);
+}
+
+function renderShipPanel(username) {
+  const el = document.getElementById('lookup-ship-panel');
+  if (!el) return;
+  const items = shipEligibleItems(username);
+  if (!items.length) { el.innerHTML = ''; return; }
+  el.innerHTML = `
+    <div class="card" style="margin-top:12px;">
+      <div style="font-weight:500;font-size:15px;margin-bottom:6px;">Request shipping</div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:8px;">These items are ready to ship. Enter your address to request one shipment:</div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:12px;">${items.map(it => '• ' + it.label).join('<br>')}</div>
+      <div class="field"><label>Full name</label><input type="text" id="ship-fullname" placeholder="As on the label"></div>
+      <div class="field"><label>Address line 1</label><input type="text" id="ship-addr1"></div>
+      <div class="field"><label>Address line 2 (optional)</label><input type="text" id="ship-addr2" placeholder="Apt, unit..."></div>
+      <div class="field-row">
+        <div class="field"><label>City</label><input type="text" id="ship-city"></div>
+        <div class="field"><label>State / Province</label><input type="text" id="ship-state"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Postal code</label><input type="text" id="ship-postal"></div>
+        <div class="field"><label>Country</label><input type="text" id="ship-country" value="United States"></div>
+      </div>
+      <div class="field"><label>Notes (optional)</label><input type="text" id="ship-notes" placeholder="Special instructions"></div>
+      <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="submitShippingRequest('${username}')">Submit shipping request</button>
+    </div>`;
+}
+
+function submitShippingRequest(username) {
+  const items = shipEligibleItems(username);
+  if (!items.length) { toast('No items ready to ship.'); return; }
+  const g = id => (document.getElementById(id) || {}).value || '';
+  const full_name = g('ship-fullname').trim();
+  const address1 = g('ship-addr1').trim();
+  const city = g('ship-city').trim();
+  if (!full_name || !address1 || !city) { toast('Please fill in name, address, and city.'); return; }
+  const req = {
+    request_id: 'ship_' + Date.now(), username,
+    full_name, address1, address2: g('ship-addr2').trim(), city,
+    state: g('ship-state').trim(), postal: g('ship-postal').trim(),
+    country: g('ship-country').trim(), notes: g('ship-notes').trim(),
+    items, shipped: false, ems_fee: '', dom_fee: '', total_fee: '', card_count: items.length
+  };
+  shippingRequests.push(req);
+  if (API_URL) apiPost('submitShipping', req).catch(()=>{});
+  renderShipPanel(username);
+  renderShippingQueue();
+  toast('Shipping request submitted!');
 }
 
 function submitGoPayment(goId, lookedUpUser) {
