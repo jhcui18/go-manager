@@ -1828,6 +1828,7 @@ function addSubItem() {
         <select id="si-kind-${id}" onchange="onSubItemKindChange('${id}')">
           <option value="member">Member ver (pick a member)</option>
           <option value="versioned">Version pick (buyer selects A/B/…)</option>
+          <option value="single">Single edition (no versions)</option>
         </select>
       </div>
       <button class="btn btn-sm btn-ghost" onclick="removeSubItem('${id}')">×</button>
@@ -1872,8 +1873,10 @@ function onSubItemKindChange(id) {
   if (!extra) return;
   if (kind === 'member') {
     extra.innerHTML = `<div class="field" style="margin-bottom:0;"><label>Members (one per line)</label><textarea id="si-members-${id}" placeholder="Yujin\nGaeul\nRei\n..." style="min-height:80px;font-family:var(--mono);font-size:12px;"></textarea></div>`;
-  } else {
+  } else if (kind === 'versioned') {
     extra.innerHTML = `<div class="field" style="margin-bottom:0;"><label>Versions (comma separated, e.g. A,B)</label><input type="text" id="si-versions-${id}" placeholder="A,B"></div>`;
+  } else {
+    extra.innerHTML = `<div class="field-hint" style="margin:0;">Single edition — buyers just choose a quantity.</div>`;
   }
 }
 
@@ -1914,6 +1917,8 @@ function createGO() {
         const emptySet = { status:'open', slots:{}, num:1 };
         members.forEach(m => emptySet.slots[m] = null);
         subItems.push({ id:siId, name:siName, kind:'member', members, minSecure, price, sets:[emptySet] });
+      } else if (kind === 'single') {
+        subItems.push({ id:siId, name:siName, kind:'single', price, claims:[] });
       } else {
         const versionsRaw = (document.getElementById('si-versions-' + siId)||{}).value || 'A,B';
         const versions = versionsRaw.split(',').map(v=>v.trim()).filter(Boolean);
