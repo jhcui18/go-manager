@@ -3161,16 +3161,40 @@ function buildSetsFromClaims(claims, siId, members) {
     members.forEach(m => empty.slots[m] = null);
     return [empty];
   }
-  const setNums = [...new Set(filtered.map(c => parseInt(c.set_num) || 1))].sort((a,b) => a - b);
-  const sets = setNums.map(n => {
-    const setStatus = filtered.find(c => parseInt(c.set_num) === n && c.claim_status === 'secured') ? 'secured' : 'open';
-    const slots = {};
-    members.forEach(m => slots[m] = null);
-    filtered.filter(c => parseInt(c.set_num) === n).forEach(c => {
-      slots[c.member_or_version] = { user: c.username, payment: c.payment_status, fulfillment: c.fulfillment, claim_id: c.claim_id, ot: c.assigned_vers === 'OT' };
-    });
-    return { status: setStatus, slots, num: n };
+  // Fairness: earliest claim wins a contested slot (tiebreak by claim_id for determinism).
+  const ordered = filtered.slice().sort((a, b) => {
+    const ta = a.created_at || '', tb = b.created_at || '';
+    if (ta !== tb) return ta < tb ? -1 : 1;
+    return String(a.claim_id) < String(b.claim_id) ? -1 : 1;
   });
+  // Spill (never overwrite): place each claim into its declared set; if that member's slot is
+  // taken, move to the next set where it's free — creating a new set if needed. This keeps every
+  // claimant visible so nobody silently disappears when two people booked the same slot.
+  const setsByNum = {};
+  const getSet = (n) => {
+    if (!setsByNum[n]) {
+      const slots = {}; members.forEach(m => slots[m] = null);
+      setsByNum[n] = { status:'open', slots, num:n };
+    }
+    return setsByNum[n];
+  };
+  const smallestUnusedNum = () => { let n = 1; while (setsByNum[n]) n++; return n; };
+  ordered.forEach(c => {
+    const member = c.member_or_version;
+    const declared = parseInt(c.set_num) || 1;
+    const slot = { user: c.username, payment: c.payment_status, fulfillment: c.fulfillment, claim_id: c.claim_id, ot: c.assigned_vers === 'OT' };
+    const existingHigher = Object.keys(setsByNum).map(Number).filter(x => x > declared).sort((a,b) => a - b);
+    let placed = false;
+    for (const n of [declared, ...existingHigher]) {
+      const s = getSet(n);
+      if (!s.slots[member]) { s.slots[member] = slot; if (c.claim_status === 'secured') s.status = 'secured'; placed = true; break; }
+    }
+    if (!placed) {
+      const s = getSet(smallestUnusedNum());
+      s.slots[member] = slot; if (c.claim_status === 'secured') s.status = 'secured';
+    }
+  });
+  const sets = Object.values(setsByNum).sort((a, b) => a.num - b.num);
   const last = sets[sets.length - 1];
   const hasEmpty = members.every(m => !last.slots[m]);
   if (!hasEmpty) {
