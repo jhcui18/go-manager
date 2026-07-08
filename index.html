@@ -156,7 +156,8 @@
           <div style="font-weight:500;font-size:15px;" id="result-username">@username</div>
           <div style="font-size:12px;color:var(--text2);" id="result-count"></div>
         </div>
-        <button class="btn btn-ghost btn-sm" style="margin-left:auto;" onclick="resetLookup()">← Back</button>
+        <button class="btn btn-ghost btn-sm" style="margin-left:auto;" onclick="refreshMyOrders(this)">↻ Refresh</button>
+        <button class="btn btn-ghost btn-sm" onclick="resetLookup()">← Back</button>
       </div>
       <div class="table-wrap">
         <table>
@@ -522,12 +523,22 @@ function toast(msg) {
 }
 
 // ── ORDERS PAGE ──────────────────────────────────────────────────────────────
+// Creation time for a GO, taken from the trailing Date.now() in its id
+// (createGO builds id as `<name-slug>-<timestamp>`). Legacy ids without a
+// trailing number sort last.
+function goCreatedTs(go) {
+  const m = /(\d+)$/.exec(go && go.id || '');
+  return m ? parseInt(m[1], 10) : 0;
+}
+
 function renderOrdersList() {
   saveLocal();
   const container = document.getElementById('page-orders');
   if (!container) return;
   let html = '<p class="page-title">Active group orders</p><p class="page-sub">Claim a spot or browse available items.</p>';
-  Object.values(allGOs).forEach(go => {
+  // Newest GO first (by creation time).
+  const orderedGOs = Object.values(allGOs).sort((a, b) => goCreatedTs(b) - goCreatedTs(a));
+  orderedGOs.forEach(go => {
     const typeLabel = go.type === 'photocard' ? 'Photocard' : go.type === 'album' ? 'Album' : 'Merch';
     // Photocard uses amber here (not the pink badge-set) so it doesn't clash with the red Closed badge.
     const typeBadge = go.type === 'photocard'
@@ -549,7 +560,7 @@ function renderOrdersList() {
     </div>`;
   });
   container.innerHTML = html;
-  Object.values(allGOs).forEach(go => renderGoPreview(go.id));
+  orderedGOs.forEach(go => renderGoPreview(go.id));
   renderPaymentGoSelect();
 }
 
@@ -1515,6 +1526,20 @@ function resetLookup() {
   document.getElementById('lookup-input').value = '';
 }
 
+// Manual refresh from the My orders result header: pull latest from Sheets, then
+// re-render the current buyer's orders. (My orders no longer auto-syncs on open.)
+function refreshMyOrders(btn) {
+  if (!API_URL) { doLookup(); return; }
+  const orig = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '↻ Syncing…'; }
+  syncFromBackend().then(() => {
+    const li = document.getElementById('lookup-input');
+    if (li && li.value.trim()) doLookup();
+  }).catch(()=>{}).finally(() => {
+    if (btn) { btn.disabled = false; btn.textContent = orig; }
+  });
+}
+
 // ── ADMIN ────────────────────────────────────────────────────────────────────
 function renderAdminGOList() {
   const el = document.getElementById('admin-go-list');
@@ -2043,16 +2068,8 @@ function showPage(id) {
     if (idx !== undefined) document.querySelectorAll('.nav-tab')[idx].classList.add('active');
     if (id === 'orders') renderOrdersList();
     if (id === 'shop') renderShopPage();
-    if (id === 'lookup' && API_URL) {
-      // Auto-sync when My orders opens so buyers see the latest status without reloading.
-      // Re-check at completion (not open) so a lookup done DURING the sync re-renders
-      // with fresh data (e.g. a shop order just marked Ready shows in Request shipping).
-      syncFromBackend().then(() => {
-        const li = document.getElementById('lookup-input');
-        const lr = document.getElementById('lookup-result');
-        if (li && li.value.trim() && lr && lr.style.display !== 'none') doLookup();
-      }).catch(()=>{});
-    }
+    // My orders no longer auto-syncs on open (the site already syncs once on load).
+    // Buyers use the ↻ Refresh button in the result header to pull the latest status.
     if (id === 'admin') { if (!isAdmin) { promptAdmin(); page.classList.remove('active'); return; } showAdminPanel('home'); }
   }
 }
