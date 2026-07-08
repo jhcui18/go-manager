@@ -206,20 +206,73 @@ function submitClaim(data) {
   if (firstGoId && isGOClosed(ss, firstGoId)) {
     return { ok: false, error: 'closed', message: 'This GO is closed and no longer accepting claims.' };
   }
-  const sheet = ss.getSheetByName(SHEET_JOINERS);
-  const now = new Date().toISOString();
-  const claimIds = [];
-  // data.claims is an array of individual slot claims — each gets its own unique ID
-  (data.claims || []).forEach(c => {
-    const claimId = 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
-    claimIds.push(claimId);
-    sheet.appendRow([
-      claimId, c.go_id, c.go_name, c.sub_item_id, c.sub_item_name, c.sub_item_kind,
-      c.username, c.email || '', c.member_or_version || '', c.set_num || '',
-      c.qty || 1, c.assigned_vers || '', 'pending', 'unpaid', 'Pending', now, now
-    ]);
-  });
-  return { ok: true, claim_ids: claimIds };
+  // Serialize claim writes so concurrent/stale clients can't book the same set-based slot.
+  const lock = LockService.getScriptLock();
+  try { lock.waitLock(10000); }
+  catch (e) { return { ok: false, error: 'busy', message: 'Server busy, please retry.' }; }
+  try {
+    const sheet = ss.getSheetByName(SHEET_JOINERS);
+    const now = new Date().toISOString();
+    const claimIds = [];
+    const assignedSetNums = [];
+
+    // Build a taken-slot map from existing rows so the SERVER assigns set_num authoritatively
+    // (the client's set_num can be stale). key = go_id|sub_item_id -> { set_num -> {member:true} }.
+    const values = sheet.getDataRange().getValues();
+    const H = values[0];
+    const ci = (name) => H.indexOf(name);
+    const taken = {};   // key -> { setNum -> {member:true} }
+    const maxSet = {};  // key -> highest set_num seen
+    for (let i = 1; i < values.length; i++) {
+      const row = values[i];
+      const key = row[ci('go_id')] + '|' + row[ci('sub_item_id')];
+      const sn = parseInt(row[ci('set_num')], 10) || 0;
+      const mem = row[ci('member_or_version')];
+      if (!sn || !mem) continue;
+      (taken[key] = taken[key] || {});
+      (taken[key][sn] = taken[key][sn] || {});
+      taken[key][sn][mem] = true;
+      maxSet[key] = Math.max(maxSet[key] || 0, sn);
+    }
+    const markTaken = (key, sn, mem) => {
+      (taken[key] = taken[key] || {}); (taken[key][sn] = taken[key][sn] || {});
+      taken[key][sn][mem] = true; maxSet[key] = Math.max(maxSet[key] || 0, sn);
+    };
+    const firstFreeSet = (key, mem) => {
+      const t = taken[key] || {};
+      let n = 1;
+      while (t[n] && t[n][mem]) n++;
+      return n;
+    };
+
+    const otSetForKey = {}; // OT full sets each get one fresh set number
+
+    (data.claims || []).forEach(c => {
+      const claimId = 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
+      claimIds.push(claimId);
+      let setNum = c.set_num || '';
+      const isSet = (c.sub_item_kind === 'member' || c.sub_item_kind === 'photocard') && c.member_or_version;
+      if (isSet) {
+        const key = c.go_id + '|' + c.sub_item_id;
+        if (c.assigned_vers === 'OT') {
+          if (!otSetForKey[key]) otSetForKey[key] = (maxSet[key] || 0) + 1;
+          setNum = otSetForKey[key];
+        } else {
+          setNum = firstFreeSet(key, c.member_or_version);
+        }
+        markTaken(key, setNum, c.member_or_version);
+      }
+      assignedSetNums.push(setNum);
+      sheet.appendRow([
+        claimId, c.go_id, c.go_name, c.sub_item_id, c.sub_item_name, c.sub_item_kind,
+        c.username, c.email || '', c.member_or_version || '', setNum,
+        c.qty || 1, c.assigned_vers || '', 'pending', 'unpaid', 'Pending', now, now
+      ]);
+    });
+    return { ok: true, claim_ids: claimIds, set_nums: assignedSetNums };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function updateClaim(data) {
