@@ -3032,6 +3032,12 @@ async function syncFromBackend() {
               versions, price: parseFloat(si.price) || 0,
               claims: buildVersionedClaims(go.claims, si.sub_item_id)
             });
+          } else if (rebuilt.type === 'album' && kind === 'single') {
+            rebuilt.subItems.push({
+              id: si.sub_item_id, name: si.name || '', kind: 'single',
+              price: parseFloat(si.price) || 0,
+              claims: buildVersionedClaims(go.claims, si.sub_item_id)
+            });
           } else if (rebuilt.type === 'merch') {
             if (kind === 'member') {
               rebuilt.subItems.push({
