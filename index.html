@@ -2118,11 +2118,13 @@ function renderEditSubItems() {
           <textarea id="edit-si-members-${si.id}" style="min-height:70px;font-family:var(--mono);font-size:12px;">${si.members.join('\n')}</textarea>
           ${hasClaims ? '<div class="field-hint" style="color:var(--amber-800);">New members added will appear as open slots in existing sets.</div>' : ''}
         </div>`;
-      } else {
+      } else if (si.kind === 'versioned') {
         inner += `<div class="field" style="margin-bottom:0;"><label>Versions (comma separated)</label>
           <input type="text" id="edit-si-versions-${si.id}" value="${(si.versions||[]).join(',')}">
           <div class="field-hint">Applies to new claims only.</div>
         </div>`;
+      } else {
+        inner += `<div class="field-hint" style="margin:0;">Single edition — no versions.</div>`;
       }
     } else {
       inner += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
@@ -2177,6 +2179,7 @@ function addEditSubItem() {
         <select id="edit-si-kind-${id}" onchange="onEditSubItemKindChange('${id}')">
           <option value="member">Member ver (pick a member)</option>
           <option value="versioned">Version pick (buyer selects A/B/…)</option>
+          <option value="single">Single edition (no versions)</option>
         </select>
       </div>
       <button class="btn btn-sm btn-ghost" style="color:var(--red-400);" onclick="removeNewEditSubItem('${id}')">×</button>
@@ -2217,8 +2220,10 @@ function onEditSubItemKindChange(id) {
   if (!extra) return;
   if (kind === 'member') {
     extra.innerHTML = `<div class="field" style="margin-bottom:0;"><label>Members (one per line)</label><textarea id="edit-si-members-${id}" placeholder="Yujin&#10;Gaeul&#10;Rei&#10;..." style="min-height:80px;font-family:var(--mono);font-size:12px;"></textarea></div>`;
-  } else {
+  } else if (kind === 'versioned') {
     extra.innerHTML = `<div class="field" style="margin-bottom:0;"><label>Versions (comma separated, e.g. A,B)</label><input type="text" id="edit-si-versions-${id}" placeholder="A,B"></div>`;
+  } else {
+    extra.innerHTML = `<div class="field-hint" style="margin:0;">Single edition — buyers just choose a quantity.</div>`;
   }
 }
 
@@ -2311,6 +2316,8 @@ function saveGOEdits() {
         const members = ((document.getElementById('edit-si-members-' + id)||{}).value||'').split('\n').map(m=>m.trim()).filter(Boolean);
         const slots = {}; members.forEach(m => slots[m] = null);
         go.subItems.push({ id, name, kind:'member', members, minSecure: minSecure||7, price, sets:[{ status:'open', slots, num:1 }], claims:[] });
+      } else if (kind === 'single') {
+        go.subItems.push({ id, name, kind:'single', price, claims:[] });
       } else {
         const versions = ((document.getElementById('edit-si-versions-' + id)||{}).value||'A,B').split(',').map(v=>v.trim()).filter(Boolean);
         go.subItems.push({ id, name, kind:'versioned', versions, price, claims:[] });
