@@ -489,6 +489,9 @@ function setDisplayOrder(sets, members) {
 // Next free persistent set number. set.num is the stable identity that ties claims
 // to a set (NOT the array position, which drifts after syncs/gaps).
 function nextSetNum(sets) { return (sets||[]).reduce((m, s) => Math.max(m, s.num || 0), 0) + 1; }
+// Instagram handles are case-insensitive, so match usernames without regard to case or
+// surrounding whitespace (a buyer who typed "@Sunshine" still matches "@sunshine").
+function sameUser(a, b) { return String(a == null ? '' : a).trim().toLowerCase() === String(b == null ? '' : b).trim().toLowerCase(); }
 function fmtDate(val) {
   if (!val) return '';
   // Already a clean YYYY-MM-DD string
@@ -1309,7 +1312,7 @@ function doLookup() {
           // use si.members if available, otherwise fall back to actual slot keys
           const membersToCheck = (si.members||[]).length ? si.members : Object.keys(set.slots);
           // OT full set owned by this user → single line at the flat OT price
-          const isOT = membersToCheck.length && membersToCheck.every(m => { const s = set.slots[m]; return s && s.user === u && s.ot; });
+          const isOT = membersToCheck.length && membersToCheck.every(m => { const s = set.slots[m]; return s && sameUser(s.user, u) && s.ot; });
           if (isOT) {
             const s0 = set.slots[membersToCheck[0]];
             rows.push({ go_id:go.id, go:go.name, item:si.name, detail:'OT'+membersToCheck.length+' full set', qty:1, price:si.otPrice||0, claim:set.status==='secured'?'Secured':'Pending', payment:s0.payment, fulfillment:s0.fulfillment });
@@ -1317,7 +1320,7 @@ function doLookup() {
           }
           membersToCheck.forEach(member => {
             const slot = set.slots[member];
-            if (slot && slot.user === u) {
+            if (slot && sameUser(slot.user, u)) {
               rows.push({ go_id:go.id, go:go.name, item:si.name, detail:member, qty:1, price:si.price||0, claim:set.status==='secured'?'Secured':'Pending', payment:slot.payment, fulfillment:slot.fulfillment });
             }
           });
@@ -1325,7 +1328,7 @@ function doLookup() {
       } else {
         // claims-based: versioned, random, merch member
         (si.claims||[]).forEach(c => {
-          if (c.user === u) {
+          if (sameUser(c.user, u)) {
             const detail = c.member || (c.assignedVers||[]).join('+');
             rows.push({ go_id:go.id, go:go.name, item:si.name, detail, qty:c.qty, price:si.price||0, claim:'Secured', payment:c.payment, fulfillment:c.fulfillment });
           }
@@ -1334,7 +1337,7 @@ function doLookup() {
     });
   });
   // Shop orders for this user — grouped under a "Shop" pseudo-GO.
-  shopOrders.filter(o => o.username === u).forEach(o => {
+  shopOrders.filter(o => sameUser(o.username, u)).forEach(o => {
     rows.push({
       go_id: 'shop', go: 'Shop', item: o.listing_name, detail: o.variant || '',
       qty: parseInt(o.qty) || 1, price: parseFloat(o.unit_price) || 0,
@@ -1418,19 +1421,19 @@ function shipEligibleItems(username) {
     (go.subItems || []).forEach(si => {
       if (si.sets) si.sets.forEach(set => (si.members || []).forEach(m => {
         const slot = set.slots[m];
-        if (slot && slot.user === username && slot.payment === 'paid' && slot.fulfillment === 'Ready' && slot.claim_id) {
+        if (slot && sameUser(slot.user, username) && slot.payment === 'paid' && slot.fulfillment === 'Ready' && slot.claim_id) {
           items.push({ type: 'claim', id: slot.claim_id, label: go.name + ' — ' + si.name + ' ' + m });
         }
       }));
       if (si.claims) si.claims.forEach(c => {
-        if (c.user === username && c.payment === 'paid' && c.fulfillment === 'Ready' && c.claim_id) {
+        if (sameUser(c.user, username) && c.payment === 'paid' && c.fulfillment === 'Ready' && c.claim_id) {
           items.push({ type: 'claim', id: c.claim_id, label: go.name + ' — ' + si.name + (c.member ? (' ' + c.member) : '') });
         }
       });
     });
   });
   shopOrders.forEach(o => {
-    if (o.username === username && o.payment_status === 'paid' && o.fulfillment === 'Ready') {
+    if (sameUser(o.username, username) && o.payment_status === 'paid' && o.fulfillment === 'Ready') {
       items.push({ type: 'shop', id: o.order_id, label: o.listing_name + (o.variant ? (' — ' + o.variant) : '') });
     }
   });
@@ -2716,7 +2719,7 @@ function findProof(id) { return paymentProofs.find(p => p.payment_id === id); }
 function paymentOwedUnits(username, goId) {
   const units = [];
   if (goId === 'shop') {
-    shopOrders.filter(o => o.username === username).forEach(o => {
+    shopOrders.filter(o => sameUser(o.username, username)).forEach(o => {
       units.push({ ids: [o.order_id], value: (parseFloat(o.unit_price)||0) * (parseInt(o.qty)||1), kind: 'shop', refs: [o] });
     });
     return units;
@@ -2730,7 +2733,7 @@ function paymentOwedUnits(username, goId) {
         const otSlots = [], normalSlots = [];
         (si.members||[]).forEach(m => {
           const slot = set.slots[m];
-          if (slot && slot.user === username) (slot.ot ? otSlots : normalSlots).push(slot);
+          if (slot && sameUser(slot.user, username)) (slot.ot ? otSlots : normalSlots).push(slot);
         });
         // OT full set → one unit at the flat OT price, covering all its slots.
         if (otSlots.length) {
@@ -2740,7 +2743,7 @@ function paymentOwedUnits(username, goId) {
       });
     }
     if (si.claims) si.claims.forEach(c => {
-      if (c.user === username) units.push({ ids: [c.claim_id].filter(Boolean), value: (si.price||0) * (c.qty||1), kind: 'claim', refs: [c] });
+      if (sameUser(c.user, username)) units.push({ ids: [c.claim_id].filter(Boolean), value: (si.price||0) * (c.qty||1), kind: 'claim', refs: [c] });
     });
   });
   return units;
@@ -2761,7 +2764,7 @@ function confirmPayment(id) {
   const securedTotal = units.reduce((a, u) => a + u.value, 0);
   // Total the buyer has paid for THIS GO (already-confirmed payments + this one).
   const totalPaid = paymentProofs
-    .filter(pp => pp.username === p.username && pp.go_id === p.go_id && (pp.status === 'confirmed' || pp.payment_id === p.payment_id))
+    .filter(pp => sameUser(pp.username, p.username) && pp.go_id === p.go_id && (pp.status === 'confirmed' || pp.payment_id === p.payment_id))
     .reduce((a, pp) => a + (parseFloat(pp.amount)||0), 0);
   // Greedily mark items paid in display order until the money runs out.
   const eps = 0.001; let acc = 0, cutoff = false; const paid = [], unpaid = [];
