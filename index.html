@@ -2118,13 +2118,13 @@ function renderEditSubItems() {
           <textarea id="edit-si-members-${si.id}" style="min-height:70px;font-family:var(--mono);font-size:12px;">${si.members.join('\n')}</textarea>
           ${hasClaims ? '<div class="field-hint" style="color:var(--amber-800);">New members added will appear as open slots in existing sets.</div>' : ''}
         </div>`;
-      } else if (si.kind === 'versioned') {
+      } else if (si.kind === 'single') {
+        inner += `<div class="field-hint" style="margin:0;">Single edition — no versions.</div>`;
+      } else {
         inner += `<div class="field" style="margin-bottom:0;"><label>Versions (comma separated)</label>
           <input type="text" id="edit-si-versions-${si.id}" value="${(si.versions||[]).join(',')}">
           <div class="field-hint">Applies to new claims only.</div>
         </div>`;
-      } else {
-        inner += `<div class="field-hint" style="margin:0;">Single edition — no versions.</div>`;
       }
     } else {
       inner += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
@@ -2281,7 +2281,8 @@ function saveGOEdits() {
         const newMembers = membersEl.value.split('\n').map(m => m.trim()).filter(Boolean);
         if (newMembers.length) si.members = newMembers;
       }
-    } else if (si.kind === 'versioned') {
+    } else if (si.kind !== 'single') {
+      // versioned album (incl. legacy/undefined-kind items) — save versions if the box was rendered
       const versionsEl = document.getElementById('edit-si-versions-' + si.id);
       if (versionsEl) si.versions = versionsEl.value.split(',').map(v => v.trim()).filter(Boolean);
     }
