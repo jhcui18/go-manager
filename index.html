@@ -492,6 +492,50 @@ function nextSetNum(sets) { return (sets||[]).reduce((m, s) => Math.max(m, s.num
 // Instagram handles are case-insensitive, so match usernames without regard to case or
 // surrounding whitespace (a buyer who typed "@Sunshine" still matches "@sunshine").
 function sameUser(a, b) { return String(a == null ? '' : a).trim().toLowerCase() === String(b == null ? '' : b).trim().toLowerCase(); }
+
+// ── Collapsible sub-item sections (admin Manage + buyer claim page) ──────────────
+let adminOpenSI = {};   // si.id -> bool (admin detail); default collapsed
+let claimOpenSI = {};   // goId|si.id -> bool (buyer claim page); default collapsed
+function setsSummary(si) {
+  if (si.sets) {
+    const real = si.sets.filter(s => Object.values(s.slots).some(v => v)).length;
+    const secured = si.sets.filter(s => s.status === 'secured').length;
+    return `${real} set${real !== 1 ? 's' : ''} · ${secured} secured`;
+  }
+  const n = (si.claims || []).reduce((a, c) => a + (c.qty || 1), 0);
+  return `${n} claimed`;
+}
+function toggleAdminSI(siId) {
+  adminOpenSI[siId] = !adminOpenSI[siId];
+  const body = document.getElementById('adm-body-' + siId);
+  const chev = document.getElementById('adm-chev-' + siId);
+  if (body) body.style.display = adminOpenSI[siId] ? 'block' : 'none';
+  if (chev) chev.textContent = adminOpenSI[siId] ? '▾' : '▸';
+}
+function expandAllAdmin(open) {
+  (currentGO && currentGO.subItems || []).forEach(si => { adminOpenSI[si.id] = open; });
+  renderDetailContent();
+}
+function toggleClaimSI(goId, siId) {
+  const k = goId + '|' + siId;
+  claimOpenSI[k] = !claimOpenSI[k];
+  const body = document.getElementById('clm-body-' + siId);
+  const chev = document.getElementById('clm-chev-' + siId);
+  if (body) body.style.display = claimOpenSI[k] ? 'block' : 'none';
+  if (chev) chev.textContent = claimOpenSI[k] ? '▾' : '▸';
+}
+// Wrap a buyer sub-item's rendered card in a collapsible section (default collapsed).
+function claimCollapsible(goId, si, inner) {
+  const open = !!claimOpenSI[goId + '|' + si.id];
+  return `<div style="margin-bottom:10px;">
+    <div style="display:flex;align-items:center;gap:8px;padding:12px 4px;cursor:pointer;user-select:none;border-bottom:0.5px solid var(--border);" onclick="toggleClaimSI('${goId}','${si.id}')">
+      <span id="clm-chev-${si.id}" style="width:12px;color:var(--text3);">${open ? '▾' : '▸'}</span>
+      <span style="font-weight:500;font-size:15px;">${si.name}</span>
+      <span style="margin-left:auto;font-size:12px;color:var(--text3);">${setsSummary(si)}</span>
+    </div>
+    <div id="clm-body-${si.id}" style="display:${open ? 'block' : 'none'};padding-top:10px;">${inner}</div>
+  </div>`;
+}
 function fmtDate(val) {
   if (!val) return '';
   // Already a clean YYYY-MM-DD string
@@ -792,13 +836,14 @@ function renderClaimPage(goId) {
 
   if (go.type === 'photocard') {
     go.subItems.forEach(si => {
-      html += renderSetSubItemPublic(si, goId);
+      html += claimCollapsible(goId, si, renderSetSubItemPublic(si, goId));
     });
   } else if (go.type === 'album') {
     go.subItems.forEach(si => {
-      if (si.kind === 'member') html += renderSetSubItemPublic(si, goId);
-      else if (si.kind === 'single') html += renderSingleSubItemPublic(si, goId);
-      else html += renderVersionedSubItemPublic(si, goId);
+      const inner = si.kind === 'member' ? renderSetSubItemPublic(si, goId)
+        : si.kind === 'single' ? renderSingleSubItemPublic(si, goId)
+        : renderVersionedSubItemPublic(si, goId);
+      html += claimCollapsible(goId, si, inner);
     });
   } else {
     html += renderMerchPublic(go);
@@ -1602,9 +1647,17 @@ function renderDetailContent() {
   const el = document.getElementById('detail-content');
   if (!el) return;
   let html = '';
+  if ((go.subItems || []).length > 1) {
+    html += `<div style="display:flex;gap:8px;margin-bottom:14px;">
+      <button class="btn btn-ghost btn-sm" onclick="expandAllAdmin(true)">Expand all</button>
+      <button class="btn btn-ghost btn-sm" onclick="expandAllAdmin(false)">Collapse all</button>
+    </div>`;
+  }
   go.subItems.forEach((si, siIdx) => {
+    const siOpen = !!adminOpenSI[si.id];
     html += `<div class="admin-section">
-      <div class="admin-section-title">${si.name}`;
+      <div class="admin-section-title" style="cursor:pointer;user-select:none;" onclick="toggleAdminSI('${si.id}')">
+        <span id="adm-chev-${si.id}" style="width:12px;color:var(--text3);">${siOpen ? '▾' : '▸'}</span>${si.name}`;
     if (si.sets) {
       html += ` <span class="badge badge-set" style="font-size:10px;">set-based</span>`;
       if (si.price) html += ` <span style="font-size:12px;color:var(--text3);">$${si.price.toFixed(2)}/copy</span>`;
@@ -1616,7 +1669,8 @@ function renderDetailContent() {
     } else {
       html += ` <span style="font-size:12px;color:var(--text3);">$${(si.price||0).toFixed(2)}</span>`;
     }
-    html += `</div>`;
+    html += ` <span style="margin-left:auto;font-size:12px;color:var(--text3);font-weight:400;">${setsSummary(si)}</span></div>`;
+    html += `<div id="adm-body-${si.id}" style="display:${siOpen ? 'block' : 'none'};">`;
 
     if (si.sets) {
       if (!(si.members||[]).length) {
@@ -1723,7 +1777,7 @@ function renderDetailContent() {
       }
       html += `</tbody></table></div></div>`;
     }
-    html += `</div>`;
+    html += `</div></div>`;
   });
   el.innerHTML = html;
 }
