@@ -1582,6 +1582,9 @@ function renderDetailContent() {
       if (si.price) html += ` <span style="font-size:12px;color:var(--text3);">$${si.price.toFixed(2)}/copy</span>`;
     } else if (si.kind === 'versioned') {
       html += ` <span class="badge badge-fcfs" style="font-size:10px;">versioned FCFS</span>`;
+    } else if (si.kind === 'single') {
+      html += ` <span class="badge badge-fcfs" style="font-size:10px;">single edition</span>`;
+      if (si.price) html += ` <span style="font-size:12px;color:var(--text3);">$${si.price.toFixed(2)}</span>`;
     } else {
       html += ` <span style="font-size:12px;color:var(--text3);">$${(si.price||0).toFixed(2)}</span>`;
     }
@@ -1660,7 +1663,7 @@ function renderDetailContent() {
       // FCFS / merch claims table
       const claims = si.claims || [];
       const hasVerCol = si.kind === 'versioned';
-      const hasMemberCol = si.kind === 'member' || (si.kind !== 'versioned' && si.kind !== 'random');
+      const hasMemberCol = si.kind === 'member' || (si.kind !== 'versioned' && si.kind !== 'random' && si.kind !== 'single');
       html += `<div class="card"><div class="table-wrap"><table>
         <thead><tr><th>#</th><th>Username</th><th>Qty</th>${hasMemberCol?'<th>Member/Ver</th>':''}${hasVerCol?'<th>Versions</th>':''}<th>Payment</th><th>Fulfillment</th><th></th></tr></thead>
         <tbody>`;
