@@ -1880,6 +1880,7 @@ function addSubItem() {
     </div>
     <div id="si-extra-${id}" style="margin-top:8px;">
       <div class="field" style="margin-bottom:0;"><label>Members (one per line)</label><textarea id="si-members-${id}" placeholder="Yujin\nGaeul\nRei\n..." style="min-height:80px;font-family:var(--mono);font-size:12px;"></textarea></div>
+      <div class="field" style="margin-top:8px;margin-bottom:0;"><label>Full set (OT) price (USD)</label><input type="number" id="si-otprice-${id}" placeholder="0.00" step="0.01"><div class="field-hint">Optional — offer a whole-set (OT) claim.</div></div>
     </div>
     <div class="field-row" style="margin-top:8px;">
       <div class="field" style="margin-bottom:0;"><label>Price (USD)</label><input type="number" id="si-price-${id}" placeholder="0.00" step="0.01"></div>
@@ -1917,7 +1918,8 @@ function onSubItemKindChange(id) {
   const extra = document.getElementById('si-extra-' + id);
   if (!extra) return;
   if (kind === 'member') {
-    extra.innerHTML = `<div class="field" style="margin-bottom:0;"><label>Members (one per line)</label><textarea id="si-members-${id}" placeholder="Yujin\nGaeul\nRei\n..." style="min-height:80px;font-family:var(--mono);font-size:12px;"></textarea></div>`;
+    extra.innerHTML = `<div class="field" style="margin-bottom:0;"><label>Members (one per line)</label><textarea id="si-members-${id}" placeholder="Yujin\nGaeul\nRei\n..." style="min-height:80px;font-family:var(--mono);font-size:12px;"></textarea></div>
+      <div class="field" style="margin-top:8px;margin-bottom:0;"><label>Full set (OT) price (USD)</label><input type="number" id="si-otprice-${id}" placeholder="0.00" step="0.01"><div class="field-hint">Optional — offer a whole-set (OT) claim.</div></div>`;
   } else if (kind === 'versioned') {
     extra.innerHTML = `<div class="field" style="margin-bottom:0;"><label>Versions (comma separated, e.g. A,B)</label><input type="text" id="si-versions-${id}" placeholder="A,B"></div>`;
   } else {
@@ -1959,9 +1961,10 @@ function createGO() {
         const membersRaw = (document.getElementById('si-members-' + siId)||{}).value || '';
         const members = membersRaw.split('\n').map(m=>m.trim()).filter(Boolean);
         if (!members.length) return;
+        const otPrice = parseFloat((document.getElementById('si-otprice-' + siId)||{}).value) || 0;
         const emptySet = { status:'open', slots:{}, num:1 };
         members.forEach(m => emptySet.slots[m] = null);
-        subItems.push({ id:siId, name:siName, kind:'member', members, minSecure, price, sets:[emptySet] });
+        subItems.push({ id:siId, name:siName, kind:'member', members, minSecure, price, otPrice, sets:[emptySet] });
       } else if (kind === 'single') {
         subItems.push({ id:siId, name:siName, kind:'single', price, claims:[] });
       } else {
@@ -2134,6 +2137,10 @@ function renderEditSubItems() {
         inner += `<div class="field" style="margin-bottom:0;"><label>Members (one per line)</label>
           <textarea id="edit-si-members-${si.id}" style="min-height:70px;font-family:var(--mono);font-size:12px;">${si.members.join('\n')}</textarea>
           ${hasClaims ? '<div class="field-hint" style="color:var(--amber-800);">New members added will appear as open slots in existing sets.</div>' : ''}
+        </div>
+        <div class="field" style="margin-top:8px;margin-bottom:0;"><label>Full set (OT) price (USD)</label>
+          <input type="number" id="edit-si-otprice-${si.id}" value="${si.otPrice || 0}" step="0.01">
+          <div class="field-hint">Optional — offer a whole-set (OT) claim. Applies to new claims only.</div>
         </div>`;
       } else if (si.kind === 'single') {
         inner += `<div class="field-hint" style="margin:0;">Single edition — no versions.</div>`;
@@ -2203,6 +2210,7 @@ function addEditSubItem() {
     </div>
     <div id="edit-si-extra-${id}" style="margin-top:8px;">
       <div class="field" style="margin-bottom:0;"><label>Members (one per line)</label><textarea id="edit-si-members-${id}" placeholder="Yujin&#10;Gaeul&#10;Rei&#10;..." style="min-height:80px;font-family:var(--mono);font-size:12px;"></textarea></div>
+      <div class="field" style="margin-top:8px;margin-bottom:0;"><label>Full set (OT) price (USD)</label><input type="number" id="edit-si-otprice-${id}" placeholder="0.00" step="0.01" value="0"><div class="field-hint">Optional — offer a whole-set (OT) claim.</div></div>
     </div>
     <div class="field-row" style="margin-top:8px;">
       <div class="field" style="margin-bottom:0;"><label>Price (USD)</label><input type="number" id="edit-si-price-${id}" placeholder="0.00" step="0.01" value="0"></div>
@@ -2236,7 +2244,8 @@ function onEditSubItemKindChange(id) {
   const extra = document.getElementById('edit-si-extra-' + id);
   if (!extra) return;
   if (kind === 'member') {
-    extra.innerHTML = `<div class="field" style="margin-bottom:0;"><label>Members (one per line)</label><textarea id="edit-si-members-${id}" placeholder="Yujin&#10;Gaeul&#10;Rei&#10;..." style="min-height:80px;font-family:var(--mono);font-size:12px;"></textarea></div>`;
+    extra.innerHTML = `<div class="field" style="margin-bottom:0;"><label>Members (one per line)</label><textarea id="edit-si-members-${id}" placeholder="Yujin&#10;Gaeul&#10;Rei&#10;..." style="min-height:80px;font-family:var(--mono);font-size:12px;"></textarea></div>
+      <div class="field" style="margin-top:8px;margin-bottom:0;"><label>Full set (OT) price (USD)</label><input type="number" id="edit-si-otprice-${id}" placeholder="0.00" step="0.01" value="0"><div class="field-hint">Optional — offer a whole-set (OT) claim.</div></div>`;
   } else if (kind === 'versioned') {
     extra.innerHTML = `<div class="field" style="margin-bottom:0;"><label>Versions (comma separated, e.g. A,B)</label><input type="text" id="edit-si-versions-${id}" placeholder="A,B"></div>`;
   } else {
@@ -2333,7 +2342,7 @@ function saveGOEdits() {
       if (kind === 'member') {
         const members = ((document.getElementById('edit-si-members-' + id)||{}).value||'').split('\n').map(m=>m.trim()).filter(Boolean);
         const slots = {}; members.forEach(m => slots[m] = null);
-        go.subItems.push({ id, name, kind:'member', members, minSecure: minSecure||7, price, sets:[{ status:'open', slots, num:1 }], claims:[] });
+        go.subItems.push({ id, name, kind:'member', members, minSecure: minSecure||7, price, otPrice, sets:[{ status:'open', slots, num:1 }], claims:[] });
       } else if (kind === 'single') {
         go.subItems.push({ id, name, kind:'single', price, claims:[] });
       } else {
