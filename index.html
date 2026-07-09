@@ -639,14 +639,16 @@ function renderShopPage() {
     el.innerHTML = html;
     return;
   }
-  html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;">';
-  active.forEach(l => {
+  // Group listings into category sections (fixed order); anything else → Other.
+  const CAT_ORDER = ['Album', 'Photocard', 'Merch', 'Accessories'];
+  const groups = {}; CAT_ORDER.forEach(c => groups[c] = []); groups['Other'] = [];
+  active.forEach(l => { groups[CAT_ORDER.includes(l.category) ? l.category : 'Other'].push(l); });
+  const shopCard = (l) => {
     const qty = listingStock(l);
     const sold = qty <= 0;
-    html += `<div class="card" style="padding:0;overflow:hidden;${sold?'opacity:0.6;':'cursor:pointer;'}" ${sold?'':`onclick="openShopListing('${l.listing_id}')"`}>
+    return `<div class="card" style="padding:0;overflow:hidden;${sold?'opacity:0.6;':'cursor:pointer;'}" ${sold?'':`onclick="openShopListing('${l.listing_id}')"`}>
       ${l.image_url ? `<img src="${l.image_url}" loading="lazy" style="width:100%;aspect-ratio:1;object-fit:cover;display:block;" onerror="this.style.display='none'">` : '<div style="width:100%;aspect-ratio:1;background:var(--surface2);"></div>'}
       <div style="padding:8px 10px;">
-        <div style="font-size:11px;color:var(--text3);">${l.category || ''}</div>
         <div style="font-size:13px;font-weight:500;">${l.name}</div>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;">
           <span style="font-size:13px;font-weight:500;font-family:var(--mono);">$${(parseFloat(l.price)||0).toFixed(2)}</span>
@@ -654,8 +656,15 @@ function renderShopPage() {
         </div>
       </div>
     </div>`;
+  };
+  [...CAT_ORDER, 'Other'].forEach(cat => {
+    const items = groups[cat];
+    if (!items.length) return;
+    html += `<div style="font-size:14px;font-weight:600;margin:18px 0 10px;">${cat}</div>`;
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;">';
+    items.forEach(l => { html += shopCard(l); });
+    html += '</div>';
   });
-  html += '</div>';
   el.innerHTML = html;
 }
 
@@ -2629,7 +2638,7 @@ function openListingModal(listingId) {
     <div class="field-row">
       <div class="field"><label>Category</label>
         <select id="lst-category">
-          ${['Photocard','Merch','Album'].map(c => `<option ${l && l.category===c?'selected':''}>${c}</option>`).join('')}
+          ${['Album','Photocard','Merch','Accessories'].map(c => `<option ${l && l.category===c?'selected':''}>${c}</option>`).join('')}
         </select>
       </div>
       <div class="field"><label>Price (USD)</label><input type="number" id="lst-price" step="0.01" value="${l ? l.price : 0}"></div>
