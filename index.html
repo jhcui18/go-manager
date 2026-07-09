@@ -327,6 +327,13 @@
       </table></div></div>
     </div>
     <div class="admin-section">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <div class="section-label" style="margin:0;">My store orders</div>
+        <button class="btn btn-sm btn-primary" onclick="openStoreOrderModal()">+ Add store order</button>
+      </div>
+      <div id="store-orders-list"></div>
+    </div>
+    <div class="admin-section">
       <div class="admin-section-title">Pending payment proofs</div>
       <div class="card">
         <div class="table-wrap">
@@ -1796,6 +1803,15 @@ function renderDetailContent() {
     }
     html += `</div></div>`;
   });
+  // Per-GO store orders (procurement for this GO's POBs)
+  const goStoreOrders = storeOrders.filter(o => o.go_id === go.id);
+  html += `<div class="admin-section" style="margin-top:8px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+      <div class="section-label" style="margin:0;">Store orders for this GO</div>
+      <button class="btn btn-sm btn-primary" onclick="openStoreOrderModal(null, '${go.id}')">+ Add</button>
+    </div>
+    ${goStoreOrders.length ? goStoreOrders.map(o => storeOrderRow(o, false)).join('') : '<div style="font-size:12px;color:var(--text3);padding:4px 0;">None recorded.</div>'}
+  </div>`;
   el.innerHTML = html;
 }
 
@@ -2073,7 +2089,7 @@ function showAdminPanel(panel) {
     const el = document.getElementById(p === 'home' ? 'admin-home' : 'admin-panel-' + p);
     if (el) el.style.display = p === panel ? 'block' : 'none';
   });
-  if (panel === 'home') { renderAdminGOList(); renderAdminListings(); renderShopOrders(); }
+  if (panel === 'home') { renderAdminGOList(); renderAdminListings(); renderShopOrders(); renderStoreOrders(); }
   if (panel === 'new-go') { newGoSubItems = []; document.getElementById('sub-items-list').innerHTML = ''; addSubItem(); }
 }
 
@@ -2588,6 +2604,8 @@ function saveFCFSClaimEdit(goId, siId, claimIdx) {
 let paymentProofs = [];
 let listings = [];    // shop listings from backend
 let shopOrders = [];  // shop orders from backend
+let storeOrders = []; // admin's own orders placed with stores/proxies
+const STORE_STATUS = ['Ordered', 'Warehouse', 'Shipped', 'Received'];
 
 function addPaymentProof(proof) {
   paymentProofs.push(proof);
@@ -2716,6 +2734,122 @@ function hideListing(listingId) {
   renderAdminListings();
   renderShopPage();
   toast('Listing hidden.');
+}
+
+// ── Store orders (admin's own procurement from stores/proxies) ───────────────────
+function storeStatusBadge(status) {
+  const map = { Ordered:'badge-waitlist', Warehouse:'badge-fcfs', Shipped:'badge-secured', Received:'badge-paid' };
+  return map[status] || 'badge-waitlist';
+}
+function storeOrderRow(o, showGO) {
+  const cost = (parseFloat(o.unit_cost) || 0) * (parseInt(o.qty) || 0);
+  return `<div class="card-sm" style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+    <div style="flex:1;min-width:0;">
+      <div style="font-size:13px;font-weight:500;">${o.store || '(store?)'}${o.album_version ? ` <span style="font-weight:400;color:var(--text3);">· ${o.album_version}</span>` : ''}</div>
+      <div style="font-size:12px;color:var(--text3);">${showGO ? (o.go_name || '') + ' · ' : ''}${o.sub_item_name || ''} · ${parseInt(o.qty)||0}${cost ? ` · $${cost.toFixed(2)}` : ''}${o.notes ? ` · ${o.notes}` : ''}</div>
+    </div>
+    <span class="badge ${storeStatusBadge(o.status)}" style="cursor:pointer;font-size:10px;" onclick="advanceStoreStatus('${o.order_id}')" title="Click to advance status">${o.status || 'Ordered'}</span>
+    <button class="btn btn-sm btn-ghost" onclick="openStoreOrderModal('${o.order_id}')">Edit</button>
+    <button class="btn btn-sm btn-ghost" style="color:var(--red-400);" onclick="deleteStoreOrderEntry('${o.order_id}')">×</button>
+  </div>`;
+}
+function renderStoreOrders() {
+  const el = document.getElementById('store-orders-list');
+  if (!el) return;
+  if (!storeOrders.length) { el.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:8px 0;">No store orders yet.</div>'; return; }
+  // Group by GO, newest GO first.
+  const byGo = {};
+  storeOrders.forEach(o => { (byGo[o.go_id] = byGo[o.go_id] || []).push(o); });
+  const goIds = Object.keys(byGo).sort((a, b) => (goCreatedTs({ id: b }) - goCreatedTs({ id: a })));
+  el.innerHTML = goIds.map(gid => {
+    const rows = byGo[gid];
+    const name = rows[0].go_name || (allGOs[gid] && allGOs[gid].name) || gid;
+    return `<div style="font-size:12px;font-weight:600;color:var(--text2);margin:10px 0 6px;">${name}</div>${rows.map(o => storeOrderRow(o, false)).join('')}`;
+  }).join('');
+}
+
+function openStoreOrderModal(orderId, prefillGoId, prefillSiId) {
+  const o = orderId ? storeOrders.find(x => x.order_id === orderId) : null;
+  const goId = o ? o.go_id : (prefillGoId || '');
+  const goOpts = Object.values(allGOs).map(g => `<option value="${g.id}" ${g.id === goId ? 'selected' : ''}>${g.name}</option>`).join('');
+  const statusOpts = STORE_STATUS.map(s => `<option ${o && o.status === s ? 'selected' : ''}>${s}</option>`).join('');
+  showModal(`
+    <div style="font-size:16px;font-weight:500;margin-bottom:16px;">${o ? 'Edit' : 'Add'} store order</div>
+    <div class="field"><label>GO</label><select id="sto-go" onchange="storeSyncSubItems()"><option value="">Select a GO</option>${goOpts}</select></div>
+    <div class="field"><label>Sub-item (POB)</label><select id="sto-si"></select></div>
+    <div class="field-row">
+      <div class="field"><label>Store / proxy</label><input type="text" id="sto-store" placeholder="e.g. Makestar" value="${o ? (o.store||'') : ''}"></div>
+      <div class="field"><label>Album version</label><input type="text" id="sto-ver" placeholder="e.g. Photobook ver" value="${o ? (o.album_version||'') : ''}"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Quantity</label><input type="number" id="sto-qty" min="0" value="${o ? (o.qty||1) : 1}"></div>
+      <div class="field"><label>Unit cost (USD)</label><input type="number" id="sto-cost" step="0.01" value="${o ? (o.unit_cost||0) : 0}"></div>
+    </div>
+    <div class="field"><label>Status</label><select id="sto-status">${statusOpts}</select></div>
+    <div class="field"><label>Notes (optional)</label><input type="text" id="sto-notes" value="${o ? (o.notes||'') : ''}"></div>
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <button class="btn btn-primary" style="flex:1;justify-content:center;" onclick="saveStoreOrder(${o ? `'${o.order_id}'` : 'null'})">Save</button>
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+    </div>`);
+  storeSyncSubItems(o ? o.sub_item_id : prefillSiId);
+}
+function storeSyncSubItems(selectedSiId) {
+  const goId = document.getElementById('sto-go').value;
+  const sel = document.getElementById('sto-si');
+  const go = allGOs[goId];
+  const items = go ? (go.subItems || []) : [];
+  sel.innerHTML = '<option value="">Select a sub-item</option>' +
+    items.map(si => `<option value="${si.id}" ${si.id === selectedSiId ? 'selected' : ''}>${si.name}</option>`).join('');
+}
+function saveStoreOrder(orderId) {
+  const goId = document.getElementById('sto-go').value;
+  const siId = document.getElementById('sto-si').value;
+  const go = allGOs[goId];
+  const si = go && (go.subItems || []).find(s => s.id === siId);
+  const data = {
+    go_id: goId, go_name: go ? go.name : '',
+    sub_item_id: siId, sub_item_name: si ? si.name : '',
+    store: document.getElementById('sto-store').value.trim(),
+    album_version: document.getElementById('sto-ver').value.trim(),
+    qty: parseInt(document.getElementById('sto-qty').value) || 0,
+    unit_cost: parseFloat(document.getElementById('sto-cost').value) || 0,
+    status: document.getElementById('sto-status').value,
+    notes: document.getElementById('sto-notes').value.trim()
+  };
+  if (!goId || !siId) { toast('Pick a GO and sub-item.'); return; }
+  if (!data.store) { toast('Enter a store.'); return; }
+  if (orderId) {
+    data.order_id = orderId;
+    const local = storeOrders.find(x => x.order_id === orderId);
+    if (local) Object.assign(local, data);
+    if (API_URL) apiPost('updateStoreOrder', data).catch(()=>{});
+  } else {
+    const tempId = 'sto_' + Date.now();
+    storeOrders.push({ order_id: tempId, created_at: new Date().toISOString(), ...data });
+    if (API_URL) apiPost('createStoreOrder', data).catch(()=>{});
+  }
+  closeModal();
+  renderStoreOrders();
+  if (currentGO) renderDetailContent();
+  toast('Store order saved.');
+}
+function advanceStoreStatus(orderId) {
+  const o = storeOrders.find(x => x.order_id === orderId);
+  if (!o) return;
+  const i = STORE_STATUS.indexOf(o.status || 'Ordered');
+  o.status = STORE_STATUS[(i + 1) % STORE_STATUS.length];
+  if (API_URL) apiPost('updateStoreOrder', { order_id: orderId, status: o.status }).catch(()=>{});
+  renderStoreOrders();
+  if (currentGO) renderDetailContent();
+  toast('Status: ' + o.status);
+}
+function deleteStoreOrderEntry(orderId) {
+  if (!confirm('Delete this store order?')) return;
+  storeOrders = storeOrders.filter(x => x.order_id !== orderId);
+  if (API_URL) apiPost('deleteStoreOrder', { order_id: orderId }).catch(()=>{});
+  renderStoreOrders();
+  if (currentGO) renderDetailContent();
+  toast('Store order deleted.');
 }
 
 function renderShopOrders() {
@@ -3096,8 +3230,8 @@ async function syncFromBackend() {
   showLoadingOverlay(true);
   try {
     // Fetch GOs and payments in parallel so the two round-trips overlap.
-    const [result, payResult, listResult, orderResult, shipResult] = await Promise.all([
-      apiGet('getAllGOs'), apiGet('getPayments'), apiGet('getListings'), apiGet('getShopOrders'), apiGet('getShipping')
+    const [result, payResult, listResult, orderResult, shipResult, storeResult] = await Promise.all([
+      apiGet('getAllGOs'), apiGet('getPayments'), apiGet('getListings'), apiGet('getShopOrders'), apiGet('getShipping'), apiGet('getStoreOrders')
     ]);
     if (result && result.gos && result.gos.length) {
       allGOs = {};
@@ -3207,6 +3341,9 @@ async function syncFromBackend() {
     }
     if (orderResult && Array.isArray(orderResult.shop_orders)) {
       shopOrders = orderResult.shop_orders.filter(o => o && o.order_id);
+    }
+    if (storeResult && Array.isArray(storeResult.store_orders)) {
+      storeOrders = storeResult.store_orders.filter(o => o && o.order_id);
     }
     if (shipResult && Array.isArray(shipResult.requests)) {
       shippingRequests = shipResult.requests

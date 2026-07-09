@@ -11,6 +11,7 @@ const SHEET_SHIPPING  = 'shipping';    // shipping requests
 const SHEET_PAYMENTS  = 'payments';    // payment proof submissions
 const SHEET_LISTINGS   = 'listings';     // shop listings (leftover stock)
 const SHEET_SHOP_ORDERS = 'shop_orders'; // shop purchase orders
+const SHEET_STORE_ORDERS = 'store_orders'; // admin's own orders placed with stores/proxies
 
 // ── Bootstrap: create all required sheets if missing ─────────────────────────
 function bootstrapSheets() {
@@ -21,6 +22,7 @@ function bootstrapSheets() {
   ensureSheet(ss, SHEET_PAYMENTS, ['payment_id','username','go_id','go_name','amount','method','transaction_id','proof_url','email','status','created_at']);
   ensureSheet(ss, SHEET_LISTINGS,    ['listing_id','name','category','price','image_url','qty','note','status','created_at','variants']);
   ensureSheet(ss, SHEET_SHOP_ORDERS, ['order_id','listing_id','listing_name','username','email','qty','unit_price','payment_status','fulfillment','created_at','updated_at','variant']);
+  ensureSheet(ss, SHEET_STORE_ORDERS, ['order_id','go_id','go_name','sub_item_id','sub_item_name','store','album_version','qty','unit_cost','status','notes','created_at','updated_at']);
   // Per-GO sub-item sheets are created when a GO is created.
 }
 
@@ -59,6 +61,7 @@ function doGet(e) {
     else if (action === 'getPayments')     result = getPayments();
     else if (action === 'getListings')     result = getListings();
     else if (action === 'getShopOrders')   result = getShopOrders();
+    else if (action === 'getStoreOrders')  result = getStoreOrders();
     else if (action === 'ping')            result = { ok: true };
     else result = { error: 'Unknown action: ' + action };
     return jsonResponse(result);
@@ -88,6 +91,9 @@ function doPost(e) {
     else if (action === 'placeShopOrder')    result = placeShopOrder(body.data);
     else if (action === 'updateShopOrder')   result = updateShopOrder(body.data);
     else if (action === 'deleteShopOrder')   result = deleteShopOrder(body.data.order_id);
+    else if (action === 'createStoreOrder')  result = createStoreOrder(body.data);
+    else if (action === 'updateStoreOrder')  result = updateStoreOrder(body.data);
+    else if (action === 'deleteStoreOrder')  result = deleteStoreOrder(body.data.order_id);
     else if (action === 'deletePayment')     result = deletePayment(body.data.payment_id);
     else if (action === 'submitShipping')    result = submitShipping(body.data);
     else if (action === 'updateShipping')    result = updateShipping(body.data);
@@ -427,6 +433,40 @@ function getListings() {
 function getShopOrders() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_SHOP_ORDERS);
   return { shop_orders: sheet ? sheetToObjects(sheet) : [] };
+}
+
+function getStoreOrders() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_STORE_ORDERS);
+  return { store_orders: sheet ? sheetToObjects(sheet) : [] };
+}
+
+function createStoreOrder(data) {
+  bootstrapSheets();
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_STORE_ORDERS);
+  const id = 'sto_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
+  const now = new Date().toISOString();
+  sheet.appendRow([
+    id, data.go_id || '', data.go_name || '', data.sub_item_id || '', data.sub_item_name || '',
+    data.store || '', data.album_version || '', data.qty || 0, data.unit_cost || 0,
+    data.status || 'Ordered', data.notes || '', now, now
+  ]);
+  return { ok: true, order_id: id };
+}
+
+function updateStoreOrder(data) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_STORE_ORDERS);
+  const fields = {};
+  ['go_id','go_name','sub_item_id','sub_item_name','store','album_version','qty','unit_cost','status','notes'].forEach(k => {
+    if (data[k] !== undefined) fields[k] = data[k];
+  });
+  fields.updated_at = new Date().toISOString();
+  updateRowWhere(sheet, 'order_id', data.order_id, fields);
+  return { ok: true };
+}
+
+function deleteStoreOrder(order_id) {
+  deleteRowWhere(SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_STORE_ORDERS), 'order_id', order_id);
+  return { ok: true };
 }
 
 function createListing(data) {
