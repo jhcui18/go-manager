@@ -524,6 +524,14 @@ function toggleClaimSI(goId, siId) {
   if (body) body.style.display = claimOpenSI[k] ? 'block' : 'none';
   if (chev) chev.textContent = claimOpenSI[k] ? '▾' : '▸';
 }
+let shopCatOpen = {};   // admin shop category -> bool; default collapsed
+function toggleShopCat(cat) {
+  shopCatOpen[cat] = !shopCatOpen[cat];
+  const body = document.getElementById('shopcat-body-' + cat);
+  const chev = document.getElementById('shopcat-chev-' + cat);
+  if (body) body.style.display = shopCatOpen[cat] ? 'block' : 'none';
+  if (chev) chev.textContent = shopCatOpen[cat] ? '▾' : '▸';
+}
 // Wrap a buyer sub-item's rendered card in a collapsible section (default collapsed).
 function claimCollapsible(goId, si, inner) {
   const open = !!claimOpenSI[goId + '|' + si.id];
@@ -2618,16 +2626,30 @@ function renderAdminListings() {
   if (!el) return;
   const active = listings.filter(l => (l.status || 'active') === 'active');
   if (!active.length) { el.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:8px 0;">No listings yet.</div>'; return; }
-  el.innerHTML = active.map(l => `
+  const CAT_ORDER = ['Album', 'Photocard', 'Merch', 'Accessories'];
+  const groups = {}; CAT_ORDER.forEach(c => groups[c] = []); groups['Other'] = [];
+  active.forEach(l => { groups[CAT_ORDER.includes(l.category) ? l.category : 'Other'].push(l); });
+  const listingRow = (l) => `
     <div class="card-sm" style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
       ${l.image_url ? `<img src="${l.image_url}" style="width:40px;height:40px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'">` : ''}
       <div style="flex:1;">
-        <div style="font-size:13px;font-weight:500;">${l.name} <span style="font-size:11px;color:var(--text3);">${l.category||''}</span></div>
+        <div style="font-size:13px;font-weight:500;">${l.name}</div>
         <div style="font-size:12px;color:var(--text3);">$${(parseFloat(l.price)||0).toFixed(2)} · ${(l.variants&&l.variants.length) ? l.variants.map(v=>v.name+' ('+(parseInt(v.qty)||0)+')').join(', ') : (parseInt(l.qty)||0) + ' in stock'}</div>
       </div>
       <button class="btn btn-sm btn-ghost" onclick="openListingModal('${l.listing_id}')">Edit</button>
       <button class="btn btn-sm btn-ghost" style="color:var(--red-400);" onclick="hideListing('${l.listing_id}')">Hide</button>
-    </div>`).join('');
+    </div>`;
+  let html = '';
+  [...CAT_ORDER, 'Other'].forEach(cat => {
+    const items = groups[cat];
+    if (!items.length) return;
+    const open = !!shopCatOpen[cat];
+    html += `<div style="display:flex;align-items:center;gap:8px;padding:8px 4px;cursor:pointer;user-select:none;font-weight:500;font-size:13px;" onclick="toggleShopCat('${cat}')">
+        <span id="shopcat-chev-${cat}" style="width:12px;color:var(--text3);">${open ? '▾' : '▸'}</span>${cat} <span style="color:var(--text3);font-weight:400;">(${items.length})</span>
+      </div>
+      <div id="shopcat-body-${cat}" style="display:${open ? 'block' : 'none'};">${items.map(listingRow).join('')}</div>`;
+  });
+  el.innerHTML = html;
 }
 
 function openListingModal(listingId) {
