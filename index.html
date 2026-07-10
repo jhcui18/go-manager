@@ -884,11 +884,12 @@ function renderClaimPage(goId) {
 
   if (go.type === 'photocard') {
     go.subItems.forEach(si => {
-      html += claimCollapsible(goId, si, renderSetSubItemPublic(si, goId));
+      html += claimCollapsible(goId, si, isBatch(si) ? renderBatchSubItemPublic(si, goId) : renderSetSubItemPublic(si, goId));
     });
   } else if (go.type === 'album') {
     go.subItems.forEach(si => {
-      const inner = si.kind === 'member' ? renderSetSubItemPublic(si, goId)
+      const inner = isBatch(si) ? renderBatchSubItemPublic(si, goId)
+        : si.kind === 'member' ? renderSetSubItemPublic(si, goId)
         : si.kind === 'single' ? renderSingleSubItemPublic(si, goId)
         : renderVersionedSubItemPublic(si, goId);
       html += claimCollapsible(goId, si, inner);
@@ -907,7 +908,9 @@ function renderClaimPage(goId) {
   // init claim state
   go.subItems.forEach(si => {
     const kind = si.kind || (go.type === 'photocard' ? 'photocard' : 'random');
-    if (kind === 'photocard' || kind === 'member' && go.type !== 'merch') {
+    if (isBatch(si)) {
+      claimState[si.id] = { type:'batch', members:{}, ot:0 };
+    } else if (kind === 'photocard' || kind === 'member' && go.type !== 'merch') {
       claimState[si.id] = { type:'set', selectedMembers:{} };
     } else if (kind === 'member' && go.type === 'merch') {
       claimState[si.id] = { type:'merch-member', selectedMembers:{}, qty:1 };
@@ -1015,6 +1018,94 @@ function renderVersionedSubItemPublic(si, goId) {
     <div id="qty-display-${si.id}" style="margin-top:10px;font-size:12px;color:var(--text3);"></div>
   </div>`;
   return html;
+}
+
+// Buyer view for a batch POB: batch readiness + member picker (repeats allowed) + optional OT8.
+function renderBatchSubItemPublic(si, goId) {
+  const n = batchSize(si);
+  const batches = goBatches(si);
+  const claimed = (si.claims || []).length;
+  let html = `<div class="card" style="margin-bottom:12px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+      <div style="font-weight:500;font-size:15px;">${si.name}</div>
+      <span class="badge badge-fcfs">batch of ${n}</span>
+    </div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">$${(si.price||0).toFixed(2)} per card &nbsp;·&nbsp; ${claimed} claimed</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:10px;">${batches.length ? batches.map(b => `Batch ${b.num}: ${b.items.length}/${n}${b.full ? ' ✓' : ''}`).join(' &nbsp;·&nbsp; ') : `No claims yet — batch 1 fills to ${n}.`}</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:10px;">Tap a member to add one &nbsp;·&nbsp; tap again for more &nbsp;·&nbsp; − to reduce</div>
+    <div class="member-grid" id="bpicker-${si.id}">`;
+  (si.members || []).forEach(member => {
+    const key = member.replace(/\s/g,'_');
+    html += `<div class="member-tile" id="btile-${si.id}-${key}" style="position:relative;" onclick="incBatchMember('${si.id}','${member}','${goId}')">
+      <button id="bdec-${si.id}-${key}" onclick="event.stopPropagation();decBatchMember('${si.id}','${member}','${goId}')" style="display:none;align-items:center;justify-content:center;position:absolute;top:2px;right:2px;width:22px;height:22px;padding:0;border:none;border-radius:6px;background:transparent;color:var(--accent);font-size:18px;font-weight:600;line-height:1;cursor:pointer;">−</button>
+      <div class="member-tile-name">${member}</div>
+      <div class="member-tile-sub" id="bsub-${si.id}-${key}" data-label="tap to add" style="color:var(--accent);">tap to add</div>
+    </div>`;
+  });
+  html += `</div>`;
+  if (si.otPrice > 0) {
+    const otN = (si.members || []).length;
+    html += `<div class="member-grid" style="margin-top:8px;">
+      <div class="member-tile" id="btile-${si.id}-__OT" style="position:relative;" onclick="incBatchOT('${si.id}','${goId}')">
+        <button id="bdec-${si.id}-__OT" onclick="event.stopPropagation();decBatchOT('${si.id}','${goId}')" style="display:none;align-items:center;justify-content:center;position:absolute;top:2px;right:2px;width:22px;height:22px;padding:0;border:none;border-radius:6px;background:transparent;color:var(--accent);font-size:18px;font-weight:600;line-height:1;cursor:pointer;">−</button>
+        <div class="member-tile-name">OT${otN} — full set</div>
+        <div class="member-tile-sub" id="bsub-${si.id}-__OT" data-label="$${si.otPrice.toFixed(2)} · tap to add" style="color:var(--accent);">$${si.otPrice.toFixed(2)} · tap to add</div>
+      </div>
+    </div>`;
+  }
+  html += `<div id="qty-display-${si.id}" style="margin-top:10px;font-size:12px;color:var(--text3);"></div>
+  </div>`;
+  return html;
+}
+function incBatchMember(siId, member, goId) {
+  if (!claimState[siId] || claimState[siId].type !== 'batch') claimState[siId] = { type:'batch', members:{}, ot:0 };
+  const m = claimState[siId].members;
+  m[member] = (m[member] || 0) + 1;
+  updateBatchTile(siId, member, goId);
+}
+function decBatchMember(siId, member, goId) {
+  const st = claimState[siId];
+  if (!st || !st.members) return;
+  if (st.members[member]) { st.members[member] -= 1; if (st.members[member] <= 0) delete st.members[member]; }
+  updateBatchTile(siId, member, goId);
+}
+function updateBatchTile(siId, member, goId) {
+  const key = member.replace(/\s/g,'_');
+  const st = claimState[siId] || { members:{}, ot:0 };
+  const qty = (st.members || {})[member] || 0;
+  const tile = document.getElementById('btile-' + siId + '-' + key);
+  const sub = document.getElementById('bsub-' + siId + '-' + key);
+  const dec = document.getElementById('bdec-' + siId + '-' + key);
+  if (tile) tile.classList.toggle('selected', qty > 0);
+  if (dec) dec.style.display = qty > 0 ? 'flex' : 'none';
+  if (sub) sub.textContent = qty > 0 ? '×' + qty : (sub.dataset.label || '');
+  const display = document.getElementById('qty-display-' + siId);
+  if (display) {
+    const parts = Object.keys(st.members || {}).map(v => v + ' ×' + st.members[v]);
+    if (st.ot) parts.push('OT ×' + st.ot);
+    display.textContent = parts.length ? 'Selected: ' + parts.join(', ') : '';
+  }
+  updateClaimSummary(goId);
+}
+function incBatchOT(siId, goId) {
+  if (!claimState[siId] || claimState[siId].type !== 'batch') claimState[siId] = { type:'batch', members:{}, ot:0 };
+  claimState[siId].ot = (claimState[siId].ot || 0) + 1;
+  updateBatchTile(siId, '__OT', goId);
+  const sub = document.getElementById('bsub-' + siId + '-__OT'), tile = document.getElementById('btile-' + siId + '-__OT'), dec = document.getElementById('bdec-' + siId + '-__OT');
+  const ot = claimState[siId].ot;
+  if (tile) tile.classList.toggle('selected', ot > 0);
+  if (dec) dec.style.display = ot > 0 ? 'flex' : 'none';
+  if (sub) sub.textContent = ot > 0 ? '×' + ot : (sub.dataset.label || '');
+}
+function decBatchOT(siId, goId) {
+  const st = claimState[siId];
+  if (!st) return;
+  st.ot = Math.max(0, (st.ot || 0) - 1);
+  updateBatchTile(siId, '__OT', goId);
+  const sub = document.getElementById('bsub-' + siId + '-__OT'), tile = document.getElementById('btile-' + siId + '-__OT'), dec = document.getElementById('bdec-' + siId + '-__OT');
+  if (tile) tile.classList.toggle('selected', st.ot > 0);
+  if (dec) dec.style.display = st.ot > 0 ? 'flex' : 'none';
+  if (sub) sub.textContent = st.ot > 0 ? '×' + st.ot : (sub.dataset.label || '');
 }
 
 function renderSingleSubItemPublic(si, goId) {
@@ -1258,6 +1349,21 @@ function updateClaimSummary(goId) {
         lines.push(si.name + ': ' + versions.map(v => v + ' ×' + sel[v]).join(', ') + (price ? ` ($${(price * totalQty).toFixed(2)})` : ''));
         total += price * totalQty;
       }
+    } else if (state.type === 'batch') {
+      const m = state.members || {};
+      const members = Object.keys(m);
+      if (members.length) {
+        const totalQty = members.reduce((a, k) => a + m[k], 0);
+        lines.push(si.name + ': ' + members.map(k => k + ' ×' + m[k]).join(', ') + (price ? ` ($${(price * totalQty).toFixed(2)})` : ''));
+        total += price * totalQty;
+      }
+      const otQty = state.ot || 0;
+      if (otQty) {
+        const otPrice = si.otPrice || 0;
+        const otN = (si.members || []).length;
+        lines.push(si.name + ': OT' + otN + ' full set ×' + otQty + (otPrice ? ` ($${(otPrice * otQty).toFixed(2)})` : ''));
+        total += otPrice * otQty;
+      }
     } else {
       if (state.qty > 0) {
         lines.push(si.name + ' ×' + state.qty + (price ? ` ($${(price * state.qty).toFixed(2)})` : ''));
@@ -1350,6 +1456,20 @@ function submitClaim(goId) {
         claimsToWrite.push({ go_id:goId, go_name:go.name, sub_item_id:si.id, sub_item_name:si.name, sub_item_kind:si.kind||go.type, username:u, email, member_or_version:version, set_num:'', qty, assigned_vers:version });
         placed = true;
       });
+    } else if (state.type === 'batch') {
+      const m = state.members || {};
+      const members = Object.keys(m);
+      const otQty = state.ot || 0;
+      if (!members.length && !otQty) return;
+      const now = new Date().toISOString();
+      const pushCard = (member, ot) => {
+        const cid = 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
+        si.claims.push({ user:u, member, qty:1, payment:'unpaid', fulfillment:'Pending', claim_status:'pending', claim_id:cid, created_at:now, ot });
+        claimsToWrite.push({ go_id:goId, go_name:go.name, sub_item_id:si.id, sub_item_name:si.name, sub_item_kind:si.kind||go.type, username:u, email, member_or_version:member, set_num:'', qty:1, assigned_vers: ot ? 'OT' : '' });
+        placed = true;
+      };
+      members.forEach(member => { for (let k = 0; k < (m[member] || 1); k++) pushCard(member, false); });
+      for (let o = 0; o < otQty; o++) (si.members || []).forEach(member => pushCard(member, true));
     } else if (state.qty > 0) {
       const assigned = si.versions ? assignVersions(state.qty, si.versions) : [];
       si.claims.push({ user:u, qty:state.qty, assignedVers:assigned, payment:'unpaid', fulfillment:'Pending' });
@@ -1423,7 +1543,7 @@ function doLookup() {
         (si.claims||[]).forEach(c => {
           if (sameUser(c.user, u)) {
             const detail = c.member || (c.assignedVers||[]).join('+');
-            rows.push({ go_id:go.id, go:go.name, item:si.name, detail, qty:c.qty, price:si.price||0, claim:'Secured', payment:c.payment, fulfillment:c.fulfillment });
+            rows.push({ go_id:go.id, go:go.name, item:si.name, detail, qty:c.qty, price:si.price||0, claim:(c.claim_status && c.claim_status !== 'secured') ? 'Pending' : 'Secured', payment:c.payment, fulfillment:c.fulfillment });
           }
         });
       }
@@ -1720,7 +1840,31 @@ function renderDetailContent() {
     html += ` <span style="margin-left:auto;font-size:12px;color:var(--text3);font-weight:400;">${setsSummary(si)}</span></div>`;
     html += `<div id="adm-body-${si.id}" style="display:${siOpen ? 'block' : 'none'};">`;
 
-    if (si.sets) {
+    if (isBatch(si)) {
+      const bn = batchSize(si);
+      const batches = goBatches(si);
+      if (!batches.length) html += `<div style="font-size:12px;color:var(--text3);padding:6px 0;">No claims yet — orders in batches of ${bn}.</div>`;
+      batches.forEach(b => {
+        html += `<div class="card" style="margin-bottom:10px;${b.ordered?'border-color:var(--teal-100);':''}">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+            <div style="font-size:13px;font-weight:500;">Batch ${b.num} — ${b.items.length}/${bn}${b.full?' ✓':' (filling)'}</div>
+            <button class="btn btn-sm" onclick="secureBatch('${go.id}','${si.id}',${b.num})">${b.ordered?'Unmark ordered':'Mark ordered'}</button>
+          </div>
+          <div class="member-grid">`;
+        b.items.forEach(c => {
+          const sec = c.claim_status === 'secured';
+          html += `<div style="background:${sec?'var(--teal-50)':'var(--surface2)'};border-radius:8px;padding:8px 10px;border:0.5px solid ${sec?'var(--teal-100)':'var(--border)'};">
+            <div style="font-size:12px;font-weight:500;">${c.member}${c.ot?' <span style="color:var(--text3);font-weight:400;">(OT)</span>':''}</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:2px;">${c.user}</div>
+            <div style="margin-top:3px;display:flex;gap:4px;flex-wrap:wrap;">
+              <span class="badge ${c.payment==='paid'?'badge-paid':'badge-unpaid'}" style="font-size:10px;cursor:pointer;" onclick="toggleClaimPayment('${c.claim_id}','${go.id}','${si.id}')">${c.payment==='paid'?'Paid':'Unpaid'}</span>
+              <span class="badge ${sec?'badge-secured':'badge-pending'}" style="font-size:10px;cursor:pointer;" onclick="toggleClaimSecure('${c.claim_id}','${go.id}','${si.id}')">${sec?'Secured':'Secure?'}</span>
+            </div>
+          </div>`;
+        });
+        html += `</div></div>`;
+      });
+    } else if (si.sets) {
       if (!(si.members||[]).length) {
         html += `<div style="background:var(--amber-50,#fffbeb);border:0.5px solid var(--amber-200,#fde68a);border-radius:var(--radius);padding:10px 14px;margin-bottom:10px;font-size:13px;color:var(--amber-800);">⚠️ Members not configured. Go to <strong>Edit GO</strong> to add members for this set.</div>`;
       }
@@ -1902,6 +2046,38 @@ function toggleSlotSecure(goId, siId, setIdx, member) {
   renderAdminGOList();
   renderOrdersList();
   toast(member + ': ' + (slot.claim_status === 'secured' ? 'Secured' : 'Not secured'));
+}
+
+// Batch-mode per-claim + whole-batch controls (claims-based; act by claim_id).
+function toggleClaimSecure(claimId, goId, siId) {
+  const si = allGOs[goId].subItems.find(s => s.id === siId);
+  const c = (si.claims || []).find(x => x.claim_id === claimId);
+  if (!c) return;
+  c.claim_status = c.claim_status === 'secured' ? 'pending' : 'secured';
+  if (API_URL) apiPost('updateClaim', { claim_id: claimId, claim_status: c.claim_status });
+  renderDetailContent(); renderAdminGOList(); renderOrdersList();
+  toast(c.member + ': ' + (c.claim_status === 'secured' ? 'Secured' : 'Not secured'));
+}
+function toggleClaimPayment(claimId, goId, siId) {
+  const si = allGOs[goId].subItems.find(s => s.id === siId);
+  const c = (si.claims || []).find(x => x.claim_id === claimId);
+  if (!c) return;
+  c.payment = c.payment === 'paid' ? 'unpaid' : 'paid';
+  if (API_URL) apiPost('updateClaim', { claim_id: claimId, payment_status: c.payment });
+  renderDetailContent(); renderOrdersList();
+  toast(c.member + ': ' + (c.payment === 'paid' ? 'Paid' : 'Unpaid'));
+}
+function secureBatch(goId, siId, batchNum) {
+  const si = allGOs[goId].subItems.find(s => s.id === siId);
+  const b = goBatches(si).find(x => x.num === batchNum);
+  if (!b) return;
+  const makeSecured = !b.ordered;
+  b.items.forEach(c => {
+    c.claim_status = makeSecured ? 'secured' : 'pending';
+    if (API_URL && c.claim_id) apiPost('updateClaim', { claim_id: c.claim_id, claim_status: c.claim_status });
+  });
+  renderDetailContent(); renderAdminGOList(); renderOrdersList();
+  toast('Batch ' + batchNum + (makeSecured ? ' marked ordered' : ' unmarked'));
 }
 
 function secureSet(goId, siId, setIdx) {
