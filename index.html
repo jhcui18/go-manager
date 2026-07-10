@@ -3029,18 +3029,30 @@ function storeOrderRow(o, showGO) {
     <button class="btn btn-sm btn-ghost" style="color:var(--red-400);" onclick="deleteStoreOrderEntry('${o.order_id}')">×</button>
   </div>`;
 }
+let storeGoOpen = {};   // My store orders: go_id -> bool; default collapsed
+function toggleStoreGo(gid) {
+  storeGoOpen[gid] = !storeGoOpen[gid];
+  const body = document.getElementById('storego-body-' + gid);
+  const chev = document.getElementById('storego-chev-' + gid);
+  if (body) body.style.display = storeGoOpen[gid] ? 'block' : 'none';
+  if (chev) chev.textContent = storeGoOpen[gid] ? '▾' : '▸';
+}
 function renderStoreOrders() {
   const el = document.getElementById('store-orders-list');
   if (!el) return;
   if (!storeOrders.length) { el.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:8px 0;">No store orders yet.</div>'; return; }
-  // Group by GO, newest GO first.
+  // Group by GO (newest first), each a collapsible section (default collapsed).
   const byGo = {};
   storeOrders.forEach(o => { (byGo[o.go_id] = byGo[o.go_id] || []).push(o); });
   const goIds = Object.keys(byGo).sort((a, b) => (goCreatedTs({ id: b }) - goCreatedTs({ id: a })));
   el.innerHTML = goIds.map(gid => {
     const rows = byGo[gid];
     const name = rows[0].go_name || (allGOs[gid] && allGOs[gid].name) || gid;
-    return `<div style="font-size:12px;font-weight:600;color:var(--text2);margin:10px 0 6px;">${name}</div>${storeTallyHtml(rows)}${rows.map(o => storeOrderRow(o, false)).join('')}`;
+    const open = !!storeGoOpen[gid];
+    return `<div style="display:flex;align-items:center;gap:8px;padding:8px 4px;cursor:pointer;user-select:none;font-size:12px;font-weight:600;color:var(--text2);" onclick="toggleStoreGo('${gid}')">
+        <span id="storego-chev-${gid}" style="width:12px;color:var(--text3);">${open ? '▾' : '▸'}</span>${name} <span style="color:var(--text3);font-weight:400;">(${rows.length})</span>
+      </div>
+      <div id="storego-body-${gid}" style="display:${open ? 'block' : 'none'};">${storeTallyHtml(rows)}${rows.map(o => storeOrderRow(o, false)).join('')}</div>`;
   }).join('');
 }
 
