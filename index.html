@@ -526,7 +526,7 @@ function setsSummary(si) {
   if (isBatch(si)) {
     const batches = goBatches(si);
     const ordered = batches.filter(b => b.ordered).length;
-    return `${(si.claims || []).length} claimed · ${ordered}/${batches.length} ordered`;
+    return `${(si.claims || []).length} claimed · ${ordered}/${batches.length} secured`;
   }
   if (si.sets) {
     const real = si.sets.filter(s => Object.values(s.slots).some(v => v)).length;
@@ -1845,7 +1845,7 @@ function renderDetailContent() {
         html += `<div class="card" style="margin-bottom:10px;${b.ordered?'border-color:var(--teal-100);':''}">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
             <div style="font-size:13px;font-weight:500;">Batch ${b.num} — ${b.items.length}/${bn}${b.full?' ✓':' (filling)'}</div>
-            <button class="btn btn-sm" onclick="secureBatch('${go.id}','${si.id}',${b.num})">${b.ordered?'Unmark ordered':'Mark ordered'}</button>
+            <button class="btn btn-sm" onclick="secureBatch('${go.id}','${si.id}',${b.num})">${b.ordered?'Unsecure batch':'Secure batch'}</button>
           </div>
           <div class="member-grid">`;
         b.items.forEach(c => {
@@ -2074,7 +2074,7 @@ function secureBatch(goId, siId, batchNum) {
     if (API_URL && c.claim_id) apiPost('updateClaim', { claim_id: c.claim_id, claim_status: c.claim_status });
   });
   renderDetailContent(); renderAdminGOList(); renderOrdersList();
-  toast('Batch ' + batchNum + (makeSecured ? ' marked ordered' : ' unmarked'));
+  toast('Batch ' + batchNum + (makeSecured ? ' secured' : ' unsecured'));
 }
 
 function secureSet(goId, siId, setIdx) {
