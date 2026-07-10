@@ -1408,13 +1408,13 @@ function doLookup() {
           const isOT = membersToCheck.length && membersToCheck.every(m => { const s = set.slots[m]; return s && sameUser(s.user, u) && s.ot; });
           if (isOT) {
             const s0 = set.slots[membersToCheck[0]];
-            rows.push({ go_id:go.id, go:go.name, item:si.name, detail:'OT'+membersToCheck.length+' full set', qty:1, price:si.otPrice||0, claim:set.status==='secured'?'Secured':'Pending', payment:s0.payment, fulfillment:s0.fulfillment });
+            rows.push({ go_id:go.id, go:go.name, item:si.name, detail:'OT'+membersToCheck.length+' full set', qty:1, price:si.otPrice||0, claim:(s0.claim_status==='secured'||set.status==='secured')?'Secured':'Pending', payment:s0.payment, fulfillment:s0.fulfillment });
             return;
           }
           membersToCheck.forEach(member => {
             const slot = set.slots[member];
             if (slot && sameUser(slot.user, u)) {
-              rows.push({ go_id:go.id, go:go.name, item:si.name, detail:member, qty:1, price:si.price||0, claim:set.status==='secured'?'Secured':'Pending', payment:slot.payment, fulfillment:slot.fulfillment });
+              rows.push({ go_id:go.id, go:go.name, item:si.name, detail:member, qty:1, price:si.price||0, claim:(slot.claim_status==='secured'||set.status==='secured')?'Secured':'Pending', payment:slot.payment, fulfillment:slot.fulfillment });
             }
           });
         });
@@ -1771,8 +1771,9 @@ function renderDetailContent() {
           const nameColor = taken ? (isSecured ? 'var(--teal-800)' : 'var(--pink-800)') : 'var(--text2)';
           const subColor = taken ? (isSecured ? 'var(--teal-600)' : 'var(--accent)') : 'var(--text3)';
           const sub = taken ? slot.user : 'open';
-          const payHtml = taken ? `<div style="margin-top:3px;">
+          const payHtml = taken ? `<div style="margin-top:3px;display:flex;gap:4px;flex-wrap:wrap;">
             <span class="badge ${slot.payment==='paid'?'badge-paid':'badge-unpaid'}" style="font-size:10px;cursor:pointer;" title="Click to toggle paid/unpaid" onclick="toggleSlotPayment('${go.id}','${si.id}',${setIdx},'${member}')">${slot.payment==='paid'?'Paid':'Unpaid'}</span>
+            <span class="badge ${slot.claim_status==='secured'?'badge-secured':'badge-pending'}" style="font-size:10px;cursor:pointer;" title="Click to secure/unsecure this claim" onclick="toggleSlotSecure('${go.id}','${si.id}',${setIdx},'${member}')">${slot.claim_status==='secured'?'Secured':'Secure?'}</span>
           </div>` : '';
           const fulfillHtml = taken && !isSecured ? '' : taken ? `<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
             <span class="badge ${fulfillBadge(slot.fulfillment)}" style="font-size:10px;">${slot.fulfillment}</span>
@@ -1887,9 +1888,26 @@ function toggleSlotPayment(goId, siId, setIdx, member) {
   toast(member + ': ' + (slot.payment === 'paid' ? 'Paid' : 'Unpaid'));
 }
 
+// Secure/unsecure a single claim (per-slot), independent of whole-set securing.
+function toggleSlotSecure(goId, siId, setIdx, member) {
+  const si = allGOs[goId].subItems.find(s => s.id === siId);
+  const set = si.sets[setIdx];
+  const slot = set.slots[member];
+  if (!slot) return;
+  slot.claim_status = slot.claim_status === 'secured' ? 'pending' : 'secured';
+  const filled = Object.values(set.slots).filter(Boolean);
+  set.status = filled.length && filled.every(v => v.claim_status === 'secured') ? 'secured' : 'open';
+  if (API_URL && slot.claim_id) apiPost('updateClaim', { claim_id: slot.claim_id, claim_status: slot.claim_status });
+  renderDetailContent();
+  renderAdminGOList();
+  renderOrdersList();
+  toast(member + ': ' + (slot.claim_status === 'secured' ? 'Secured' : 'Not secured'));
+}
+
 function secureSet(goId, siId, setIdx) {
   const si = allGOs[goId].subItems.find(s => s.id === siId);
   si.sets[setIdx].status = 'secured';
+  Object.values(si.sets[setIdx].slots).forEach(v => { if (v) v.claim_status = 'secured'; });
   const setNum = si.sets[setIdx].num || (setIdx + 1);
   if (API_URL) apiPost('secureSet', { go_id: goId, sub_item_id: siId, set_num: setNum });
   renderDetailContent();
@@ -1901,6 +1919,7 @@ function secureSet(goId, siId, setIdx) {
 function unsecureSet(goId, siId, setIdx) {
   const si = allGOs[goId].subItems.find(s => s.id === siId);
   si.sets[setIdx].status = 'open';
+  Object.values(si.sets[setIdx].slots).forEach(v => { if (v) v.claim_status = 'pending'; });
   const setNum = si.sets[setIdx].num || (setIdx + 1);
   if (API_URL) apiPost('unsecureSet', { go_id: goId, sub_item_id: siId, set_num: setNum });
   renderDetailContent();
@@ -3447,19 +3466,24 @@ function buildSetsFromClaims(claims, siId, members) {
   ordered.forEach(c => {
     const member = c.member_or_version;
     const declared = parseInt(c.set_num) || 1;
-    const slot = { user: c.username, payment: c.payment_status, fulfillment: c.fulfillment, claim_id: c.claim_id, ot: c.assigned_vers === 'OT' };
+    const slot = { user: c.username, payment: c.payment_status, fulfillment: c.fulfillment, claim_status: c.claim_status, claim_id: c.claim_id, ot: c.assigned_vers === 'OT' };
     const existingHigher = Object.keys(setsByNum).map(Number).filter(x => x > declared).sort((a,b) => a - b);
     let placed = false;
     for (const n of [declared, ...existingHigher]) {
       const s = getSet(n);
-      if (!s.slots[member]) { s.slots[member] = slot; if (c.claim_status === 'secured') s.status = 'secured'; placed = true; break; }
+      if (!s.slots[member]) { s.slots[member] = slot; placed = true; break; }
     }
     if (!placed) {
       const s = getSet(smallestUnusedNum());
-      s.slots[member] = slot; if (c.claim_status === 'secured') s.status = 'secured';
+      s.slots[member] = slot;
     }
   });
   const sets = Object.values(setsByNum).sort((a, b) => a.num - b.num);
+  // A set is "secured" only when all its filled slots are secured — supports per-claim securing.
+  sets.forEach(s => {
+    const filled = Object.values(s.slots).filter(Boolean);
+    s.status = filled.length && filled.every(v => v.claim_status === 'secured') ? 'secured' : 'open';
+  });
   const last = sets[sets.length - 1];
   const hasEmpty = members.every(m => !last.slots[m]);
   if (!hasEmpty) {
