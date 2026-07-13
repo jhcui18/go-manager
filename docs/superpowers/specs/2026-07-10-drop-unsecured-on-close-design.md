@@ -18,11 +18,23 @@ money was paid on, and (b) keeping the action reversible.
 
 ## Definitions
 
-- **Unsecured / droppable claim:** a *filled* claim whose `claim_status` is not
-  `secured` and not `paid`. Empty slots are not claims and are irrelevant.
-- **Secured is always kept.** If a claim is secured (including a partial batch's
-  claims that were individually secured), it is never dropped.
-- **Paid is never auto-dropped.** See "Paid claims" below.
+- **Scope: set-based and batch sub-items only.** Only `si.sets` items
+  (photocard / album-member) and batch items (`isBatch(si)`, i.e. `minSecure < 0`)
+  have an "unsecured" state. FCFS claims-based items — versioned, single-edition,
+  random-merch, and album-member-FCFS — render as **Secured** in `doLookup` the
+  moment they're claimed (their claims carry no `claim_status`, and
+  `doLookup` treats a falsy `claim_status` as Secured). They are firm orders with
+  no incompleteness, so they are never in the drop list.
+- **Unsecured / droppable claim:** within a set-based or batch sub-item, a *filled*
+  claim that is not yet secured and not paid:
+  - **set-based slot:** `slot.claim_status !== 'secured'` **and** the parent
+    `set.status !== 'secured'`.
+  - **batch claim:** `claim.claim_status !== 'secured'`.
+  - Empty slots are not claims and are irrelevant.
+- **Secured is always kept.** A secured slot/claim (including a partial batch's
+  individually-secured claims) is never dropped.
+- **Paid is never auto-dropped.** A claim with `payment === 'paid'` is routed to
+  the "Needs your attention" group instead. See "Paid claims" below.
 
 ## 1. Data model
 
@@ -40,13 +52,17 @@ fields disagree.
 
 ## 2. Close → review → confirm flow
 
-Change **Close GO** so that closing a GO with unsecured claims routes through a
-review step instead of silently flipping status.
+A GO is closed via the **Edit GO** form's status dropdown (`edit-go-status`,
+Open/Closed) → `saveGOEdits`. Change `saveGOEdits` so that an **open → closed
+transition** with unsecured claims routes through a review step instead of
+silently flipping status.
 
-**Trigger:** Admin clicks **Close GO**. Count unsecured (filled, non-secured,
-non-paid) claims across all sub-items.
-- **Zero unsecured** → close immediately, no modal.
-- **> 0** → open the **review modal**.
+**Trigger:** In `saveGOEdits`, detect `prevStatus !== 'closed' && newStatus ===
+'closed'`. When that transition happens, count unsecured (filled, non-secured,
+non-paid) claims across the GO's set-based and batch sub-items.
+- **Not an open→closed transition** (or zero unsecured) → save normally, no modal.
+- **Open→closed with > 0 unsecured** → complete the rest of the save, then open the
+  **review modal** for the just-closed GO.
 
 **Review modal contents:**
 - Header: *"N claims across M items didn't reach secured. Closing will drop them."*
