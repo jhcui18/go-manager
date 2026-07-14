@@ -510,7 +510,7 @@ function batchSize(si) { return Math.abs(parseInt(si.minSecure)) || 1; }
 // Group a batch POB's claims into runs of batchSize, ordered by created_at (oldest first).
 function goBatches(si) {
   const n = batchSize(si);
-  const claims = (si.claims || []).slice().sort((a, b) => {
+  const claims = (si.claims || []).filter(c => c.claim_status !== 'dropped').slice().sort((a, b) => {
     const ta = a.created_at || '', tb = b.created_at || '';
     if (ta !== tb) return ta < tb ? -1 : 1;
     return String(a.claim_id) < String(b.claim_id) ? -1 : 1;
@@ -2099,6 +2099,62 @@ function unsecureSet(goId, siId, setIdx) {
   renderAdminGOList();
   renderOrdersList();
   toast('Set unsecured.');
+}
+
+// ── Drop-unsecured-on-close ────────────────────────────────────────────────
+// Collect a GO's not-yet-secured claims from set-based & batch sub-items only.
+// Paid claims go to `paid` (never auto-dropped); the rest to `droppable`.
+function collectUnsecured(go) {
+  const droppable = [], paid = [];
+  (go.subItems || []).forEach(si => {
+    if (si.sets) {
+      si.sets.forEach((set, setIdx) => {
+        if (set.status === 'secured') return;
+        Object.keys(set.slots).forEach(member => {
+          const slot = set.slots[member];
+          if (!slot || slot.claim_status === 'secured' || slot.claim_status === 'dropped') return;
+          const ref = { siId: si.id, siName: si.name, kind: 'set', setIdx, member, claimId: slot.claim_id, user: slot.user, label: member };
+          (slot.payment === 'paid' ? paid : droppable).push(ref);
+        });
+      });
+    } else if (isBatch(si)) {
+      (si.claims || []).forEach(c => {
+        if (c.claim_status === 'secured' || c.claim_status === 'dropped') return;
+        const ref = { siId: si.id, siName: si.name, kind: 'batch', setIdx: null, member: null, claimId: c.claim_id, user: c.user, label: (c.member || '') + (c.ot ? ' (OT)' : '') };
+        (c.payment === 'paid' ? paid : droppable).push(ref);
+      });
+    }
+    // FCFS claims-based (versioned/single/random/member-FCFS): firm orders — skipped.
+  });
+  return { droppable, paid };
+}
+
+// Set claim_status on the slot/claim a ref points to. For set refs, recompute set.status.
+function applyClaimStatusRef(go, ref, status) {
+  const si = (go.subItems || []).find(s => s.id === ref.siId);
+  if (!si) return;
+  if (ref.kind === 'set') {
+    const set = si.sets[ref.setIdx];
+    const slot = set && set.slots[ref.member];
+    if (!slot) return;
+    slot.claim_status = status;
+    const filled = Object.values(set.slots).filter(Boolean);
+    set.status = filled.length && filled.every(v => v.claim_status === 'secured') ? 'secured' : 'open';
+  } else {
+    const c = (si.claims || []).find(x => x.claim_id === ref.claimId);
+    if (c) c.claim_status = status;
+  }
+}
+
+// Restore a dropped claim back to pending (active/unsecured). Persists + re-renders.
+async function restoreClaim(goId, kind, siId, setIdx, member, claimId) {
+  const go = allGOs[goId];
+  const ref = { kind, siId, setIdx, member, claimId };
+  applyClaimStatusRef(go, ref, 'pending');
+  if (API_URL && claimId) { try { await apiPost('updateClaim', { claim_id: claimId, claim_status: 'pending' }); } catch (e) {} }
+  saveLocal();
+  renderDetailContent(); renderAdminGOList(); renderOrdersList();
+  toast('Claim restored.');
 }
 
 function advanceSetFulfill(goId, siId, setIdx, member, dir) {
