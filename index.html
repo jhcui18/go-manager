@@ -53,6 +53,7 @@
   .badge { display:inline-flex;align-items:center;font-size:11px;font-weight:500;padding:3px 9px;border-radius:20px; }
   .badge-pending { background:var(--amber-50);color:var(--amber-800); }
   .badge-secured { background:var(--teal-50);color:var(--teal-800); }
+  .badge-dropped { background:var(--gray-100);color:var(--text3); }
   .badge-waitlist { background:var(--gray-50);color:var(--gray-800); }
   .badge-paid { background:var(--teal-50);color:var(--teal-800); }
   .badge-unpaid { background:var(--red-50);color:var(--red-800); }
@@ -526,12 +527,15 @@ function setsSummary(si) {
   if (isBatch(si)) {
     const batches = goBatches(si);
     const ordered = batches.filter(b => b.ordered).length;
-    return `${(si.claims || []).length} claimed · ${ordered}/${batches.length} secured`;
+    const active = (si.claims || []).filter(c => c.claim_status !== 'dropped').length;
+    const dropped = (si.claims || []).filter(c => c.claim_status === 'dropped').length;
+    return `${active} claimed · ${ordered}/${batches.length} secured` + (dropped ? ` · ${dropped} dropped` : '');
   }
   if (si.sets) {
     const real = si.sets.filter(s => Object.values(s.slots).some(v => v)).length;
     const secured = si.sets.filter(s => s.status === 'secured').length;
-    return `${real} set${real !== 1 ? 's' : ''} · ${secured} secured`;
+    const dropped = si.sets.reduce((a, s) => a + Object.values(s.slots).filter(v => v && v.claim_status === 'dropped').length, 0);
+    return `${real} set${real !== 1 ? 's' : ''} · ${secured} secured` + (dropped ? ` · ${dropped} dropped` : '');
   }
   const n = (si.claims || []).reduce((a, c) => a + (c.qty || 1), 0);
   return `${n} claimed`;
@@ -1524,13 +1528,13 @@ function doLookup() {
           const isOT = membersToCheck.length && membersToCheck.every(m => { const s = set.slots[m]; return s && sameUser(s.user, u) && s.ot; });
           if (isOT) {
             const s0 = set.slots[membersToCheck[0]];
-            rows.push({ go_id:go.id, go:go.name, item:si.name, detail:'OT'+membersToCheck.length+' full set', qty:1, price:si.otPrice||0, claim:(s0.claim_status==='secured'||set.status==='secured')?'Secured':'Pending', payment:s0.payment, fulfillment:s0.fulfillment });
+            rows.push({ go_id:go.id, go:go.name, item:si.name, detail:'OT'+membersToCheck.length+' full set', qty:1, price:si.otPrice||0, claim:(s0.claim_status==='dropped')?'Not fulfilled':((s0.claim_status==='secured'||set.status==='secured')?'Secured':'Pending'), payment:s0.payment, fulfillment:s0.fulfillment });
             return;
           }
           membersToCheck.forEach(member => {
             const slot = set.slots[member];
             if (slot && sameUser(slot.user, u)) {
-              rows.push({ go_id:go.id, go:go.name, item:si.name, detail:member, qty:1, price:si.price||0, claim:(slot.claim_status==='secured'||set.status==='secured')?'Secured':'Pending', payment:slot.payment, fulfillment:slot.fulfillment });
+              rows.push({ go_id:go.id, go:go.name, item:si.name, detail:member, qty:1, price:si.price||0, claim:(slot.claim_status==='dropped')?'Not fulfilled':((slot.claim_status==='secured'||set.status==='secured')?'Secured':'Pending'), payment:slot.payment, fulfillment:slot.fulfillment });
             }
           });
         });
@@ -1539,7 +1543,7 @@ function doLookup() {
         (si.claims||[]).forEach(c => {
           if (sameUser(c.user, u)) {
             const detail = c.member || (c.assignedVers||[]).join('+');
-            rows.push({ go_id:go.id, go:go.name, item:si.name, detail, qty:c.qty, price:si.price||0, claim:(c.claim_status && c.claim_status !== 'secured') ? 'Pending' : 'Secured', payment:c.payment, fulfillment:c.fulfillment });
+            rows.push({ go_id:go.id, go:go.name, item:si.name, detail, qty:c.qty, price:si.price||0, claim:(c.claim_status==='dropped')?'Not fulfilled':((c.claim_status && c.claim_status !== 'secured') ? 'Pending' : 'Secured'), payment:c.payment, fulfillment:c.fulfillment });
           }
         });
       }
@@ -1553,10 +1557,11 @@ function doLookup() {
       claim: 'Secured', payment: o.payment_status, fulfillment: o.fulfillment
     });
   });
-  document.getElementById('result-count').textContent = rows.length + ' active claim' + (rows.length!==1?'s':'');
+  const activeRows = rows.filter(r => r.claim !== 'Not fulfilled');
+  document.getElementById('result-count').textContent = activeRows.length + ' active claim' + (activeRows.length!==1?'s':'');
   const tbody = document.getElementById('lookup-tbody');
-  const grandTotal = rows.reduce((a, r) => a + (r.price * r.qty), 0);
-  const paidTotal = rows.filter(r => r.payment === 'paid').reduce((a, r) => a + (r.price * r.qty), 0);
+  const grandTotal = activeRows.reduce((a, r) => a + (r.price * r.qty), 0);
+  const paidTotal = activeRows.filter(r => r.payment === 'paid').reduce((a, r) => a + (r.price * r.qty), 0);
   const unpaidTotal = grandTotal - paidTotal;
   tbody.innerHTML = rows.length ? rows.map(r => `<tr>
     <td style="font-weight:500;">${r.go}</td>
@@ -1564,7 +1569,7 @@ function doLookup() {
     <td style="color:var(--text2);">${r.detail}</td>
     <td>${r.qty}</td>
     <td style="font-family:var(--mono);font-size:12px;">${r.price > 0 ? '$' + (r.price * r.qty).toFixed(2) : '—'}</td>
-    <td><span class="badge ${r.claim==='Secured'?'badge-secured':'badge-pending'}">${r.claim}</span></td>
+    <td><span class="badge ${r.claim==='Secured'?'badge-secured':r.claim==='Not fulfilled'?'badge-dropped':'badge-pending'}">${r.claim}</span></td>
     <td><span class="badge ${r.payment==='paid'?'badge-paid':'badge-unpaid'}">${r.payment==='paid'?'Paid':'Unpaid'}</span></td>
     <td><span class="badge ${fulfillBadge(r.fulfillment)}">${r.fulfillment}</span></td>
   </tr>`).join('')
