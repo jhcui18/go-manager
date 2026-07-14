@@ -1866,6 +1866,21 @@ function renderDetailContent() {
         });
         html += `</div></div>`;
       });
+      const droppedBatch = (si.claims || []).filter(c => c.claim_status === 'dropped');
+      if (droppedBatch.length) {
+        html += `<div class="card" style="margin-bottom:10px;"><div style="font-size:12px;color:var(--text3);margin-bottom:8px;">Dropped — not ordered</div><div class="member-grid">`;
+        droppedBatch.forEach(c => {
+          html += `<div style="background:var(--surface2);border-radius:8px;padding:8px 10px;border:0.5px solid var(--border);">
+            <div style="font-size:12px;font-weight:500;">${c.member}${c.ot?' <span style="color:var(--text3);font-weight:400;">(OT)</span>':''}</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:2px;">${c.user}</div>
+            <div style="margin-top:3px;display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
+              <span class="badge badge-dropped" style="font-size:10px;">Dropped</span>
+              <button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 6px;" onclick="restoreClaim('${go.id}','batch','${si.id}',null,null,'${c.claim_id}')">Restore</button>
+            </div>
+          </div>`;
+        });
+        html += `</div></div>`;
+      }
     } else if (si.sets) {
       if (!(si.members||[]).length) {
         html += `<div style="background:var(--amber-50,#fffbeb);border:0.5px solid var(--amber-200,#fde68a);border-radius:var(--radius);padding:10px 14px;margin-bottom:10px;font-size:13px;color:var(--amber-800);">⚠️ Members not configured. Go to <strong>Edit GO</strong> to add members for this set.</div>`;
@@ -1917,10 +1932,13 @@ function renderDetailContent() {
           const nameColor = taken ? (isSecured ? 'var(--teal-800)' : 'var(--pink-800)') : 'var(--text2)';
           const subColor = taken ? (isSecured ? 'var(--teal-600)' : 'var(--accent)') : 'var(--text3)';
           const sub = taken ? slot.user : 'open';
-          const payHtml = taken ? `<div style="margin-top:3px;display:flex;gap:4px;flex-wrap:wrap;">
+          const payHtml = taken ? (slot.claim_status === 'dropped' ? `<div style="margin-top:3px;display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
+            <span class="badge badge-dropped" style="font-size:10px;">Dropped</span>
+            <button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 6px;" onclick="restoreClaim('${go.id}','set','${si.id}',${setIdx},'${member}')">Restore</button>
+          </div>` : `<div style="margin-top:3px;display:flex;gap:4px;flex-wrap:wrap;">
             <span class="badge ${slot.payment==='paid'?'badge-paid':'badge-unpaid'}" style="font-size:10px;cursor:pointer;" title="Click to toggle paid/unpaid" onclick="toggleSlotPayment('${go.id}','${si.id}',${setIdx},'${member}')">${slot.payment==='paid'?'Paid':'Unpaid'}</span>
             <span class="badge ${slot.claim_status==='secured'?'badge-secured':'badge-pending'}" style="font-size:10px;cursor:pointer;" title="Click to secure/unsecure this claim" onclick="toggleSlotSecure('${go.id}','${si.id}',${setIdx},'${member}')">${slot.claim_status==='secured'?'Secured':'Secure?'}</span>
-          </div>` : '';
+          </div>`) : '';
           const fulfillHtml = taken && !isSecured ? '' : taken ? `<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
             <span class="badge ${fulfillBadge(slot.fulfillment)}" style="font-size:10px;">${slot.fulfillment}</span>
             ${prevFulfillment(slot.fulfillment) ? `<button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 6px;" title="Back to ${prevFulfillment(slot.fulfillment)}" onclick="advanceSetFulfill('${go.id}','${si.id}',${setIdx},'${member}','prev')">←</button>` : ''}
