@@ -1474,20 +1474,44 @@ function submitClaim(goId) {
     }
   });
   if (!placed) { toast('Please select at least one item.'); return; }
-  if (API_URL && claimsToWrite.length) {
-    apiPost('submitClaim', { claims: claimsToWrite }).then(res => {
-      // Backend may reject if the GO was closed after this client loaded it.
-      if (res && res.ok === false && res.error === 'closed') {
-        toast('This GO just closed — your claim was not recorded.');
-        syncFromBackend();
-      }
-    }).catch(() => {});
-  }
   claimState = {};
   renderOrdersList();
   renderAdminGOList();
-  toast('Claim submitted! Check "My orders" to track status.');
   showPage('orders');
+  // Persist to the sheet and VERIFY it landed before telling the buyer it worked.
+  // A failed write (lock-contended 'busy', closed GO, or network error) must NOT
+  // masquerade as success — otherwise the optimistic local claim vanishes on the next
+  // refresh (sync rebuilds purely from the sheet) with no warning to the buyer.
+  if (API_URL && claimsToWrite.length) {
+    submitClaimWithRetry(claimsToWrite).then(res => {
+      if (res && res.ok) {
+        toast('Claim submitted! Check "My orders" to track status.');
+      } else {
+        toast((res && res.message) || 'Your claim could not be saved — please try again.');
+        syncFromBackend();  // drop the un-saved optimistic claim so it doesn't linger till refresh
+      }
+    });
+  } else {
+    toast('Claim submitted! Check "My orders" to track status.');  // local-only mode (no backend)
+  }
+}
+
+// Persist claims, retrying ONLY the definitive "not written" signal (server lock-contended
+// 'busy' → the row was never appended, so a retry is safe and cannot double-book). Network
+// errors are surfaced, never retried — a lost response might mean the write DID land, and a
+// blind retry would duplicate the claim. Returns the backend result, or an ok:false object.
+async function submitClaimWithRetry(claims, attempts = 3) {
+  for (let i = 0; i < attempts; i++) {
+    let res;
+    try { res = await apiPost('submitClaim', { claims }); }
+    catch (e) { return { ok: false, message: 'Network error — your claim may not have been saved. Please check My orders, then retry if it is missing.' }; }
+    if (res && res.ok) return res;
+    if (res && res.ok === false && res.error === 'busy' && i < attempts - 1) {
+      await new Promise(r => setTimeout(r, 400 * (i + 1)));  // brief backoff, then retry
+      continue;
+    }
+    return res || { ok: false, message: 'Your claim could not be saved — please try again.' };
+  }
 }
 
 // ── LOOKUP ───────────────────────────────────────────────────────────────────
