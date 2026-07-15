@@ -53,6 +53,7 @@
   .badge { display:inline-flex;align-items:center;font-size:11px;font-weight:500;padding:3px 9px;border-radius:20px; }
   .badge-pending { background:var(--amber-50);color:var(--amber-800); }
   .badge-secured { background:var(--teal-50);color:var(--teal-800); }
+  .badge-dropped { background:var(--gray-100);color:var(--text3); }
   .badge-waitlist { background:var(--gray-50);color:var(--gray-800); }
   .badge-paid { background:var(--teal-50);color:var(--teal-800); }
   .badge-unpaid { background:var(--red-50);color:var(--red-800); }
@@ -510,7 +511,7 @@ function batchSize(si) { return Math.abs(parseInt(si.minSecure)) || 1; }
 // Group a batch POB's claims into runs of batchSize, ordered by created_at (oldest first).
 function goBatches(si) {
   const n = batchSize(si);
-  const claims = (si.claims || []).slice().sort((a, b) => {
+  const claims = (si.claims || []).filter(c => c.claim_status !== 'dropped').slice().sort((a, b) => {
     const ta = a.created_at || '', tb = b.created_at || '';
     if (ta !== tb) return ta < tb ? -1 : 1;
     return String(a.claim_id) < String(b.claim_id) ? -1 : 1;
@@ -526,12 +527,15 @@ function setsSummary(si) {
   if (isBatch(si)) {
     const batches = goBatches(si);
     const ordered = batches.filter(b => b.ordered).length;
-    return `${(si.claims || []).length} claimed · ${ordered}/${batches.length} secured`;
+    const active = (si.claims || []).filter(c => c.claim_status !== 'dropped').length;
+    const dropped = (si.claims || []).filter(c => c.claim_status === 'dropped').length;
+    return `${active} claimed · ${ordered}/${batches.length} secured` + (dropped ? ` · ${dropped} dropped` : '');
   }
   if (si.sets) {
     const real = si.sets.filter(s => Object.values(s.slots).some(v => v)).length;
     const secured = si.sets.filter(s => s.status === 'secured').length;
-    return `${real} set${real !== 1 ? 's' : ''} · ${secured} secured`;
+    const dropped = si.sets.reduce((a, s) => a + Object.values(s.slots).filter(v => v && v.claim_status === 'dropped').length, 0);
+    return `${real} set${real !== 1 ? 's' : ''} · ${secured} secured` + (dropped ? ` · ${dropped} dropped` : '');
   }
   const n = (si.claims || []).reduce((a, c) => a + (c.qty || 1), 0);
   return `${n} claimed`;
@@ -1548,13 +1552,13 @@ function doLookup() {
           const isOT = membersToCheck.length && membersToCheck.every(m => { const s = set.slots[m]; return s && sameUser(s.user, u) && s.ot; });
           if (isOT) {
             const s0 = set.slots[membersToCheck[0]];
-            rows.push({ go_id:go.id, go:go.name, item:si.name, detail:'OT'+membersToCheck.length+' full set', qty:1, price:si.otPrice||0, claim:(s0.claim_status==='secured'||set.status==='secured')?'Secured':'Pending', payment:s0.payment, fulfillment:s0.fulfillment });
+            rows.push({ go_id:go.id, go:go.name, item:si.name, detail:'OT'+membersToCheck.length+' full set', qty:1, price:si.otPrice||0, claim:(s0.claim_status==='dropped')?'Not fulfilled':((s0.claim_status==='secured'||set.status==='secured')?'Secured':'Pending'), payment:s0.payment, fulfillment:s0.fulfillment });
             return;
           }
           membersToCheck.forEach(member => {
             const slot = set.slots[member];
             if (slot && sameUser(slot.user, u)) {
-              rows.push({ go_id:go.id, go:go.name, item:si.name, detail:member, qty:1, price:si.price||0, claim:(slot.claim_status==='secured'||set.status==='secured')?'Secured':'Pending', payment:slot.payment, fulfillment:slot.fulfillment });
+              rows.push({ go_id:go.id, go:go.name, item:si.name, detail:member, qty:1, price:si.price||0, claim:(slot.claim_status==='dropped')?'Not fulfilled':((slot.claim_status==='secured'||set.status==='secured')?'Secured':'Pending'), payment:slot.payment, fulfillment:slot.fulfillment });
             }
           });
         });
@@ -1563,7 +1567,7 @@ function doLookup() {
         (si.claims||[]).forEach(c => {
           if (sameUser(c.user, u)) {
             const detail = c.member || (c.assignedVers||[]).join('+');
-            rows.push({ go_id:go.id, go:go.name, item:si.name, detail, qty:c.qty, price:si.price||0, claim:(c.claim_status && c.claim_status !== 'secured') ? 'Pending' : 'Secured', payment:c.payment, fulfillment:c.fulfillment });
+            rows.push({ go_id:go.id, go:go.name, item:si.name, detail, qty:c.qty, price:si.price||0, claim:(c.claim_status==='dropped')?'Not fulfilled':((c.claim_status && c.claim_status !== 'secured') ? 'Pending' : 'Secured'), payment:c.payment, fulfillment:c.fulfillment });
           }
         });
       }
@@ -1577,10 +1581,11 @@ function doLookup() {
       claim: 'Secured', payment: o.payment_status, fulfillment: o.fulfillment
     });
   });
-  document.getElementById('result-count').textContent = rows.length + ' active claim' + (rows.length!==1?'s':'');
+  const activeRows = rows.filter(r => r.claim !== 'Not fulfilled');
+  document.getElementById('result-count').textContent = activeRows.length + ' active claim' + (activeRows.length!==1?'s':'');
   const tbody = document.getElementById('lookup-tbody');
-  const grandTotal = rows.reduce((a, r) => a + (r.price * r.qty), 0);
-  const paidTotal = rows.filter(r => r.payment === 'paid').reduce((a, r) => a + (r.price * r.qty), 0);
+  const grandTotal = activeRows.reduce((a, r) => a + (r.price * r.qty), 0);
+  const paidTotal = activeRows.filter(r => r.payment === 'paid').reduce((a, r) => a + (r.price * r.qty), 0);
   const unpaidTotal = grandTotal - paidTotal;
   tbody.innerHTML = rows.length ? rows.map(r => `<tr>
     <td style="font-weight:500;">${r.go}</td>
@@ -1588,7 +1593,7 @@ function doLookup() {
     <td style="color:var(--text2);">${r.detail}</td>
     <td>${r.qty}</td>
     <td style="font-family:var(--mono);font-size:12px;">${r.price > 0 ? '$' + (r.price * r.qty).toFixed(2) : '—'}</td>
-    <td><span class="badge ${r.claim==='Secured'?'badge-secured':'badge-pending'}">${r.claim}</span></td>
+    <td><span class="badge ${r.claim==='Secured'?'badge-secured':r.claim==='Not fulfilled'?'badge-dropped':'badge-pending'}">${r.claim}</span></td>
     <td><span class="badge ${r.payment==='paid'?'badge-paid':'badge-unpaid'}">${r.payment==='paid'?'Paid':'Unpaid'}</span></td>
     <td><span class="badge ${fulfillBadge(r.fulfillment)}">${r.fulfillment}</span></td>
   </tr>`).join('')
@@ -1885,6 +1890,21 @@ function renderDetailContent() {
         });
         html += `</div></div>`;
       });
+      const droppedBatch = (si.claims || []).filter(c => c.claim_status === 'dropped');
+      if (droppedBatch.length) {
+        html += `<div class="card" style="margin-bottom:10px;"><div style="font-size:12px;color:var(--text3);margin-bottom:8px;">Dropped — not ordered</div><div class="member-grid">`;
+        droppedBatch.forEach(c => {
+          html += `<div style="background:var(--surface2);border-radius:8px;padding:8px 10px;border:0.5px solid var(--border);">
+            <div style="font-size:12px;font-weight:500;">${c.member}${c.ot?' <span style="color:var(--text3);font-weight:400;">(OT)</span>':''}</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:2px;">${c.user}</div>
+            <div style="margin-top:3px;display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
+              <span class="badge badge-dropped" style="font-size:10px;">Dropped</span>
+              <button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 6px;" onclick="restoreClaim('${go.id}','batch','${si.id}',null,null,'${c.claim_id}')">Restore</button>
+            </div>
+          </div>`;
+        });
+        html += `</div></div>`;
+      }
     } else if (si.sets) {
       if (!(si.members||[]).length) {
         html += `<div style="background:var(--amber-50,#fffbeb);border:0.5px solid var(--amber-200,#fde68a);border-radius:var(--radius);padding:10px 14px;margin-bottom:10px;font-size:13px;color:var(--amber-800);">⚠️ Members not configured. Go to <strong>Edit GO</strong> to add members for this set.</div>`;
@@ -1936,10 +1956,13 @@ function renderDetailContent() {
           const nameColor = taken ? (isSecured ? 'var(--teal-800)' : 'var(--pink-800)') : 'var(--text2)';
           const subColor = taken ? (isSecured ? 'var(--teal-600)' : 'var(--accent)') : 'var(--text3)';
           const sub = taken ? slot.user : 'open';
-          const payHtml = taken ? `<div style="margin-top:3px;display:flex;gap:4px;flex-wrap:wrap;">
+          const payHtml = taken ? (slot.claim_status === 'dropped' ? `<div style="margin-top:3px;display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
+            <span class="badge badge-dropped" style="font-size:10px;">Dropped</span>
+            <button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 6px;" onclick="restoreClaim('${go.id}','set','${si.id}',${setIdx},'${member}')">Restore</button>
+          </div>` : `<div style="margin-top:3px;display:flex;gap:4px;flex-wrap:wrap;">
             <span class="badge ${slot.payment==='paid'?'badge-paid':'badge-unpaid'}" style="font-size:10px;cursor:pointer;" title="Click to toggle paid/unpaid" onclick="toggleSlotPayment('${go.id}','${si.id}',${setIdx},'${member}')">${slot.payment==='paid'?'Paid':'Unpaid'}</span>
             <span class="badge ${slot.claim_status==='secured'?'badge-secured':'badge-pending'}" style="font-size:10px;cursor:pointer;" title="Click to secure/unsecure this claim" onclick="toggleSlotSecure('${go.id}','${si.id}',${setIdx},'${member}')">${slot.claim_status==='secured'?'Secured':'Secure?'}</span>
-          </div>` : '';
+          </div>`) : '';
           const fulfillHtml = taken && !isSecured ? '' : taken ? `<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
             <span class="badge ${fulfillBadge(slot.fulfillment)}" style="font-size:10px;">${slot.fulfillment}</span>
             ${prevFulfillment(slot.fulfillment) ? `<button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 6px;" title="Back to ${prevFulfillment(slot.fulfillment)}" onclick="advanceSetFulfill('${go.id}','${si.id}',${setIdx},'${member}','prev')">←</button>` : ''}
@@ -2000,8 +2023,7 @@ function renderDetailContent() {
       <div class="section-label" style="margin:0;">Store orders for this GO</div>
       <button class="btn btn-sm btn-primary" onclick="openStoreOrderModal(null, '${go.id}')">+ Add</button>
     </div>
-    ${storeTallyHtml(goStoreOrders)}
-    ${goStoreOrders.length ? goStoreOrders.map(o => storeOrderRow(o, false)).join('') : '<div style="font-size:12px;color:var(--text3);padding:4px 0;">None recorded.</div>'}
+    ${goStoreOrders.length ? storePobGroupsHtml(goStoreOrders) : '<div style="font-size:12px;color:var(--text3);padding:4px 0;">None recorded.</div>'}
   </div>`;
   el.innerHTML = html;
 }
@@ -2124,6 +2146,131 @@ function unsecureSet(goId, siId, setIdx) {
   renderAdminGOList();
   renderOrdersList();
   toast('Set unsecured.');
+}
+
+// ── Drop-unsecured-on-close ────────────────────────────────────────────────
+// Collect a GO's not-yet-secured claims from set-based & batch sub-items only.
+// Paid claims go to `paid` (never auto-dropped); the rest to `droppable`.
+function collectUnsecured(go) {
+  const droppable = [], paid = [];
+  (go.subItems || []).forEach(si => {
+    if (si.sets) {
+      si.sets.forEach((set, setIdx) => {
+        if (set.status === 'secured') return;
+        Object.keys(set.slots).forEach(member => {
+          const slot = set.slots[member];
+          if (!slot || slot.claim_status === 'secured' || slot.claim_status === 'dropped') return;
+          const ref = { siId: si.id, siName: si.name, kind: 'set', setIdx, member, claimId: slot.claim_id, user: slot.user, label: member };
+          (slot.payment === 'paid' ? paid : droppable).push(ref);
+        });
+      });
+    } else if (isBatch(si)) {
+      (si.claims || []).forEach(c => {
+        if (c.claim_status === 'secured' || c.claim_status === 'dropped') return;
+        const ref = { siId: si.id, siName: si.name, kind: 'batch', setIdx: null, member: null, claimId: c.claim_id, user: c.user, label: (c.member || '') + (c.ot ? ' (OT)' : '') };
+        (c.payment === 'paid' ? paid : droppable).push(ref);
+      });
+    }
+    // FCFS claims-based (versioned/single/random/member-FCFS): firm orders — skipped.
+  });
+  return { droppable, paid };
+}
+
+// Set claim_status on the slot/claim a ref points to. For set refs, recompute set.status.
+function applyClaimStatusRef(go, ref, status) {
+  const si = (go.subItems || []).find(s => s.id === ref.siId);
+  if (!si) return;
+  if (ref.kind === 'set') {
+    const set = si.sets[ref.setIdx];
+    const slot = set && set.slots[ref.member];
+    if (!slot) return;
+    slot.claim_status = status;
+    const filled = Object.values(set.slots).filter(Boolean);
+    set.status = filled.length && filled.every(v => v.claim_status === 'secured') ? 'secured' : 'open';
+  } else {
+    const c = (si.claims || []).find(x => x.claim_id === ref.claimId);
+    if (c) c.claim_status = status;
+  }
+}
+
+// Restore a dropped claim back to pending (active/unsecured). Persists + re-renders.
+async function restoreClaim(goId, kind, siId, setIdx, member, claimId) {
+  const go = allGOs[goId];
+  const ref = { kind, siId, setIdx, member, claimId };
+  applyClaimStatusRef(go, ref, 'pending');
+  if (API_URL && claimId) { try { await apiPost('updateClaim', { claim_id: claimId, claim_status: 'pending' }); } catch (e) {} }
+  saveLocal();
+  renderDetailContent(); renderAdminGOList(); renderOrdersList();
+  toast('Claim restored.');
+}
+
+// Review modal shown when a GO is closed with still-unsecured claims.
+function openDropReviewModal(goId) {
+  const go = allGOs[goId];
+  const { droppable, paid } = collectUnsecured(go);
+
+  // Group droppable refs by sub-item name.
+  const byItem = {};
+  droppable.forEach(r => { (byItem[r.siName] = byItem[r.siName] || []).push(r); });
+
+  let body = '';
+  if (droppable.length) {
+    body += `<div style="font-size:13px;color:var(--text2);margin-bottom:12px;">${droppable.length} claim${droppable.length!==1?'s':''} across ${Object.keys(byItem).length} item${Object.keys(byItem).length!==1?'s':''} didn't reach secured. Closing will drop them.</div>`;
+    Object.keys(byItem).forEach(name => {
+      body += `<div style="font-weight:500;font-size:13px;margin:10px 0 6px;">${name}</div>`;
+      byItem[name].forEach(r => {
+        const args = `'${goId}','${r.kind}','${r.siId}',${r.kind==='set'?r.setIdx:'null'},${r.kind==='set'?`'${r.member}'`:'null'},${r.claimId?`'${r.claimId}'`:'null'}`;
+        body += `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 0;">
+          <div style="font-size:12px;"><span style="font-weight:500;">${r.label}</span> <span style="color:var(--text3);">${r.user}</span></div>
+          <button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 8px;" onclick="secureFromReview(${args})">Secure anyway</button>
+        </div>`;
+      });
+    });
+  } else {
+    body += `<div style="font-size:13px;color:var(--text2);margin-bottom:12px;">No unsecured claims left to drop.</div>`;
+  }
+
+  if (paid.length) {
+    body += `<div style="margin-top:14px;padding:10px 12px;background:var(--amber-50);border:0.5px solid var(--amber-200,#fde68a);border-radius:8px;">
+      <div style="font-size:12px;font-weight:500;color:var(--amber-800);margin-bottom:6px;">Needs your attention — ${paid.length} paid but not secured</div>
+      <div style="font-size:11px;color:var(--amber-800);margin-bottom:6px;">These won't be dropped. Check for a labeling error (Secure them), or refund off-app then drop them manually.</div>`;
+    paid.forEach(r => { body += `<div style="font-size:12px;padding:2px 0;"><span style="font-weight:500;">${r.siName} · ${r.label}</span> <span style="color:var(--text3);">${r.user}</span></div>`; });
+    body += `</div>`;
+  }
+
+  const footer = droppable.length
+    ? `<div style="display:flex;gap:8px;margin-top:18px;">
+        <button class="btn btn-primary" style="flex:1;justify-content:center;" onclick="confirmDropUnsecured('${goId}')">Close &amp; drop remaining</button>
+        <button class="btn btn-ghost" onclick="closeModal()">Close without dropping</button>
+      </div>`
+    : `<div style="display:flex;margin-top:18px;"><button class="btn btn-primary" style="flex:1;justify-content:center;" onclick="closeModal()">Done</button></div>`;
+
+  showModal(`<div style="font-size:16px;font-weight:500;margin-bottom:4px;">Review unsecured claims</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:16px;">${go.name}</div>${body}${footer}`);
+}
+
+// Rescue exactly one claim (per-claim secure), then re-render the modal.
+async function secureFromReview(goId, kind, siId, setIdx, member, claimId) {
+  const go = allGOs[goId];
+  applyClaimStatusRef(go, { kind, siId, setIdx, member, claimId }, 'secured');
+  if (API_URL && claimId) { try { await apiPost('updateClaim', { claim_id: claimId, claim_status: 'secured' }); } catch (e) {} }
+  saveLocal();
+  renderDetailContent(); renderAdminGOList(); renderOrdersList();
+  openDropReviewModal(goId);
+}
+
+// Confirm: drop every still-unsecured (non-paid) claim. Awaits all writes before saveLocal.
+async function confirmDropUnsecured(goId) {
+  const go = allGOs[goId];
+  const { droppable } = collectUnsecured(go);
+  for (const ref of droppable) {
+    applyClaimStatusRef(go, ref, 'dropped');
+    if (API_URL && ref.claimId) { try { await apiPost('updateClaim', { claim_id: ref.claimId, claim_status: 'dropped' }); } catch (e) {} }
+  }
+  saveLocal();
+  closeModal();
+  renderDetailContent(); renderAdminGOList(); renderOrdersList();
+  toast(droppable.length + ' unsecured claim' + (droppable.length !== 1 ? 's' : '') + ' dropped.');
 }
 
 function advanceSetFulfill(goId, siId, setIdx, member, dir) {
@@ -2629,6 +2776,7 @@ function saveGOEdits() {
   const go = currentGO;
   go.name = document.getElementById('edit-go-name').value.trim() || go.name;
   go.deadline = document.getElementById('edit-go-deadline').value;
+  const prevStatus = go.status;
   go.status = document.getElementById('edit-go-status').value;
   const minSecure = parseInt(document.getElementById('edit-go-min-secure').value);
   // Update each sub-item
@@ -2737,6 +2885,10 @@ function saveGOEdits() {
   renderOrdersList();
   openGODetail(go.id);
   toast('Changes saved.');
+  if (prevStatus !== 'closed' && go.status === 'closed') {
+    const { droppable, paid } = collectUnsecured(go);
+    if (droppable.length || paid.length) openDropReviewModal(go.id);
+  }
 }
 
 async function confirmDeleteGO() {
@@ -3032,6 +3184,21 @@ function storeVersionTally(orders) {
   });
   return Object.entries(map).sort((a, b) => b[1] - a[1]);
 }
+// Group a GO's store orders by POB (sub-item), each with its own version tally. POBs sorted by name.
+function storePobGroupsHtml(rows) {
+  const groups = {};
+  (rows || []).forEach(o => {
+    const key = o.sub_item_name || '(no POB)';
+    (groups[key] = groups[key] || []).push(o);
+  });
+  return Object.keys(groups).sort((a, b) => a.localeCompare(b)).map(label => {
+    const g = groups[label];
+    return `<div style="margin-bottom:10px;">
+        <div style="font-size:12px;font-weight:600;color:var(--text2);margin:4px 0 6px;">${label} <span style="color:var(--text3);font-weight:400;">(${g.length})</span></div>
+        ${storeTallyHtml(g)}${g.map(o => storeOrderRow(o, false)).join('')}
+      </div>`;
+  }).join('');
+}
 function storeTallyHtml(orders) {
   const t = storeVersionTally(orders);
   if (!t.length) return '';
@@ -3076,7 +3243,7 @@ function renderStoreOrders() {
     return `<div style="display:flex;align-items:center;gap:8px;padding:8px 4px;cursor:pointer;user-select:none;font-size:12px;font-weight:600;color:var(--text2);" onclick="toggleStoreGo('${gid}')">
         <span id="storego-chev-${gid}" style="width:12px;color:var(--text3);">${open ? '▾' : '▸'}</span>${name} <span style="color:var(--text3);font-weight:400;">(${rows.length})</span>
       </div>
-      <div id="storego-body-${gid}" style="display:${open ? 'block' : 'none'};">${storeTallyHtml(rows)}${rows.map(o => storeOrderRow(o, false)).join('')}</div>`;
+      <div id="storego-body-${gid}" style="display:${open ? 'block' : 'none'};">${storePobGroupsHtml(rows)}</div>`;
   }).join('');
 }
 
@@ -3274,7 +3441,7 @@ function paymentOwedUnits(username, goId) {
       });
     }
     if (si.claims) si.claims.forEach(c => {
-      if (sameUser(c.user, username)) units.push({ ids: [c.claim_id].filter(Boolean), value: (si.price||0) * (c.qty||1), kind: 'claim', refs: [c] });
+      if (sameUser(c.user, username) && c.claim_status !== 'dropped') units.push({ ids: [c.claim_id].filter(Boolean), value: (si.price||0) * (c.qty||1), kind: 'claim', refs: [c] });
     });
   });
   return units;
