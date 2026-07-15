@@ -3441,10 +3441,25 @@ function paymentOwedUnits(username, goId) {
       });
     }
     if (si.claims) si.claims.forEach(c => {
-      if (sameUser(c.user, username) && c.claim_status !== 'dropped') units.push({ ids: [c.claim_id].filter(Boolean), value: (si.price||0) * (c.qty||1), kind: 'claim', refs: [c] });
+      if (!sameUser(c.user, username) || c.claim_status === 'dropped') return;
+      if (isBatch(si) && c.claim_status !== 'secured') return;  // batch: only secured cards are owed/payable
+      units.push({ ids: [c.claim_id].filter(Boolean), value: (si.price||0) * (c.qty||1), kind: 'claim', refs: [c] });
     });
   });
   return units;
+}
+
+// Per-buyer, per-GO money summary — the single source for both the joiner My-orders
+// line and the admin confirm modal, so the two never disagree. securedValue reuses
+// paymentOwedUnits (same claims the modal allocates against). paid = CONFIRMED only.
+function goPaymentSummary(username, goId) {
+  const securedValue = paymentOwedUnits(username, goId).reduce((a, u) => a + u.value, 0);
+  const mine = paymentProofs.filter(pp => sameUser(pp.username, username) && pp.go_id === goId);
+  const paid = mine.filter(pp => pp.status === 'confirmed').reduce((a, pp) => a + (parseFloat(pp.amount) || 0), 0);
+  const pendingSubmitted = mine.filter(pp => pp.status === 'pending').reduce((a, pp) => a + (parseFloat(pp.amount) || 0), 0);
+  const owed = Math.max(0, securedValue - paid);
+  const credit = Math.max(0, paid - securedValue);
+  return { paid, securedValue, owed, credit, pendingSubmitted };
 }
 
 function setUnitPaid(u, paid) {
