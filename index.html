@@ -2217,7 +2217,7 @@ function openDropReviewModal(goId) {
   const footer = droppable.length
     ? `<div style="display:flex;gap:8px;margin-top:18px;">
         <button class="btn btn-primary" style="flex:1;justify-content:center;" onclick="confirmDropUnsecured('${goId}')">Close &amp; drop remaining</button>
-        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-ghost" onclick="closeModal()">Close without dropping</button>
       </div>`
     : `<div style="display:flex;margin-top:18px;"><button class="btn btn-primary" style="flex:1;justify-content:center;" onclick="closeModal()">Done</button></div>`;
 
@@ -3417,7 +3417,7 @@ function paymentOwedUnits(username, goId) {
       });
     }
     if (si.claims) si.claims.forEach(c => {
-      if (sameUser(c.user, username)) units.push({ ids: [c.claim_id].filter(Boolean), value: (si.price||0) * (c.qty||1), kind: 'claim', refs: [c] });
+      if (sameUser(c.user, username) && c.claim_status !== 'dropped') units.push({ ids: [c.claim_id].filter(Boolean), value: (si.price||0) * (c.qty||1), kind: 'claim', refs: [c] });
     });
   });
   return units;
