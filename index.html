@@ -2180,6 +2180,75 @@ async function restoreClaim(goId, kind, siId, setIdx, member, claimId) {
   toast('Claim restored.');
 }
 
+// Review modal shown when a GO is closed with still-unsecured claims.
+function openDropReviewModal(goId) {
+  const go = allGOs[goId];
+  const { droppable, paid } = collectUnsecured(go);
+
+  // Group droppable refs by sub-item name.
+  const byItem = {};
+  droppable.forEach(r => { (byItem[r.siName] = byItem[r.siName] || []).push(r); });
+
+  let body = '';
+  if (droppable.length) {
+    body += `<div style="font-size:13px;color:var(--text2);margin-bottom:12px;">${droppable.length} claim${droppable.length!==1?'s':''} across ${Object.keys(byItem).length} item${Object.keys(byItem).length!==1?'s':''} didn't reach secured. Closing will drop them.</div>`;
+    Object.keys(byItem).forEach(name => {
+      body += `<div style="font-weight:500;font-size:13px;margin:10px 0 6px;">${name}</div>`;
+      byItem[name].forEach(r => {
+        const args = `'${goId}','${r.kind}','${r.siId}',${r.kind==='set'?r.setIdx:'null'},${r.kind==='set'?`'${r.member}'`:'null'},${r.claimId?`'${r.claimId}'`:'null'}`;
+        body += `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 0;">
+          <div style="font-size:12px;"><span style="font-weight:500;">${r.label}</span> <span style="color:var(--text3);">${r.user}</span></div>
+          <button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 8px;" onclick="secureFromReview(${args})">Secure anyway</button>
+        </div>`;
+      });
+    });
+  } else {
+    body += `<div style="font-size:13px;color:var(--text2);margin-bottom:12px;">No unsecured claims left to drop.</div>`;
+  }
+
+  if (paid.length) {
+    body += `<div style="margin-top:14px;padding:10px 12px;background:var(--amber-50);border:0.5px solid var(--amber-200,#fde68a);border-radius:8px;">
+      <div style="font-size:12px;font-weight:500;color:var(--amber-800);margin-bottom:6px;">Needs your attention — ${paid.length} paid but not secured</div>
+      <div style="font-size:11px;color:var(--amber-800);margin-bottom:6px;">These won't be dropped. Check for a labeling error (Secure them), or refund off-app then drop them manually.</div>`;
+    paid.forEach(r => { body += `<div style="font-size:12px;padding:2px 0;"><span style="font-weight:500;">${r.siName} · ${r.label}</span> <span style="color:var(--text3);">${r.user}</span></div>`; });
+    body += `</div>`;
+  }
+
+  const footer = droppable.length
+    ? `<div style="display:flex;gap:8px;margin-top:18px;">
+        <button class="btn btn-primary" style="flex:1;justify-content:center;" onclick="confirmDropUnsecured('${goId}')">Close &amp; drop remaining</button>
+        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      </div>`
+    : `<div style="display:flex;margin-top:18px;"><button class="btn btn-primary" style="flex:1;justify-content:center;" onclick="closeModal()">Done</button></div>`;
+
+  showModal(`<div style="font-size:16px;font-weight:500;margin-bottom:4px;">Review unsecured claims</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:16px;">${go.name}</div>${body}${footer}`);
+}
+
+// Rescue exactly one claim (per-claim secure), then re-render the modal.
+async function secureFromReview(goId, kind, siId, setIdx, member, claimId) {
+  const go = allGOs[goId];
+  applyClaimStatusRef(go, { kind, siId, setIdx, member, claimId }, 'secured');
+  if (API_URL && claimId) { try { await apiPost('updateClaim', { claim_id: claimId, claim_status: 'secured' }); } catch (e) {} }
+  saveLocal();
+  renderDetailContent(); renderAdminGOList(); renderOrdersList();
+  openDropReviewModal(goId);
+}
+
+// Confirm: drop every still-unsecured (non-paid) claim. Awaits all writes before saveLocal.
+async function confirmDropUnsecured(goId) {
+  const go = allGOs[goId];
+  const { droppable } = collectUnsecured(go);
+  for (const ref of droppable) {
+    applyClaimStatusRef(go, ref, 'dropped');
+    if (API_URL && ref.claimId) { try { await apiPost('updateClaim', { claim_id: ref.claimId, claim_status: 'dropped' }); } catch (e) {} }
+  }
+  saveLocal();
+  closeModal();
+  renderDetailContent(); renderAdminGOList(); renderOrdersList();
+  toast(droppable.length + ' unsecured claim' + (droppable.length !== 1 ? 's' : '') + ' dropped.');
+}
+
 function advanceSetFulfill(goId, siId, setIdx, member, dir) {
   const si = allGOs[goId].subItems.find(s => s.id === siId);
   const slot = si.sets[setIdx].slots[member];
@@ -2683,6 +2752,7 @@ function saveGOEdits() {
   const go = currentGO;
   go.name = document.getElementById('edit-go-name').value.trim() || go.name;
   go.deadline = document.getElementById('edit-go-deadline').value;
+  const prevStatus = go.status;
   go.status = document.getElementById('edit-go-status').value;
   const minSecure = parseInt(document.getElementById('edit-go-min-secure').value);
   // Update each sub-item
@@ -2791,6 +2861,10 @@ function saveGOEdits() {
   renderOrdersList();
   openGODetail(go.id);
   toast('Changes saved.');
+  if (prevStatus !== 'closed' && go.status === 'closed') {
+    const { droppable, paid } = collectUnsecured(go);
+    if (droppable.length || paid.length) openDropReviewModal(go.id);
+  }
 }
 
 async function confirmDeleteGO() {
