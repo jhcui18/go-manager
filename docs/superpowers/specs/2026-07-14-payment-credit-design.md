@@ -57,13 +57,31 @@ goPaymentSummary(username, goId) -> { paid, securedValue, owed, credit, pendingS
   amounts (shown separately, not in paid).
 - **owed** / **credit** as defined above.
 
-The admin confirm modal's existing greedy allocation (`paymentOwedUnits` +
-`setUnitPaid`) is a **separate concern** — it decides *which specific claims* to
-flag paid and stays unchanged. The modal's *displayed* Owed/Credit come from
-`goPaymentSummary` so the shown figures match the joiner's. (Known minor edge:
-`paymentOwedUnits` counts claims-based units regardless of status, so for a batch
-item with unsecured claims plus a payment, the "will mark paid" line and the
-displayed Owed may differ; this pre-existing allocation quirk is out of scope.)
+The admin confirm modal's greedy allocation (`paymentOwedUnits` + `setUnitPaid`)
+decides *which specific claims* to flag paid. The modal's *displayed* Owed/Credit
+come from `goPaymentSummary`. For these two to agree, `paymentOwedUnits` must count
+the same claims as `securedValue` — see the batch-consistency fix below.
+
+### Batch-consistency fix to `paymentOwedUnits`
+
+`paymentOwedUnits` currently counts every claims-based unit regardless of
+`claim_status` (only `'dropped'` is filtered). For **set-based** items it already
+counts only secured sets, and **FCFS** claims-based items (versioned/single/random/
+member-FCFS) are firm the moment claimed — both correct. But **batch** items also
+live in `si.claims`, so an *unsecured* batch card is currently counted as owed and
+can be marked paid. That both contradicts `securedValue` (which excludes it) and
+would mark a not-yet-secured card paid.
+
+Fix: in the `si.claims` branch, skip a batch item's unsecured cards —
+
+```
+if (isBatch(si) && c.claim_status !== 'secured') return;  // batch: only secured cards are owed/payable
+```
+
+After this, a prepaid-but-unsecured batch card is held as **credit** (not marked
+paid) until its batch is secured — identical to set-based behavior — and the
+modal's "will mark paid" line matches the displayed Owed/Credit. This is the only
+change to allocation; set-based and FCFS paths are unaffected.
 
 ## Scope: per-GO credit only
 
@@ -89,8 +107,9 @@ Under each GO's claim rows, add a one-line summary:
 The modal already greedily allocates `totalPaid` (all confirmed payments for the
 buyer+GO plus the one being confirmed) across secured items via `paymentOwedUnits`
 + `setUnitPaid`. Prior credit is therefore **already** taken into account when
-confirming a new payment, and that allocation stays unchanged. Display changes,
-driven by `goPaymentSummary`:
+confirming a new payment. Allocation logic is unchanged except for the
+batch-consistency fix above (so it counts the same claims as `securedValue`).
+Display changes, driven by `goPaymentSummary`:
 
 - Show Owed/Paid/Secured value from `goPaymentSummary` (consistent with the joiner).
 - Add a **"Credit (held for later): $Z"** row when `credit > 0`.
