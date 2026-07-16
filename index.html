@@ -1825,6 +1825,10 @@ function openGODetail(goId) {
   document.getElementById('detail-badges').innerHTML = `<span class="badge ${badgeClass}">${typeLabel}</span>`;
   showAdminPanel('go-detail');
   renderDetailContent();
+  // Render local state instantly, then pull fresh claims from the sheet so claims that
+  // arrived since the last sync (e.g. a buyer filling an open spot in a secured set) show
+  // up without needing a manual ↺. Mirrors the buyer My-orders auto-sync on open.
+  refreshCurrentGO();
 }
 
 async function refreshCurrentGO() {
