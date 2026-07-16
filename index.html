@@ -3497,7 +3497,8 @@ function confirmPayment(id) {
     else { cutoff = true; unpaid.push(u); }
   });
   pendingConfirm = { paymentId: id, goId: p.go_id, username: p.username, paid, unpaid };
-  const matches = Math.abs(acc - securedTotal) < eps && Math.abs(totalPaid - securedTotal) < eps;
+  const credit = Math.max(0, totalPaid - securedTotal);
+  const under = Math.max(0, securedTotal - totalPaid);
   showModal(`
     <div style="font-size:16px;font-weight:500;margin-bottom:4px;">Confirm payment — ${p.username}</div>
     <div style="font-size:13px;color:var(--text2);margin-bottom:14px;">${p.go_name || (p.go_id==='shop'?'Shop':'')}</div>
@@ -3506,8 +3507,10 @@ function confirmPayment(id) {
       <div style="display:flex;justify-content:space-between;"><span style="color:var(--text2);">This payment</span><strong style="font-family:var(--mono);">$${(parseFloat(p.amount)||0).toFixed(2)}</strong></div>
       <div style="display:flex;justify-content:space-between;"><span style="color:var(--text2);">Total paid for this GO</span><strong style="font-family:var(--mono);">$${totalPaid.toFixed(2)}</strong></div>
       <div style="display:flex;justify-content:space-between;border-top:0.5px solid var(--border);padding-top:6px;"><span style="color:var(--text2);">Will mark paid</span><strong style="font-family:var(--mono);color:var(--teal-600);">${paid.length} of ${units.length} items · $${acc.toFixed(2)}</strong></div>
+      ${credit > 0 ? `<div style="display:flex;justify-content:space-between;"><span style="color:var(--text2);">Credit (held for later)</span><strong style="font-family:var(--mono);color:var(--teal-600);">$${credit.toFixed(2)}</strong></div>` : ''}
     </div>
-    ${matches ? '' : `<div style="font-size:12px;color:var(--amber-800);background:var(--amber-50);border-radius:var(--radius);padding:8px 10px;margin-bottom:12px;">Amount doesn't fully cover the secured total — only the ${paid.length} item(s) that $${totalPaid.toFixed(2)} adds up to will be marked paid.</div>`}
+    ${under > eps ? `<div style="font-size:12px;color:var(--amber-800);background:var(--amber-50);border-radius:var(--radius);padding:8px 10px;margin-bottom:12px;">Amount doesn't fully cover the secured total — only the ${paid.length} item(s) that $${totalPaid.toFixed(2)} adds up to will be marked paid.</div>`
+      : credit > eps ? `<div style="font-size:12px;color:var(--teal-600);background:var(--teal-50);border-radius:var(--radius);padding:8px 10px;margin-bottom:12px;">$${credit.toFixed(2)} will be held as credit for claims secured later.</div>` : ''}
     <div style="display:flex;gap:8px;">
       <button class="btn btn-primary" style="flex:1;justify-content:center;" onclick="applyConfirmPayment()">Confirm</button>
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
