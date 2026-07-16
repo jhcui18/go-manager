@@ -251,7 +251,12 @@ function submitClaim(data) {
       return n;
     };
 
-    const otSetForKey = {}; // OT full sets each get one fresh set number
+    // OT full sets: each complete set (all members once) gets its OWN fresh set number.
+    // A new OT set starts on the first OT claim, or whenever the current OT set already
+    // holds this member. (Previously all OT claims in one submission shared a single
+    // number, collapsing e.g. 9 ordered full sets into one set_num.)
+    const otState = {}; // key -> { num, seen:{member:true} }
+    const freeSetNum = (key, from) => { let n = from; while (taken[key] && taken[key][n]) n++; return n; };
 
     (data.claims || []).forEach(c => {
       const claimId = 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
@@ -261,8 +266,13 @@ function submitClaim(data) {
       if (isSet) {
         const key = c.go_id + '|' + c.sub_item_id;
         if (c.assigned_vers === 'OT') {
-          if (!otSetForKey[key]) otSetForKey[key] = (maxSet[key] || 0) + 1;
-          setNum = otSetForKey[key];
+          let st = otState[key];
+          if (!st || st.seen[c.member_or_version]) {
+            const startFrom = st ? st.num + 1 : (maxSet[key] || 0) + 1;
+            st = otState[key] = { num: freeSetNum(key, startFrom), seen: {} };
+          }
+          st.seen[c.member_or_version] = true;
+          setNum = st.num;
         } else {
           setNum = firstFreeSet(key, c.member_or_version);
         }
