@@ -2072,7 +2072,7 @@ function toggleSlotPayment(goId, siId, setIdx, member) {
   const slot = si.sets[setIdx].slots[member];
   if (!slot) return;
   slot.payment = slot.payment === 'paid' ? 'unpaid' : 'paid';
-  if (API_URL && slot.claim_id) apiPost('updateClaim', { claim_id: slot.claim_id, payment_status: slot.payment });
+  if (API_URL && slot.claim_id) persistWrite(apiPost('updateClaim', { claim_id: slot.claim_id, payment_status: slot.payment }), 'Payment');
   renderDetailContent();
   renderOrdersList();
   toast(member + ': ' + (slot.payment === 'paid' ? 'Paid' : 'Unpaid'));
@@ -2087,7 +2087,7 @@ function toggleSlotSecure(goId, siId, setIdx, member) {
   slot.claim_status = slot.claim_status === 'secured' ? 'pending' : 'secured';
   const filled = Object.values(set.slots).filter(Boolean);
   set.status = filled.length && filled.every(v => v.claim_status === 'secured') ? 'secured' : 'open';
-  if (API_URL && slot.claim_id) apiPost('updateClaim', { claim_id: slot.claim_id, claim_status: slot.claim_status });
+  if (API_URL && slot.claim_id) persistWrite(apiPost('updateClaim', { claim_id: slot.claim_id, claim_status: slot.claim_status }), 'Secure');
   renderDetailContent();
   renderAdminGOList();
   renderOrdersList();
@@ -2100,7 +2100,7 @@ function toggleClaimSecure(claimId, goId, siId) {
   const c = (si.claims || []).find(x => x.claim_id === claimId);
   if (!c) return;
   c.claim_status = c.claim_status === 'secured' ? 'pending' : 'secured';
-  if (API_URL) apiPost('updateClaim', { claim_id: claimId, claim_status: c.claim_status });
+  if (API_URL) persistWrite(apiPost('updateClaim', { claim_id: claimId, claim_status: c.claim_status }), 'Secure');
   renderDetailContent(); renderAdminGOList(); renderOrdersList();
   toast(c.member + ': ' + (c.claim_status === 'secured' ? 'Secured' : 'Not secured'));
 }
@@ -2109,7 +2109,7 @@ function toggleClaimPayment(claimId, goId, siId) {
   const c = (si.claims || []).find(x => x.claim_id === claimId);
   if (!c) return;
   c.payment = c.payment === 'paid' ? 'unpaid' : 'paid';
-  if (API_URL) apiPost('updateClaim', { claim_id: claimId, payment_status: c.payment });
+  if (API_URL) persistWrite(apiPost('updateClaim', { claim_id: claimId, payment_status: c.payment }), 'Payment');
   renderDetailContent(); renderOrdersList();
   toast(c.member + ': ' + (c.payment === 'paid' ? 'Paid' : 'Unpaid'));
 }
@@ -2120,7 +2120,7 @@ function secureBatch(goId, siId, batchNum) {
   const makeSecured = !b.ordered;
   b.items.forEach(c => {
     c.claim_status = makeSecured ? 'secured' : 'pending';
-    if (API_URL && c.claim_id) apiPost('updateClaim', { claim_id: c.claim_id, claim_status: c.claim_status });
+    if (API_URL && c.claim_id) persistWrite(apiPost('updateClaim', { claim_id: c.claim_id, claim_status: c.claim_status }), 'Secure batch');
   });
   renderDetailContent(); renderAdminGOList(); renderOrdersList();
   toast('Batch ' + batchNum + (makeSecured ? ' secured' : ' unsecured'));
@@ -2131,7 +2131,7 @@ function secureSet(goId, siId, setIdx) {
   si.sets[setIdx].status = 'secured';
   Object.values(si.sets[setIdx].slots).forEach(v => { if (v) v.claim_status = 'secured'; });
   const setNum = si.sets[setIdx].num || (setIdx + 1);
-  if (API_URL) apiPost('secureSet', { go_id: goId, sub_item_id: siId, set_num: setNum });
+  if (API_URL) persistWrite(apiPost('secureSet', { go_id: goId, sub_item_id: siId, set_num: setNum }), 'Secure set');
   renderDetailContent();
   renderAdminGOList();
   renderOrdersList();
@@ -2143,7 +2143,7 @@ function unsecureSet(goId, siId, setIdx) {
   si.sets[setIdx].status = 'open';
   Object.values(si.sets[setIdx].slots).forEach(v => { if (v) v.claim_status = 'pending'; });
   const setNum = si.sets[setIdx].num || (setIdx + 1);
-  if (API_URL) apiPost('unsecureSet', { go_id: goId, sub_item_id: siId, set_num: setNum });
+  if (API_URL) persistWrite(apiPost('unsecureSet', { go_id: goId, sub_item_id: siId, set_num: setNum }), 'Unsecure set');
   renderDetailContent();
   renderAdminGOList();
   renderOrdersList();
@@ -3704,6 +3704,20 @@ async function apiPost(action, data = {}) {
     body: JSON.stringify({ action, data })
   });
   return res.json();
+}
+
+// Persist a single admin mutation and reconcile the optimistic UI on failure. These writes
+// used to be fire-and-forget, so a failed save (network/lock) reverted silently on the next
+// sync ("I secured it but after refresh it's gone"). Now a failure toasts and re-syncs, so
+// the UI reflects the sheet instead of a false success. (A backend that matches 0 rows still
+// returns ok:true — that's a set_num/data mismatch, handled separately, not a write failure.)
+function persistWrite(promise, label) {
+  Promise.resolve(promise)
+    .then(res => { if (!res || res.ok === false) throw new Error('not ok'); })
+    .catch(() => {
+      toast((label || 'Change') + " didn't save — syncing from the sheet.");
+      syncFromBackend();
+    });
 }
 
 async function syncFromBackend() {
