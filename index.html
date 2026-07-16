@@ -1519,21 +1519,6 @@ async function submitClaimWithRetry(claims, attempts = 3) {
 }
 
 // ── LOOKUP ───────────────────────────────────────────────────────────────────
-// Sum a looked-up user's SECURED, UNPAID claim rows into an owed total per GO.
-// Only secured claims are owed — pending/unsecured spots aren't charged yet.
-// rows: [{ go_id, go, price, qty, payment, claim, ... }] (from doLookup).
-function computeOwedByGO(rows) {
-  const byGo = {};
-  rows.forEach(r => {
-    if (r.payment === 'paid') return;
-    if (r.claim !== 'Secured') return;
-    const key = r.go_id || r.go;
-    if (!byGo[key]) byGo[key] = { go_id: r.go_id, go: r.go, owed: 0 };
-    byGo[key].owed += (r.price || 0) * (r.qty || 0);
-  });
-  return Object.values(byGo).filter(g => g.owed > 0);
-}
-
 function doLookup() {
   const val = document.getElementById('lookup-input').value.trim();
   if (!val) return;
