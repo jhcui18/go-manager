@@ -1614,24 +1614,24 @@ function doLookup() {
   // ── Pay panels (one per GO with an unpaid balance) ──
   const payEl = document.getElementById('lookup-pay-panels');
   if (payEl) {
-    const owed = computeOwedByGO(rows);
     const handles = PAYMENT_METHODS.map(p =>
       `<span class="tag">${p.method}${p.note ? ' ' + p.note : ''}: ${p.handle}</span>`
     ).join(' ');
-    if (!owed.length) {
-      // Show "All paid ✓" only if the buyer has secured claims (all paid).
-      // If they only have pending/unsecured claims, nothing is owed yet — show nothing.
-      const hasSecured = rows.some(r => r.claim === 'Secured');
-      payEl.innerHTML = hasSecured
-        ? `<div class="card" style="margin-top:12px;"><div style="font-size:13px;color:var(--teal-600);font-weight:500;">All paid ✓</div></div>`
-        : '';
-    } else {
-      payEl.innerHTML = owed.map(g => `
-        <div class="card" style="margin-top:12px;">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-            <div style="font-weight:500;font-size:15px;">${g.go}</div>
-            <div style="font-size:13px;">Owed: <strong style="font-family:var(--mono);">$${g.owed.toFixed(2)}</strong></div>
-          </div>
+    // Every GO this buyer appears in (dedup by go_id), including the Shop pseudo-GO.
+    const goList = [...new Map(rows.map(r => [r.go_id, { go_id: r.go_id, go: r.go }])).values()];
+    const cards = goList.map(g => {
+      const s = goPaymentSummary(u, g.go_id);
+      // Nothing financial to show for this GO (only unsecured/unpaid claims) → skip.
+      if (s.owed <= 0 && s.credit <= 0 && s.paid <= 0 && s.pendingSubmitted <= 0) return '';
+      const summaryLine = `Paid $${s.paid.toFixed(2)} · Owed $${s.owed.toFixed(2)}`
+        + (s.credit > 0 ? ` · Credit $${s.credit.toFixed(2)}` : '')
+        + (s.pendingSubmitted > 0 ? ` · $${s.pendingSubmitted.toFixed(2)} awaiting confirmation` : '');
+      const rightBadge = s.owed > 0
+        ? `Owed: <strong style="font-family:var(--mono);">$${s.owed.toFixed(2)}</strong>`
+        : s.credit > 0
+          ? `<span style="color:var(--teal-600);">Credit: <strong style="font-family:var(--mono);">$${s.credit.toFixed(2)}</strong></span>`
+          : `<span style="color:var(--teal-600);font-weight:500;">All paid ✓</span>`;
+      const form = s.owed > 0 ? `
           <div style="font-size:12px;color:var(--text2);margin-bottom:6px;">Send payment to one of <span style="color:var(--text3);">(no written note — an emoji is fine):</span></div>
           <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">${handles}</div>
           <div class="field-row">
@@ -1639,15 +1639,26 @@ function doLookup() {
               <select id="pay-method-${g.go_id}">${PAYMENT_METHODS.map(p=>`<option>${p.method}</option>`).join('')}</select>
             </div>
             <div class="field" style="margin-bottom:0;"><label>Amount paid</label>
-              <input type="number" id="pay-amount-${g.go_id}" step="0.01" value="${g.owed.toFixed(2)}">
+              <input type="number" id="pay-amount-${g.go_id}" step="0.01" value="${s.owed.toFixed(2)}">
             </div>
           </div>
           <div class="field" style="margin-top:8px;margin-bottom:8px;"><label>Transaction ID</label>
             <input type="text" id="pay-txid-${g.go_id}" placeholder="e.g. PayPal transaction ID">
           </div>
-          <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="submitGoPayment('${g.go_id}','${u}')">I paid</button>
-        </div>`).join('');
-    }
+          <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="submitGoPayment('${g.go_id}','${u}')">I paid</button>` : '';
+      const creditNote = (s.owed <= 0 && s.credit > 0) ? `
+          <div style="font-size:12px;color:var(--teal-600);background:var(--teal-50);border-radius:var(--radius);padding:8px 10px;">$${s.credit.toFixed(2)} is held as credit toward claims secured later.</div>` : '';
+      return `
+        <div class="card" style="margin-top:12px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+            <div style="font-weight:500;font-size:15px;">${g.go}</div>
+            <div style="font-size:13px;">${rightBadge}</div>
+          </div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">${summaryLine}</div>
+          ${form}${creditNote}
+        </div>`;
+    }).join('');
+    payEl.innerHTML = cards;
   }
   renderShipPanel(u);
 }
