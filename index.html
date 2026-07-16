@@ -1819,15 +1819,15 @@ function openGODetail(goId) {
   document.getElementById('detail-badges').innerHTML = `<span class="badge ${badgeClass}">${typeLabel}</span>`;
   showAdminPanel('go-detail');
   renderDetailContent();
-  // Render local state instantly, then pull fresh claims from the sheet so claims that
-  // arrived since the last sync (e.g. a buyer filling an open spot in a secured set) show
-  // up without needing a manual ↺. Mirrors the buyer My-orders auto-sync on open.
-  refreshCurrentGO();
+  // Render local state instantly, then quietly pull fresh claims — but only if it's been a
+  // while since the last sync. Silent (no loading overlay) + throttled so opening GOs stays
+  // instant and rapid hopping doesn't spam the backend. Use the ↺ button to force a refresh.
+  if (Date.now() - lastSyncAt > 30000) refreshCurrentGO(true);
 }
 
-async function refreshCurrentGO() {
+async function refreshCurrentGO(silent) {
   if (!currentGO) return;
-  await syncFromBackend();
+  await syncFromBackend(silent);
   if (currentGO && allGOs[currentGO.id]) {
     currentGO = allGOs[currentGO.id];
     renderDetailContent();
@@ -3739,9 +3739,11 @@ function persistWrite(promise, label) {
     });
 }
 
-async function syncFromBackend() {
+let lastSyncAt = 0;  // ms timestamp of the last sync attempt — used to throttle on-open refreshes
+async function syncFromBackend(silent) {
   if (!API_URL) return;
-  showLoadingOverlay(true);
+  lastSyncAt = Date.now();
+  if (!silent) showLoadingOverlay(true);
   try {
     // Fetch GOs and payments in parallel so the two round-trips overlap.
     const [result, payResult, listResult, orderResult, shipResult, storeResult] = await Promise.all([
@@ -3873,9 +3875,9 @@ async function syncFromBackend() {
     renderShippingQueue();
   } catch(e) {
     console.error('Sync error at stack:', e.stack || e);
-    toast('Sync failed: ' + (e.message || String(e)));
+    if (!silent) toast('Sync failed: ' + (e.message || String(e)));
   }
-  showLoadingOverlay(false);
+  if (!silent) showLoadingOverlay(false);
 }
 
 function tryParse(val, fallback) {
