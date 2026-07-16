@@ -2025,7 +2025,7 @@ function renderDetailContent() {
       <div class="section-label" style="margin:0;">Store orders for this GO</div>
       <button class="btn btn-sm btn-primary" onclick="openStoreOrderModal(null, '${go.id}')">+ Add</button>
     </div>
-    ${goStoreOrders.length ? storePobGroupsHtml(goStoreOrders) : '<div style="font-size:12px;color:var(--text3);padding:4px 0;">None recorded.</div>'}
+    ${goStoreOrders.length ? storeTallyHtml(goStoreOrders, '(all POBs)') + storePobGroupsHtml(goStoreOrders) : '<div style="font-size:12px;color:var(--text3);padding:4px 0;">None recorded.</div>'}
   </div>`;
   el.innerHTML = html;
 }
@@ -3201,12 +3201,12 @@ function storePobGroupsHtml(rows) {
       </div>`;
   }).join('');
 }
-function storeTallyHtml(orders) {
+function storeTallyHtml(orders, scopeLabel) {
   const t = storeVersionTally(orders);
   if (!t.length) return '';
   const total = t.reduce((a, [, q]) => a + q, 0);
   return `<div style="background:var(--surface2);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:12px;">
-    <div style="font-weight:500;margin-bottom:4px;">Ordered by version — ${total} total</div>
+    <div style="font-weight:500;margin-bottom:4px;">Ordered by version${scopeLabel ? ' ' + scopeLabel : ''} — ${total} total</div>
     ${t.map(([v, q]) => `<div style="display:flex;justify-content:space-between;gap:12px;"><span>${v}</span><span style="font-family:var(--mono);">×${q}</span></div>`).join('')}
   </div>`;
 }
@@ -3245,7 +3245,7 @@ function renderStoreOrders() {
     return `<div style="display:flex;align-items:center;gap:8px;padding:8px 4px;cursor:pointer;user-select:none;font-size:12px;font-weight:600;color:var(--text2);" onclick="toggleStoreGo('${gid}')">
         <span id="storego-chev-${gid}" style="width:12px;color:var(--text3);">${open ? '▾' : '▸'}</span>${name} <span style="color:var(--text3);font-weight:400;">(${rows.length})</span>
       </div>
-      <div id="storego-body-${gid}" style="display:${open ? 'block' : 'none'};">${storePobGroupsHtml(rows)}</div>`;
+      <div id="storego-body-${gid}" style="display:${open ? 'block' : 'none'};">${storeTallyHtml(rows, '(all POBs)')}${storePobGroupsHtml(rows)}</div>`;
   }).join('');
 }
 
