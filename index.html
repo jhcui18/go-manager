@@ -487,12 +487,10 @@ function countFilled(set, members) { return members.filter(m => set.slots[m]).le
 // then still-filling sets. Stable within each group. Returns [{ set, idx }] where
 // idx is the original index in si.sets (needed for action handlers).
 function setDisplayOrder(sets, members) {
-  const rank = (set) => {
-    if (set.status === 'secured') return 0;
-    if ((members||[]).length && members.every(m => set.slots[m])) return 1;
-    return 2;
-  };
-  return (sets||[]).map((set, idx) => ({ set, idx })).sort((a, b) => rank(a.set) - rank(b.set) || a.idx - b.idx);
+  // Stable order by the set's persistent number — securing or filling a set never
+  // reorders the list (previously secured sets jumped to the top, shuffling positions).
+  return (sets||[]).map((set, idx) => ({ set, idx }))
+    .sort((a, b) => ((a.set.num || a.idx + 1) - (b.set.num || b.idx + 1)) || (a.idx - b.idx));
 }
 // Next free persistent set number. set.num is the stable identity that ties claims
 // to a set (NOT the array position, which drifts after syncs/gaps).
