@@ -1517,21 +1517,6 @@ async function submitClaimWithRetry(claims, attempts = 3) {
 }
 
 // ── LOOKUP ───────────────────────────────────────────────────────────────────
-// Sum a looked-up user's SECURED, UNPAID claim rows into an owed total per GO.
-// Only secured claims are owed — pending/unsecured spots aren't charged yet.
-// rows: [{ go_id, go, price, qty, payment, claim, ... }] (from doLookup).
-function computeOwedByGO(rows) {
-  const byGo = {};
-  rows.forEach(r => {
-    if (r.payment === 'paid') return;
-    if (r.claim !== 'Secured') return;
-    const key = r.go_id || r.go;
-    if (!byGo[key]) byGo[key] = { go_id: r.go_id, go: r.go, owed: 0 };
-    byGo[key].owed += (r.price || 0) * (r.qty || 0);
-  });
-  return Object.values(byGo).filter(g => g.owed > 0);
-}
-
 function doLookup() {
   const val = document.getElementById('lookup-input').value.trim();
   if (!val) return;
@@ -1612,24 +1597,24 @@ function doLookup() {
   // ── Pay panels (one per GO with an unpaid balance) ──
   const payEl = document.getElementById('lookup-pay-panels');
   if (payEl) {
-    const owed = computeOwedByGO(rows);
     const handles = PAYMENT_METHODS.map(p =>
       `<span class="tag">${p.method}${p.note ? ' ' + p.note : ''}: ${p.handle}</span>`
     ).join(' ');
-    if (!owed.length) {
-      // Show "All paid ✓" only if the buyer has secured claims (all paid).
-      // If they only have pending/unsecured claims, nothing is owed yet — show nothing.
-      const hasSecured = rows.some(r => r.claim === 'Secured');
-      payEl.innerHTML = hasSecured
-        ? `<div class="card" style="margin-top:12px;"><div style="font-size:13px;color:var(--teal-600);font-weight:500;">All paid ✓</div></div>`
-        : '';
-    } else {
-      payEl.innerHTML = owed.map(g => `
-        <div class="card" style="margin-top:12px;">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-            <div style="font-weight:500;font-size:15px;">${g.go}</div>
-            <div style="font-size:13px;">Owed: <strong style="font-family:var(--mono);">$${g.owed.toFixed(2)}</strong></div>
-          </div>
+    // Every GO this buyer appears in (dedup by go_id), including the Shop pseudo-GO.
+    const goList = [...new Map(rows.map(r => [r.go_id, { go_id: r.go_id, go: r.go }])).values()];
+    const cards = goList.map(g => {
+      const s = goPaymentSummary(u, g.go_id);
+      // Nothing financial to show for this GO (only unsecured/unpaid claims) → skip.
+      if (s.owed <= 0 && s.credit <= 0 && s.paid <= 0 && s.pendingSubmitted <= 0) return '';
+      const summaryLine = `Paid $${s.paid.toFixed(2)} · Owed $${s.owed.toFixed(2)}`
+        + (s.credit > 0 ? ` · Credit $${s.credit.toFixed(2)}` : '')
+        + (s.pendingSubmitted > 0 ? ` · $${s.pendingSubmitted.toFixed(2)} awaiting confirmation` : '');
+      const rightBadge = s.owed > 0
+        ? `Owed: <strong style="font-family:var(--mono);">$${s.owed.toFixed(2)}</strong>`
+        : s.credit > 0
+          ? `<span style="color:var(--teal-600);">Credit: <strong style="font-family:var(--mono);">$${s.credit.toFixed(2)}</strong></span>`
+          : `<span style="color:var(--teal-600);font-weight:500;">All paid ✓</span>`;
+      const form = s.owed > 0 ? `
           <div style="font-size:12px;color:var(--text2);margin-bottom:6px;">Send payment to one of <span style="color:var(--text3);">(no written note — an emoji is fine):</span></div>
           <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">${handles}</div>
           <div class="field-row">
@@ -1637,15 +1622,26 @@ function doLookup() {
               <select id="pay-method-${g.go_id}">${PAYMENT_METHODS.map(p=>`<option>${p.method}</option>`).join('')}</select>
             </div>
             <div class="field" style="margin-bottom:0;"><label>Amount paid</label>
-              <input type="number" id="pay-amount-${g.go_id}" step="0.01" value="${g.owed.toFixed(2)}">
+              <input type="number" id="pay-amount-${g.go_id}" step="0.01" value="${s.owed.toFixed(2)}">
             </div>
           </div>
           <div class="field" style="margin-top:8px;margin-bottom:8px;"><label>Transaction ID</label>
             <input type="text" id="pay-txid-${g.go_id}" placeholder="e.g. PayPal transaction ID">
           </div>
-          <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="submitGoPayment('${g.go_id}','${u}')">I paid</button>
-        </div>`).join('');
-    }
+          <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="submitGoPayment('${g.go_id}','${u}')">I paid</button>` : '';
+      const creditNote = (s.owed <= 0 && s.credit > 0) ? `
+          <div style="font-size:12px;color:var(--teal-600);background:var(--teal-50);border-radius:var(--radius);padding:8px 10px;">$${s.credit.toFixed(2)} is held as credit toward claims secured later.</div>` : '';
+      return `
+        <div class="card" style="margin-top:12px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+            <div style="font-weight:500;font-size:15px;">${g.go}</div>
+            <div style="font-size:13px;">${rightBadge}</div>
+          </div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">${summaryLine}</div>
+          ${form}${creditNote}
+        </div>`;
+    }).join('');
+    payEl.innerHTML = cards;
   }
   renderShipPanel(u);
 }
@@ -3061,7 +3057,12 @@ function renderPaymentProofs() {
       <td style="font-size:12px;">${p.go_name}</td>
       <td style="font-family:var(--mono);">$${parseFloat(p.amount||0).toFixed(2)}</td>
       <td>${p.method}</td>
-      <td style="font-size:11px;color:var(--text3);font-family:var(--mono);">${p.transaction_id||'—'}</td>
+      <td style="font-size:11px;color:var(--text3);font-family:var(--mono);">${p.transaction_id||'—'}${(() => {
+        if (!p.transaction_id) return '';
+        const others = paymentProofs.filter(o => o.payment_id !== p.payment_id && o.transaction_id && o.transaction_id === p.transaction_id);
+        const names = [...new Set(others.map(o => o.go_name).filter(Boolean))];
+        return names.length ? `<span style="color:var(--amber-800);"> · same txid on ${names.join(', ')}</span>` : '';
+      })()}</td>
       <td style="font-size:11px;color:var(--text3);">${formatRelTime(p.created_at)}</td>
       <td>
         <div style="display:flex;gap:4px;">
@@ -3443,10 +3444,25 @@ function paymentOwedUnits(username, goId) {
       });
     }
     if (si.claims) si.claims.forEach(c => {
-      if (sameUser(c.user, username) && c.claim_status !== 'dropped') units.push({ ids: [c.claim_id].filter(Boolean), value: (si.price||0) * (c.qty||1), kind: 'claim', refs: [c] });
+      if (!sameUser(c.user, username) || c.claim_status === 'dropped') return;
+      if (isBatch(si) && c.claim_status !== 'secured') return;  // batch: only secured cards are owed/payable
+      units.push({ ids: [c.claim_id].filter(Boolean), value: (si.price||0) * (c.qty||1), kind: 'claim', refs: [c] });
     });
   });
   return units;
+}
+
+// Per-buyer, per-GO money summary — the single source for both the joiner My-orders
+// line and the admin confirm modal, so the two never disagree. securedValue reuses
+// paymentOwedUnits (same claims the modal allocates against). paid = CONFIRMED only.
+function goPaymentSummary(username, goId) {
+  const securedValue = paymentOwedUnits(username, goId).reduce((a, u) => a + u.value, 0);
+  const mine = paymentProofs.filter(pp => sameUser(pp.username, username) && pp.go_id === goId);
+  const paid = mine.filter(pp => pp.status === 'confirmed').reduce((a, pp) => a + (parseFloat(pp.amount) || 0), 0);
+  const pendingSubmitted = mine.filter(pp => pp.status === 'pending').reduce((a, pp) => a + (parseFloat(pp.amount) || 0), 0);
+  const owed = Math.max(0, securedValue - paid);
+  const credit = Math.max(0, paid - securedValue);
+  return { paid, securedValue, owed, credit, pendingSubmitted };
 }
 
 function setUnitPaid(u, paid) {
@@ -3473,7 +3489,8 @@ function confirmPayment(id) {
     else { cutoff = true; unpaid.push(u); }
   });
   pendingConfirm = { paymentId: id, goId: p.go_id, username: p.username, paid, unpaid };
-  const matches = Math.abs(acc - securedTotal) < eps && Math.abs(totalPaid - securedTotal) < eps;
+  const credit = Math.max(0, totalPaid - securedTotal);
+  const under = Math.max(0, securedTotal - totalPaid);
   showModal(`
     <div style="font-size:16px;font-weight:500;margin-bottom:4px;">Confirm payment — ${p.username}</div>
     <div style="font-size:13px;color:var(--text2);margin-bottom:14px;">${p.go_name || (p.go_id==='shop'?'Shop':'')}</div>
@@ -3482,8 +3499,10 @@ function confirmPayment(id) {
       <div style="display:flex;justify-content:space-between;"><span style="color:var(--text2);">This payment</span><strong style="font-family:var(--mono);">$${(parseFloat(p.amount)||0).toFixed(2)}</strong></div>
       <div style="display:flex;justify-content:space-between;"><span style="color:var(--text2);">Total paid for this GO</span><strong style="font-family:var(--mono);">$${totalPaid.toFixed(2)}</strong></div>
       <div style="display:flex;justify-content:space-between;border-top:0.5px solid var(--border);padding-top:6px;"><span style="color:var(--text2);">Will mark paid</span><strong style="font-family:var(--mono);color:var(--teal-600);">${paid.length} of ${units.length} items · $${acc.toFixed(2)}</strong></div>
+      ${credit > 0 ? `<div style="display:flex;justify-content:space-between;"><span style="color:var(--text2);">Credit (held for later)</span><strong style="font-family:var(--mono);color:var(--teal-600);">$${credit.toFixed(2)}</strong></div>` : ''}
     </div>
-    ${matches ? '' : `<div style="font-size:12px;color:var(--amber-800);background:var(--amber-50);border-radius:var(--radius);padding:8px 10px;margin-bottom:12px;">Amount doesn't fully cover the secured total — only the ${paid.length} item(s) that $${totalPaid.toFixed(2)} adds up to will be marked paid.</div>`}
+    ${under > eps ? `<div style="font-size:12px;color:var(--amber-800);background:var(--amber-50);border-radius:var(--radius);padding:8px 10px;margin-bottom:12px;">Amount doesn't fully cover the secured total — only the ${paid.length} item(s) that $${totalPaid.toFixed(2)} adds up to will be marked paid.</div>`
+      : credit > eps ? `<div style="font-size:12px;color:var(--teal-600);background:var(--teal-50);border-radius:var(--radius);padding:8px 10px;margin-bottom:12px;">$${credit.toFixed(2)} will be held as credit for claims secured later.</div>` : ''}
     <div style="display:flex;gap:8px;">
       <button class="btn btn-primary" style="flex:1;justify-content:center;" onclick="applyConfirmPayment()">Confirm</button>
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
