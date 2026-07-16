@@ -3070,7 +3070,12 @@ function renderPaymentProofs() {
       <td style="font-size:12px;">${p.go_name}</td>
       <td style="font-family:var(--mono);">$${parseFloat(p.amount||0).toFixed(2)}</td>
       <td>${p.method}</td>
-      <td style="font-size:11px;color:var(--text3);font-family:var(--mono);">${p.transaction_id||'—'}</td>
+      <td style="font-size:11px;color:var(--text3);font-family:var(--mono);">${p.transaction_id||'—'}${(() => {
+        if (!p.transaction_id) return '';
+        const others = paymentProofs.filter(o => o.payment_id !== p.payment_id && o.transaction_id && o.transaction_id === p.transaction_id);
+        const names = [...new Set(others.map(o => o.go_name).filter(Boolean))];
+        return names.length ? `<span style="color:var(--amber-800);"> · same txid on ${names.join(', ')}</span>` : '';
+      })()}</td>
       <td style="font-size:11px;color:var(--text3);">${formatRelTime(p.created_at)}</td>
       <td>
         <div style="display:flex;gap:4px;">
