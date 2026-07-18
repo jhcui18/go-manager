@@ -1846,11 +1846,65 @@ async function refreshCurrentGO(silent) {
   }
 }
 
+let gcOpen = {}; // go_id -> bool; Joiners section open state (default collapsed)
+function toggleGcSection(goId) {
+  gcOpen[goId] = !gcOpen[goId];
+  const body = document.getElementById('gc-body-' + goId);
+  const chev = document.getElementById('gc-chev-' + goId);
+  if (body) body.style.display = gcOpen[goId] ? 'block' : 'none';
+  if (chev) chev.textContent = gcOpen[goId] ? '▾' : '▸';
+}
+function toggleGcAdded(goId, username) {
+  const k = gcNorm(username);
+  gcAdded[goId] = gcAdded[goId] || {};
+  const added = !gcAdded[goId][k];
+  if (added) gcAdded[goId][k] = true; else delete gcAdded[goId][k];
+  if (API_URL) persistWrite(apiPost('setGcAdded', { go_id: goId, username, added }), 'Group-chat mark');
+  renderDetailContent();
+}
+function copyHandle(username) {
+  const handle = username.charAt(0) === '@' ? username : '@' + username;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(handle).then(() => toast('Copied ' + handle)).catch(() => toast(handle));
+  } else {
+    toast(handle);
+  }
+}
+// Collapsible Joiners section: unique @handles, not-yet-added first, each with an "added to GC" toggle.
+function gcJoinersSectionHtml(go) {
+  const joiners = goJoiners(go);
+  const total = joiners.length;
+  const added = joiners.filter(u => isGcAdded(go.id, u)).length;
+  const open = !!gcOpen[go.id];
+  const sorted = joiners.slice().sort((a, b) => {
+    const aa = isGcAdded(go.id, a), ba = isGcAdded(go.id, b);
+    if (aa !== ba) return aa ? 1 : -1;
+    return a.toLowerCase().localeCompare(b.toLowerCase());
+  });
+  const rows = sorted.map(u => {
+    const on = isGcAdded(go.id, u);
+    const handle = u.charAt(0) === '@' ? u : '@' + u;
+    const uEsc = u.replace(/'/g, "\\'");
+    return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 0;">
+      <span style="font-size:13px;cursor:pointer;" title="Tap to copy" onclick="copyHandle('${uEsc}')">${handle}</span>
+      <button class="btn btn-sm ${on ? '' : 'btn-ghost'}" style="font-size:11px;${on ? 'color:var(--teal-600);border-color:var(--teal-100);' : ''}" onclick="toggleGcAdded('${go.id}','${uEsc}')">${on ? '✓ In GC' : 'Add to GC'}</button>
+    </div>`;
+  }).join('');
+  return `<div class="admin-section">
+    <div class="admin-section-title" style="cursor:pointer;user-select:none;" onclick="toggleGcSection('${go.id}')">
+      <span id="gc-chev-${go.id}" style="width:12px;color:var(--text3);">${open ? '▾' : '▸'}</span>Joiners <span style="font-size:12px;color:var(--text3);font-weight:400;">— ${added} added / ${total} total</span>
+    </div>
+    <div id="gc-body-${go.id}" style="display:${open ? 'block' : 'none'};">
+      ${total ? rows : '<div style="font-size:12px;color:var(--text3);padding:4px 0;">No joiners yet.</div>'}
+    </div>
+  </div>`;
+}
 function renderDetailContent() {
   const go = currentGO;
   const el = document.getElementById('detail-content');
   if (!el) return;
   let html = '';
+  html += gcJoinersSectionHtml(go);
   if ((go.subItems || []).length > 1) {
     html += `<div style="display:flex;gap:8px;margin-bottom:14px;">
       <button class="btn btn-ghost btn-sm" onclick="expandAllAdmin(true)">Expand all</button>
