@@ -492,6 +492,18 @@ function nextSetNum(sets) { return (sets||[]).reduce((m, s) => Math.max(m, s.num
 // Instagram handles are case-insensitive, so match usernames without regard to case or
 // surrounding whitespace (a buyer who typed "@Sunshine" still matches "@sunshine").
 function sameUser(a, b) { return String(a == null ? '' : a).trim().toLowerCase() === String(b == null ? '' : b).trim().toLowerCase(); }
+function gcNorm(u) { return String(u == null ? '' : u).trim().toLowerCase(); }
+function isGcAdded(goId, username) { return !!(gcAdded[goId] && gcAdded[goId][gcNorm(username)]); }
+// Unique joiner handles across ALL of a GO's claims (set slots + claims-based), case-insensitive dedup.
+function goJoiners(go) {
+  const seen = {}; const out = [];
+  const add = (u) => { const k = gcNorm(u); if (!k || seen[k]) return; seen[k] = true; out.push(String(u).trim()); };
+  (go.subItems || []).forEach(si => {
+    if (si.sets) si.sets.forEach(set => Object.values(set.slots || {}).forEach(slot => { if (slot) add(slot.user); }));
+    if (si.claims) si.claims.forEach(c => add(c.user));
+  });
+  return out;
+}
 
 // ── Collapsible sub-item sections (admin Manage + buyer claim page) ──────────────
 let adminOpenSI = {};   // si.id -> bool (admin detail); default collapsed
@@ -3037,6 +3049,7 @@ let paymentProofs = [];
 let listings = [];    // shop listings from backend
 let shopOrders = [];  // shop orders from backend
 let storeOrders = []; // admin's own orders placed with stores/proxies
+let gcAdded = {}; // go_id -> { normalizedUsername: true } — joiners marked added to the IG group chat
 const STORE_STATUS = ['Ordered', 'Warehouse', 'Shipped', 'Received'];
 
 function addPaymentProof(proof) {
@@ -3746,8 +3759,8 @@ async function syncFromBackend(silent) {
   if (!silent) showLoadingOverlay(true);
   try {
     // Fetch GOs and payments in parallel so the two round-trips overlap.
-    const [result, payResult, listResult, orderResult, shipResult, storeResult] = await Promise.all([
-      apiGet('getAllGOs'), apiGet('getPayments'), apiGet('getListings'), apiGet('getShopOrders'), apiGet('getShipping'), apiGet('getStoreOrders')
+    const [result, payResult, listResult, orderResult, shipResult, storeResult, gcResult] = await Promise.all([
+      apiGet('getAllGOs'), apiGet('getPayments'), apiGet('getListings'), apiGet('getShopOrders'), apiGet('getShipping'), apiGet('getStoreOrders'), apiGet('getGcAdded')
     ]);
     if (result && result.gos && result.gos.length) {
       allGOs = {};
@@ -3863,6 +3876,13 @@ async function syncFromBackend(silent) {
     }
     if (storeResult && Array.isArray(storeResult.store_orders)) {
       storeOrders = storeResult.store_orders.filter(o => o && o.order_id);
+    }
+    if (gcResult && Array.isArray(gcResult.gc_added)) {
+      gcAdded = {};
+      gcResult.gc_added.forEach(r => {
+        if (!r || !r.go_id || !r.username) return;
+        (gcAdded[r.go_id] = gcAdded[r.go_id] || {})[gcNorm(r.username)] = true;
+      });
     }
     if (shipResult && Array.isArray(shipResult.requests)) {
       shippingRequests = shipResult.requests
