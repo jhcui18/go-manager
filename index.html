@@ -3799,7 +3799,7 @@ async function apiPost(action, data = {}) {
 // returns ok:true — that's a set_num/data mismatch, handled separately, not a write failure.)
 function persistWrite(promise, label) {
   Promise.resolve(promise)
-    .then(res => { if (!res || res.ok === false) throw new Error('not ok'); })
+    .then(res => { if (!res || res.ok === false || res.error) throw new Error('not ok'); })
     .catch(() => {
       toast((label || 'Change') + " didn't save — syncing from the sheet.");
       syncFromBackend();
