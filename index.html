@@ -500,12 +500,23 @@ function sameUser(a, b) { return String(a == null ? '' : a).trim().toLowerCase()
 function gcNorm(u) { return String(u == null ? '' : u).trim().toLowerCase(); }
 function isGcAdded(goId, username) { return !!(gcAdded[goId] && gcAdded[goId][gcNorm(username)]); }
 // Unique joiner handles across ALL of a GO's claims (set slots + claims-based), case-insensitive dedup.
+// Unique joiners who have at least one SECURED claim in the GO (only these get added to the
+// group chat). "Secured" matches the My-orders classification: a set-based slot in a secured
+// set or with claim_status 'secured'; a claims-based claim that isn't dropped and is 'secured'
+// or has no claim_status (FCFS items are firm). Dropped/pending-only joiners are excluded.
 function goJoiners(go) {
   const seen = {}; const out = [];
   const add = (u) => { const k = gcNorm(u); if (!k || seen[k]) return; seen[k] = true; out.push(String(u).trim()); };
   (go.subItems || []).forEach(si => {
-    if (si.sets) si.sets.forEach(set => Object.values(set.slots || {}).forEach(slot => { if (slot) add(slot.user); }));
-    if (si.claims) si.claims.forEach(c => add(c.user));
+    if (si.sets) si.sets.forEach(set => {
+      const setSecured = set.status === 'secured';
+      Object.values(set.slots || {}).forEach(slot => {
+        if (slot && slot.claim_status !== 'dropped' && (setSecured || slot.claim_status === 'secured')) add(slot.user);
+      });
+    });
+    if (si.claims) si.claims.forEach(c => {
+      if (c.claim_status !== 'dropped' && (!c.claim_status || c.claim_status === 'secured')) add(c.user);
+    });
   });
   return out;
 }
@@ -1897,10 +1908,10 @@ function gcJoinersSectionHtml(go) {
   }).join('');
   return `<div class="admin-section">
     <div class="admin-section-title" style="cursor:pointer;user-select:none;" onclick="toggleGcSection('${go.id}')">
-      <span id="gc-chev-${go.id}" style="width:12px;color:var(--text3);">${open ? '▾' : '▸'}</span>Joiners <span style="font-size:12px;color:var(--text3);font-weight:400;">— ${added} added / ${total} total</span>
+      <span id="gc-chev-${go.id}" style="width:12px;color:var(--text3);">${open ? '▾' : '▸'}</span>Joiners <span style="font-size:12px;color:var(--text3);font-weight:400;">— ${added} added / ${total} secured</span>
     </div>
     <div id="gc-body-${go.id}" style="display:${open ? 'block' : 'none'};">
-      ${total ? rows : '<div style="font-size:12px;color:var(--text3);padding:4px 0;">No joiners yet.</div>'}
+      ${total ? rows : '<div style="font-size:12px;color:var(--text3);padding:4px 0;">No secured joiners yet.</div>'}
     </div>
   </div>`;
 }
