@@ -381,6 +381,7 @@
           </select>
         </div>
         <div class="field"><label>Deadline</label><input type="date" id="new-go-deadline"></div>
+        <div class="field"><label>Payment deadline</label><input type="date" id="new-go-payment-deadline"></div>
       </div>
       <div class="field"><label>Min slots to secure a set</label><input type="number" id="new-go-min-secure" value="7" min="1"><div class="field-hint" id="min-secure-hint">Applies to photocard sets and album member versions.</div></div>
 
@@ -425,6 +426,7 @@
       <div class="field"><label>GO name</label><input type="text" id="edit-go-name"></div>
       <div class="field-row">
         <div class="field"><label>Deadline</label><input type="date" id="edit-go-deadline"></div>
+        <div class="field"><label>Payment deadline</label><input type="date" id="edit-go-payment-deadline"></div>
         <div class="field"><label>Status</label>
           <select id="edit-go-status">
             <option value="open">Open — accepting claims</option>
@@ -1670,6 +1672,8 @@ function renderMyOrderGoBlock(g, goRows, u) {
         <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="submitGoPayment('${g.go_id}','${u}')">I paid</button>` : '';
   const creditNote = (s.owed <= 0 && s.credit > 0) ? `
         <div style="font-size:12px;color:var(--teal-600);background:var(--teal-50);border-radius:var(--radius);padding:8px 10px;">$${s.credit.toFixed(2)} is held as credit toward claims secured later.</div>` : '';
+  const goObj = allGOs[g.go_id];
+  const deadlineNote = (s.owed > 0 && goObj && goObj.paymentDeadline) ? `<div style="font-size:12px;color:var(--red-400);font-weight:500;margin:0 0 10px;">Pay by ${fmtDate(goObj.paymentDeadline)}</div>` : '';
   return `<div class="card" style="margin-bottom:12px;">
     <div style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;" onclick="toggleMyOrderGo('${g.go_id}')">
       <span id="myo-chev-${g.go_id}" style="width:12px;color:var(--text3);">${open ? '▾' : '▸'}</span>
@@ -1682,7 +1686,7 @@ function renderMyOrderGoBlock(g, goRows, u) {
         <tbody>${claimRows}</tbody>
       </table></div>
       <div style="font-size:12px;color:var(--text3);margin:10px 0;">${summaryLine}</div>
-      ${form}${creditNote}
+      ${deadlineNote}${form}${creditNote}
     </div>
   </div>`;
 }
@@ -2515,6 +2519,7 @@ function createGO() {
   const name = document.getElementById('new-go-name').value.trim();
   const type = document.getElementById('new-go-type').value;
   const deadline = document.getElementById('new-go-deadline').value;
+  const paymentDeadline = document.getElementById('new-go-payment-deadline').value;
   const minSecure = parseInt(document.getElementById('new-go-min-secure').value) || 7;
   if (!name) { toast('Enter a GO name.'); return; }
   const id = name.toLowerCase().replace(/[^a-z0-9]/g,'-').slice(0,20) + '-' + Date.now();
@@ -2573,8 +2578,8 @@ function createGO() {
     }
   });
   if (!subItems.length) { toast('Add at least one item.'); return; }
-  allGOs[id] = { id, name, type, deadline, status: 'open', subItems };
-  if (API_URL) apiPost('createGO', { ...allGOs[id], min_secure: subItems[0]?.minSecure || 7 });
+  allGOs[id] = { id, name, type, deadline, paymentDeadline, status: 'open', subItems };
+  if (API_URL) apiPost('createGO', { ...allGOs[id], payment_deadline: paymentDeadline, min_secure: subItems[0]?.minSecure || 7 });
   renderAdminGOList();
   renderOrdersList();
   toast('GO created: ' + name);
@@ -2680,6 +2685,7 @@ function openEditGO() {
   document.getElementById('edit-go-breadcrumb').textContent = go.name;
   document.getElementById('edit-go-name').value = go.name;
   document.getElementById('edit-go-deadline').value = fmtDate(go.deadline);
+  document.getElementById('edit-go-payment-deadline').value = fmtDate(go.paymentDeadline);
   document.getElementById('edit-go-status').value = go.status || 'open';
   const minSecureRow = document.getElementById('edit-min-secure-row');
   minSecureRow.style.display = go.type === 'merch' ? 'none' : 'block';
@@ -2873,6 +2879,7 @@ function saveGOEdits() {
   const go = currentGO;
   go.name = document.getElementById('edit-go-name').value.trim() || go.name;
   go.deadline = document.getElementById('edit-go-deadline').value;
+  go.paymentDeadline = document.getElementById('edit-go-payment-deadline').value;
   const prevStatus = go.status;
   go.status = document.getElementById('edit-go-status').value;
   const minSecure = parseInt(document.getElementById('edit-go-min-secure').value);
@@ -2977,7 +2984,7 @@ function saveGOEdits() {
   });
   // Remove sub-items with no name
   go.subItems = go.subItems.filter(si => si.name);
-  if (API_URL) apiPost('updateGO', { go_id: go.id, name: go.name, deadline: go.deadline, status: go.status, subItems: go.subItems });
+  if (API_URL) apiPost('updateGO', { go_id: go.id, name: go.name, deadline: go.deadline, payment_deadline: go.paymentDeadline, status: go.status, subItems: go.subItems });
   renderAdminGOList();
   renderOrdersList();
   openGODetail(go.id);
@@ -3866,7 +3873,7 @@ async function syncFromBackend(silent) {
         if (!go.go_id) return; // skip blank rows
         const rebuilt = {
           id: go.go_id, name: go.name || '', type: go.type || 'photocard',
-          deadline: fmtDate(go.deadline), status: go.status || 'open',
+          deadline: fmtDate(go.deadline), paymentDeadline: fmtDate(go.payment_deadline), status: go.status || 'open',
           subItems: []
         };
         // Remap orphaned claims to the correct current sub-item (handles re-created sub-item IDs)
