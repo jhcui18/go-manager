@@ -2099,8 +2099,9 @@ function renderDetailContent() {
       }
       html += `</tbody></table></div></div>`;
     }
-    html += siStoreOrdersHtml(go, si);
-    html += `</div></div>`;
+    html += `</div>`;                    // close the collapsible claims body
+    html += siStoreOrdersHtml(go, si);   // store orders OUTSIDE the toggle — always visible
+    html += `</div>`;                    // close the POB admin-section
   });
   // Per-GO store orders — totals across all POBs (per-POB detail is inline under each POB above).
   const goStoreOrders = storeOrders.filter(o => o.go_id === go.id);
