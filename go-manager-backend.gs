@@ -17,7 +17,7 @@ const SHEET_GC_ADDED = 'gc_added'; // per-GO: joiners marked as added to the IG 
 // ── Bootstrap: create all required sheets if missing ─────────────────────────
 function bootstrapSheets() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  ensureSheet(ss, SHEET_GOS,      ['go_id','name','type','deadline','status','min_secure','created_at']);
+  ensureSheet(ss, SHEET_GOS,      ['go_id','name','type','deadline','status','min_secure','created_at','payment_deadline']);
   ensureSheet(ss, SHEET_JOINERS,  ['claim_id','go_id','go_name','sub_item_id','sub_item_name','sub_item_kind','username','email','member_or_version','set_num','qty','assigned_vers','claim_status','payment_status','fulfillment','created_at','updated_at']);
   ensureSheet(ss, SHEET_SHIPPING, ['request_id','username','go_ids','full_name','address1','address2','city','state','postal','country','notes','email','card_count','ems_fee','dom_fee','total_fee','shipped','created_at','items']);
   ensureSheet(ss, SHEET_PAYMENTS, ['payment_id','username','go_id','go_name','amount','method','transaction_id','proof_url','email','status','created_at']);
@@ -140,7 +140,7 @@ function createGO(data) {
   bootstrapSheets();
   const goSheet = ss.getSheetByName(SHEET_GOS);
   const goId = data.id || ('go_' + Date.now());
-  goSheet.appendRow([goId, data.name, data.type, data.deadline, data.status || 'open', data.min_secure || 7, new Date().toISOString()]);
+  goSheet.appendRow([goId, data.name, data.type, data.deadline, data.status || 'open', data.min_secure || 7, new Date().toISOString(), data.payment_deadline || '']);
   // Create per-GO sub-items sheet
   const siSheet = ensureSheet(ss, 'go_' + goId, ['sub_item_id','name','kind','members','versions','price','ot_price','min_secure']);
   (data.subItems || []).forEach(si => {
@@ -160,6 +160,8 @@ function updateGO(data) {
       if (data.name)     goSheet.getRange(i+1, headers.indexOf('name')+1).setValue(data.name);
       if (data.deadline) goSheet.getRange(i+1, headers.indexOf('deadline')+1).setValue(data.deadline);
       if (data.status)   goSheet.getRange(i+1, headers.indexOf('status')+1).setValue(data.status);
+      const pdCol = headers.indexOf('payment_deadline');
+      if (pdCol !== -1 && data.payment_deadline !== undefined) goSheet.getRange(i+1, pdCol+1).setValue(data.payment_deadline);
       break;
     }
   }
