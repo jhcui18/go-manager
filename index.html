@@ -481,6 +481,14 @@ let currentClaimGoId = null;
 
 // ── UTILITIES ────────────────────────────────────────────────────────────────
 function countFilled(set, members) { return members.filter(m => set.slots[m]).length; }
+// How many of a POB's sets/batches are READY to secure but not yet secured (hit the threshold).
+function securableCount(si) {
+  if (isBatch(si)) return goBatches(si).filter(b => b.full && !b.ordered).length;
+  if (si.sets) return si.sets.filter(s =>
+    s.status !== 'secured' && Object.values(s.slots).some(v => v) && countFilled(s, si.members || []) >= si.minSecure
+  ).length;
+  return 0;
+}
 
 // Display order for set boards: secured first, then full/complete (incl. OT) sets,
 // then still-filling sets. Stable within each group. Returns [{ set, idx }] where
@@ -1948,7 +1956,9 @@ function renderDetailContent() {
     } else {
       html += ` <span style="font-size:12px;color:var(--text3);">$${(si.price||0).toFixed(2)}</span>`;
     }
-    html += ` <span style="margin-left:auto;font-size:12px;color:var(--text3);font-weight:400;">${setsSummary(si)}</span></div>`;
+    const nSecurable = securableCount(si);
+    if (nSecurable) html += ` <span class="badge" style="background:var(--accent-light);color:var(--accent-dark);font-size:10px;margin-left:auto;">${nSecurable} securable</span>`;
+    html += ` <span style="font-size:12px;color:var(--text3);font-weight:400;${nSecurable ? '' : 'margin-left:auto;'}">${setsSummary(si)}</span></div>`;
     html += `<div id="adm-body-${si.id}" style="display:${siOpen ? 'block' : 'none'};">`;
 
     if (isBatch(si)) {
