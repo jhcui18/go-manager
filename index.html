@@ -3295,14 +3295,30 @@ function storeVersionTally(orders) {
   return Object.entries(map).sort((a, b) => b[1] - a[1]);
 }
 // One POB's store orders, shown inline under that POB in the GO detail (fast confirm, no scrolling).
+let siStoreOpen = {}; // si.id -> bool; per-POB store-orders section (default collapsed)
+function toggleSiStore(siId) {
+  siStoreOpen[siId] = !siStoreOpen[siId];
+  const body = document.getElementById('sistore-body-' + siId);
+  const chev = document.getElementById('sistore-chev-' + siId);
+  if (body) body.style.display = siStoreOpen[siId] ? 'block' : 'none';
+  if (chev) chev.textContent = siStoreOpen[siId] ? '▾' : '▸';
+}
 function siStoreOrdersHtml(go, si) {
   const orders = storeOrders.filter(o => o.go_id === go.id && o.sub_item_id === si.id);
+  const totalOrdered = orders.reduce((a, o) => a + (parseInt(o.qty) || 0), 0);
+  const open = !!siStoreOpen[si.id];
   return `<div style="margin-top:10px;padding-top:8px;border-top:0.5px solid var(--border);">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-      <div style="font-size:12px;font-weight:600;color:var(--text2);">Store orders</div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <div style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;flex:1;" onclick="toggleSiStore('${si.id}')">
+        <span id="sistore-chev-${si.id}" style="width:12px;color:var(--text3);">${open ? '▾' : '▸'}</span>
+        <span style="font-size:12px;font-weight:600;color:var(--text2);">Store orders</span>
+        <span style="font-size:11px;color:var(--text3);font-weight:400;">— ${totalOrdered} ordered</span>
+      </div>
       <button class="btn btn-sm btn-ghost" style="font-size:11px;padding:3px 8px;" onclick="openStoreOrderModal(null, '${go.id}', '${si.id}')">+ Add</button>
     </div>
-    ${orders.length ? storeTallyHtml(orders) + orders.map(o => storeOrderRow(o, false)).join('') : '<div style="font-size:11px;color:var(--text3);padding:2px 0;">None yet.</div>'}
+    <div id="sistore-body-${si.id}" style="display:${open ? 'block' : 'none'};margin-top:6px;">
+      ${orders.length ? orders.map(o => storeOrderRow(o, false)).join('') : '<div style="font-size:11px;color:var(--text3);padding:2px 0;">None yet.</div>'}
+    </div>
   </div>`;
 }
 // Group a GO's store orders by POB (sub-item), each with its own version tally. POBs sorted by name.
