@@ -1843,11 +1843,13 @@ function renderAdminGOList() {
       const total = go.subItems.reduce((a,si)=>a+si.claims.reduce((b,c)=>b+c.qty,0),0);
       meta = total + ' items claimed';
     }
+    const collected = (paymentProofs || []).filter(p => p.go_id === go.id && p.status === 'confirmed').reduce((a, p) => a + (parseFloat(p.amount) || 0), 0);
+    const collectedHtml = collected > 0 ? ` · <span style="color:var(--teal-600);font-weight:500;">$${collected.toFixed(2)} collected</span>` : '';
     return `<div class="card-sm" style="margin-bottom:8px;">
       <div style="display:flex;align-items:center;justify-content:space-between;">
         <div>
           <div style="font-weight:500;font-size:13px;">${go.name}</div>
-          <div style="font-size:11px;color:var(--text3);margin-top:2px;"><span class="badge ${badgeClass}" style="font-size:10px;padding:2px 7px;margin-right:6px;">${typeLabel}</span>${go.status==='closed'?'<span class="badge badge-waitlist" style="font-size:10px;padding:2px 7px;margin-right:6px;">Closed</span>':''}${meta}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px;"><span class="badge ${badgeClass}" style="font-size:10px;padding:2px 7px;margin-right:6px;">${typeLabel}</span>${go.status==='closed'?'<span class="badge badge-waitlist" style="font-size:10px;padding:2px 7px;margin-right:6px;">Closed</span>':''}${meta}${collectedHtml}</div>
         </div>
         <button class="btn btn-sm" onclick="openGODetail('${go.id}')">Manage</button>
       </div>
