@@ -2715,6 +2715,45 @@ function openEditGO() {
   showAdminPanel('edit-go');
 }
 
+// Drag-to-reorder sub-items in Edit GO (pointer events; order applied on Save).
+let dragWrapId = null;
+function onSubItemDragStart(e, siId) {
+  const wrap = document.getElementById('edit-wrap-' + siId);
+  if (!wrap) return;
+  dragWrapId = siId;
+  wrap.style.opacity = '0.5';
+  document.addEventListener('pointermove', onSubItemDragMove);
+  document.addEventListener('pointerup', onSubItemDragEnd);
+  e.preventDefault();
+}
+function onSubItemDragMove(e) {
+  if (!dragWrapId) return;
+  const container = document.getElementById('edit-sub-items-list');
+  const dragEl = document.getElementById('edit-wrap-' + dragWrapId);
+  if (!container || !dragEl) return;
+  const siblings = [...container.children].filter(w => w !== dragEl);
+  let target = null;
+  for (const w of siblings) {
+    const r = w.getBoundingClientRect();
+    if (e.clientY < r.top + r.height / 2) { target = w; break; }
+  }
+  if (target) container.insertBefore(dragEl, target);
+  else container.appendChild(dragEl);
+}
+function onSubItemDragEnd() {
+  document.removeEventListener('pointermove', onSubItemDragMove);
+  document.removeEventListener('pointerup', onSubItemDragEnd);
+  const dragEl = dragWrapId && document.getElementById('edit-wrap-' + dragWrapId);
+  if (dragEl) dragEl.style.opacity = '';
+  const container = document.getElementById('edit-sub-items-list');
+  if (container && currentGO && currentGO.subItems) {
+    const order = [...container.children]
+      .filter(w => w.id.indexOf('edit-wrap-') === 0)
+      .map(w => w.id.slice('edit-wrap-'.length));
+    currentGO.subItems.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+  }
+  dragWrapId = null;
+}
 function renderEditSubItems() {
   const go = currentGO;
   const container = document.getElementById('edit-sub-items-list');
@@ -2777,6 +2816,7 @@ function renderEditSubItems() {
     const claimCount = getSubItemClaimCount(si);
     inner += `</div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;padding-top:20px;">
+        <span onpointerdown="onSubItemDragStart(event,'${si.id}')" title="Drag to reorder" style="cursor:grab;touch-action:none;font-size:18px;line-height:1;color:var(--text3);user-select:none;">⠿</span>
         ${claimCount > 0 ? `<span style="font-size:11px;color:var(--text3);">${claimCount} claim${claimCount!==1?'s':''}</span>` : ''}
         <button class="btn btn-sm btn-ghost" style="color:var(--red-400);" onclick="removeEditSubItem('${si.id}',${hasClaims})">Remove</button>
       </div>
