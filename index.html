@@ -2930,7 +2930,14 @@ function removeEditSubItem(siId, hasClaims) {
   toast('Sub-item removed' + (hasClaims ? ' and claims cancelled.' : '.'));
 }
 
+let goSaveInFlight = false;
 async function saveGOEdits() {
+  // Re-entrancy guard: block a second save (e.g. double-click) while one is still writing.
+  // Two overlapping updateGO calls can interleave the backend's delete-then-append and
+  // duplicate the sub-items. finally{} guarantees the flag clears even on an unexpected throw.
+  if (goSaveInFlight) { toast('Still saving — one moment…'); return; }
+  goSaveInFlight = true;
+  try {
   const go = currentGO;
   go.name = document.getElementById('edit-go-name').value.trim() || go.name;
   go.deadline = document.getElementById('edit-go-deadline').value;
@@ -3066,6 +3073,7 @@ async function saveGOEdits() {
     const { droppable, paid } = collectUnsecured(go);
     if (droppable.length || paid.length) openDropReviewModal(go.id);
   }
+  } finally { goSaveInFlight = false; }
 }
 
 async function confirmDeleteGO() {
