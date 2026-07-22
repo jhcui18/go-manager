@@ -3061,8 +3061,11 @@ async function saveGOEdits() {
   // can trigger a background sync, so reading before this write finishes could pull an empty
   // sub-item list and make the GO's items look deleted. Awaiting closes that race.
   if (API_URL) {
-    try { await apiPost('updateGO', { go_id: go.id, name: go.name, deadline: go.deadline, payment_deadline: go.paymentDeadline, status: go.status, subItems: go.subItems }); }
-    catch (e) { toast('Save may not have gone through — check your connection and try again.'); }
+    try {
+      const res = await apiPost('updateGO', { go_id: go.id, name: go.name, deadline: go.deadline, payment_deadline: go.paymentDeadline, status: go.status, subItems: go.subItems });
+      if (res && res.ok === false) { toast(res.message || 'Save didn’t go through — please try again.'); return; }
+    }
+    catch (e) { toast('Save may not have gone through — check your connection and try again.'); return; }
   }
   saveLocal();
   renderAdminGOList();

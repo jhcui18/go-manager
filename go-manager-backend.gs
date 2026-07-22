@@ -150,36 +150,51 @@ function createGO(data) {
 }
 
 function updateGO(data) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const goSheet = ss.getSheetByName(SHEET_GOS);
-  const rows = goSheet.getDataRange().getValues();
-  const headers = rows[0];
-  const idCol = headers.indexOf('go_id');
-  for (let i = 1; i < rows.length; i++) {
-    if (rows[i][idCol] === data.go_id) {
-      if (data.name)     goSheet.getRange(i+1, headers.indexOf('name')+1).setValue(data.name);
-      if (data.deadline) goSheet.getRange(i+1, headers.indexOf('deadline')+1).setValue(data.deadline);
-      if (data.status)   goSheet.getRange(i+1, headers.indexOf('status')+1).setValue(data.status);
-      const pdCol = headers.indexOf('payment_deadline');
-      if (pdCol !== -1 && data.payment_deadline !== undefined) goSheet.getRange(i+1, pdCol+1).setValue(data.payment_deadline);
-      break;
+  // Serialize with the same lock claim writes use, so two overlapping updateGO calls (or an
+  // updateGO racing a submitClaim) can never interleave the sub-item rewrite and duplicate rows.
+  const lock = LockService.getScriptLock();
+  try { lock.waitLock(15000); }
+  catch (e) { return { ok: false, error: 'busy', message: 'Server busy, please retry.' }; }
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const goSheet = ss.getSheetByName(SHEET_GOS);
+    const rows = goSheet.getDataRange().getValues();
+    const headers = rows[0];
+    const idCol = headers.indexOf('go_id');
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][idCol] === data.go_id) {
+        if (data.name)     goSheet.getRange(i+1, headers.indexOf('name')+1).setValue(data.name);
+        if (data.deadline) goSheet.getRange(i+1, headers.indexOf('deadline')+1).setValue(data.deadline);
+        if (data.status)   goSheet.getRange(i+1, headers.indexOf('status')+1).setValue(data.status);
+        const pdCol = headers.indexOf('payment_deadline');
+        if (pdCol !== -1 && data.payment_deadline !== undefined) goSheet.getRange(i+1, pdCol+1).setValue(data.payment_deadline);
+        break;
+      }
     }
+    // Update sub-items sheet if provided — write the whole grid IN PLACE with one setValues
+    // (no delete-then-append, so there is never a moment with zero rows), then trim any
+    // surplus old rows. Dedupe by id defensively so a duplicated payload can't persist.
+    if (data.subItems) {
+      const HEADERS = ['sub_item_id','name','kind','members','versions','price','ot_price','min_secure'];
+      const siSheetName = 'go_' + data.go_id;
+      let siSheet = ss.getSheetByName(siSheetName);
+      if (!siSheet) siSheet = ensureSheet(ss, siSheetName, HEADERS);
+      const seen = {};
+      const grid = [HEADERS];
+      (data.subItems || []).forEach(si => {
+        if (!si || !si.id || seen[si.id]) return;
+        seen[si.id] = true;
+        grid.push([si.id, si.name || '', si.kind || '', JSON.stringify(si.members || []), JSON.stringify(si.versions || []), si.price || 0, si.otPrice || 0, si.minSecure || 7]);
+      });
+      const oldLast = siSheet.getLastRow();
+      if (siSheet.getMaxRows() < grid.length) siSheet.insertRowsAfter(siSheet.getMaxRows(), grid.length - siSheet.getMaxRows());
+      siSheet.getRange(1, 1, grid.length, HEADERS.length).setValues(grid);
+      if (oldLast > grid.length) siSheet.deleteRows(grid.length + 1, oldLast - grid.length);
+    }
+    return { ok: true };
+  } finally {
+    lock.releaseLock();
   }
-  // Update sub-items sheet if provided
-  if (data.subItems) {
-    const siSheetName = 'go_' + data.go_id;
-    let siSheet = ss.getSheetByName(siSheetName);
-    if (!siSheet) siSheet = ensureSheet(ss, siSheetName, ['sub_item_id','name','kind','members','versions','price','ot_price','min_secure']);
-    // Rewrite header to canonical schema (migrates older sheets missing ot_price)
-    siSheet.getRange(1, 1, 1, 8).setValues([['sub_item_id','name','kind','members','versions','price','ot_price','min_secure']]);
-    // Delete all data rows then rewrite (clearContent leaves ghost rows that accumulate)
-    const lastRow = siSheet.getLastRow();
-    if (lastRow > 1) siSheet.deleteRows(2, lastRow - 1);
-    data.subItems.forEach(si => {
-      siSheet.appendRow([si.id, si.name, si.kind || '', JSON.stringify(si.members || []), JSON.stringify(si.versions || []), si.price || 0, si.otPrice || 0, si.minSecure || 7]);
-    });
-  }
-  return { ok: true };
 }
 
 function deleteGO(goId) {
