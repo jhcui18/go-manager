@@ -2931,7 +2931,7 @@ function removeEditSubItem(siId, hasClaims) {
   toast('Sub-item removed' + (hasClaims ? ' and claims cancelled.' : '.'));
 }
 
-function saveGOEdits() {
+async function saveGOEdits() {
   const go = currentGO;
   go.name = document.getElementById('edit-go-name').value.trim() || go.name;
   go.deadline = document.getElementById('edit-go-deadline').value;
@@ -3040,7 +3040,15 @@ function saveGOEdits() {
   });
   // Remove sub-items with no name
   go.subItems = go.subItems.filter(si => si.name);
-  if (API_URL) apiPost('updateGO', { go_id: go.id, name: go.name, deadline: go.deadline, payment_deadline: go.paymentDeadline, status: go.status, subItems: go.subItems });
+  // AWAIT the write before anything re-reads from the sheet. updateGO rewrites the sub-items
+  // via delete-then-append (a window where the sheet has 0 sub-item rows); openGODetail below
+  // can trigger a background sync, so reading before this write finishes could pull an empty
+  // sub-item list and make the GO's items look deleted. Awaiting closes that race.
+  if (API_URL) {
+    try { await apiPost('updateGO', { go_id: go.id, name: go.name, deadline: go.deadline, payment_deadline: go.paymentDeadline, status: go.status, subItems: go.subItems }); }
+    catch (e) { toast('Save may not have gone through — check your connection and try again.'); }
+  }
+  saveLocal();
   renderAdminGOList();
   renderOrdersList();
   openGODetail(go.id);
