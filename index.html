@@ -1880,10 +1880,9 @@ function openGODetail(goId) {
   document.getElementById('detail-badges').innerHTML = `<span class="badge ${badgeClass}">${typeLabel}</span>`;
   showAdminPanel('go-detail');
   renderDetailContent();
-  // Render local state instantly, then quietly pull fresh claims — but only if it's been a
-  // while since the last sync. Silent (no loading overlay) + throttled so opening GOs stays
-  // instant and rapid hopping doesn't spam the backend. Use the ↺ button to force a refresh.
-  if (Date.now() - lastSyncAt > 30000) refreshCurrentGO(true);
+  // No auto-sync on open: opening a GO renders local state only. Syncing while a GO detail /
+  // Edit form is open could swap currentGO mid-edit and let stale/duplicated sheet data get
+  // re-saved. Use the ↺ button (refreshCurrentGO) or reload the page to pull fresh claims.
 }
 
 async function refreshCurrentGO(silent) {
@@ -3038,8 +3037,18 @@ async function saveGOEdits() {
       }
     }
   });
-  // Remove sub-items with no name
-  go.subItems = go.subItems.filter(si => si.name);
+  // Remove sub-items with no name, and DEDUPE by id (keep first). A mid-edit background sync
+  // can reload currentGO from a sheet that already holds duplicate rows (from an earlier
+  // overlapping write); without this, reorder+save re-posts and compounds those duplicates.
+  // Posting a unique list makes the backend's delete-then-append rewrite the sheet clean.
+  {
+    const seenIds = {};
+    go.subItems = go.subItems.filter(si => {
+      if (!si.name || seenIds[si.id]) return false;
+      seenIds[si.id] = true;
+      return true;
+    });
+  }
   // AWAIT the write before anything re-reads from the sheet. updateGO rewrites the sub-items
   // via delete-then-append (a window where the sheet has 0 sub-item rows); openGODetail below
   // can trigger a background sync, so reading before this write finishes could pull an empty
