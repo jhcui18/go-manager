@@ -96,6 +96,24 @@
   .qty-row { display:flex;align-items:center;gap:8px; }
   .qty-btn { width:28px;height:28px;border-radius:6px;border:0.5px solid var(--border2);background:var(--surface);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:background .15s; }
   .qty-btn:hover { background:var(--surface2); }
+
+  /* ── Mobile (phones — most joiners arrive from Instagram) ── */
+  @media (max-width: 600px) {
+    .page { padding:20px 14px; }
+    /* Nav: let the logo + tabs scroll sideways instead of overflowing/cutting off */
+    nav { padding:0 12px;overflow-x:auto;-webkit-overflow-scrolling:touch; }
+    nav::-webkit-scrollbar { display:none; }
+    nav { scrollbar-width:none; }
+    .nav-logo { margin-right:14px;font-size:16px;flex:none; }
+    .nav-tab { padding:0 12px;flex:none; }
+    /* Stack two-column form rows so inputs aren't cramped */
+    .field-row { grid-template-columns:1fr; }
+    /* Tighter cards + slightly smaller display headings on small screens */
+    .card { padding:16px 16px; }
+    .card-sm { padding:12px 14px; }
+    .page-title { font-size:25px; }
+    .go-card { padding:16px; }
+  }
 </style>
 </head>
 <body>
