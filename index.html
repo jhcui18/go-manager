@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GO Manager</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&family=Anton&display=swap');
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
     --pink-50:#FBEAF0;--pink-100:#F4C0D1;--pink-400:#D4537E;--pink-600:#993556;--pink-800:#72243E;--pink-900:#4B1528;
@@ -15,14 +15,14 @@
     --red-50:#FCEBEB;--red-400:#E24B4A;--red-800:#791F1F;
     --bg:#faf9f7;--surface:#ffffff;--surface2:#F1EFE8;
     --text:#2C2C2A;--text2:#5F5E5A;--text3:#888780;
-    --border:rgba(44,44,42,0.12);--border2:rgba(44,44,42,0.22);
-    --accent:#D4537E;--accent-light:#FBEAF0;--accent-dark:#72243E;
+    --border:rgba(44,44,42,0.4);--border2:rgba(44,44,42,0.85);
+    --accent:#5DA82A;--accent-light:#EAF6DE;--accent-dark:#2E5E1A;--accent-hover:#4A8C1F;
     --radius:10px;--radius-lg:16px;
-    --font:'DM Sans',sans-serif;--mono:'DM Mono',monospace;
+    --font:'DM Sans',sans-serif;--mono:'DM Mono',monospace;--display:'Anton',sans-serif;
   }
   body { font-family:var(--font);background:var(--bg);color:var(--text);font-size:14px;line-height:1.6;min-height:100vh; }
-  nav { background:var(--surface);border-bottom:0.5px solid var(--border);padding:0 24px;display:flex;align-items:center;height:52px; }
-  .nav-logo { font-size:15px;font-weight:500;color:var(--accent);letter-spacing:-0.3px;margin-right:32px; }
+  nav { background:var(--surface);border-bottom:1.5px solid var(--text);padding:0 24px;display:flex;align-items:center;height:52px; }
+  .nav-logo { font-family:var(--display);font-size:19px;font-weight:400;color:var(--text);letter-spacing:0.5px;text-transform:uppercase;margin-right:32px; }
   .nav-tabs { display:flex;height:100%; }
   .nav-tab { height:100%;padding:0 16px;display:flex;align-items:center;font-size:13px;color:var(--text2);cursor:pointer;border-bottom:2px solid transparent;transition:color .15s,border-color .15s;white-space:nowrap; }
   .nav-tab:hover { color:var(--text); }
@@ -31,22 +31,22 @@
   .badge-admin { font-size:11px;background:var(--accent-light);color:var(--accent-dark);padding:3px 10px;border-radius:20px;font-weight:500; }
   .page { display:none;padding:28px 24px;max-width:900px;margin:0 auto; }
   .page.active { display:block; }
-  .card { background:var(--surface);border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:20px 24px;margin-bottom:16px; }
-  .card-sm { background:var(--surface);border:0.5px solid var(--border);border-radius:var(--radius);padding:14px 16px; }
+  .card { background:var(--surface);border:1.5px solid var(--text);border-radius:var(--radius-lg);padding:20px 24px;margin-bottom:16px; }
+  .card-sm { background:var(--surface);border:1.5px solid var(--text);border-radius:var(--radius);padding:14px 16px; }
   .section-label { font-size:11px;font-weight:500;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:12px; }
-  .page-title { font-size:20px;font-weight:500;margin-bottom:4px;letter-spacing:-0.3px; }
+  .page-title { font-family:var(--display);font-size:30px;font-weight:400;margin-bottom:6px;letter-spacing:0.5px;text-transform:uppercase;line-height:1.05; }
   .page-sub { font-size:13px;color:var(--text2);margin-bottom:24px; }
   .field { margin-bottom:16px; }
   .field label { display:block;font-size:12px;font-weight:500;color:var(--text2);margin-bottom:6px; }
-  .field input,.field select,.field textarea { width:100%;padding:9px 12px;border:0.5px solid var(--border2);border-radius:var(--radius);font-family:var(--font);font-size:14px;background:var(--surface);color:var(--text);outline:none;transition:border-color .15s; }
+  .field input,.field select,.field textarea { width:100%;padding:9px 12px;border:1.5px solid var(--border2);border-radius:var(--radius);font-family:var(--font);font-size:14px;background:var(--surface);color:var(--text);outline:none;transition:border-color .15s; }
   .field input:focus,.field select:focus,.field textarea:focus { border-color:var(--accent); }
   .field textarea { resize:vertical;min-height:80px; }
   .field-row { display:grid;grid-template-columns:1fr 1fr;gap:12px; }
   .field-hint { font-size:11px;color:var(--text3);margin-top:4px; }
-  .btn { display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border-radius:var(--radius);font-family:var(--font);font-size:13px;font-weight:500;cursor:pointer;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);transition:background .15s; }
+  .btn { display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border-radius:999px;font-family:var(--font);font-size:13px;font-weight:500;cursor:pointer;border:1.5px solid var(--text);background:var(--surface);color:var(--text);transition:background .15s; }
   .btn:hover { background:var(--surface2); }
   .btn-primary { background:var(--accent);color:white;border-color:var(--accent); }
-  .btn-primary:hover { background:var(--pink-600); }
+  .btn-primary:hover { background:var(--accent-hover); }
   .btn-sm { padding:5px 12px;font-size:12px; }
   .btn-ghost { border-color:transparent;background:transparent; }
   .btn-ghost:hover { background:var(--surface2); }
@@ -61,8 +61,8 @@
   .badge-ready { background:var(--teal-50);color:var(--teal-800); }
   .badge-fcfs { background:var(--gray-50);color:var(--gray-800); }
   .badge-set { background:var(--accent-light);color:var(--accent-dark); }
-  .go-card { background:var(--surface);border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:18px 20px;margin-bottom:12px;cursor:pointer;transition:border-color .15s; }
-  .go-card:hover { border-color:var(--border2); }
+  .go-card { background:var(--surface);border:1.5px solid var(--text);border-radius:var(--radius-lg);padding:18px 20px;margin-bottom:12px;cursor:pointer;transition:border-color .15s; }
+  .go-card:hover { border-color:var(--accent); }
   .go-card-header { display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px; }
   .go-name { font-size:15px;font-weight:500;letter-spacing:-0.2px; }
   .go-meta { font-size:12px;color:var(--text3);margin-top:2px; }
@@ -75,7 +75,7 @@
   td { padding:10px 12px;border-bottom:0.5px solid var(--border);vertical-align:middle; }
   tr:last-child td { border-bottom:none; }
   tr:hover td { background:var(--bg); }
-  .lookup-box { background:var(--surface);border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:32px;text-align:center;margin-bottom:20px; }
+  .lookup-box { background:var(--surface);border:1.5px solid var(--text);border-radius:var(--radius-lg);padding:32px;text-align:center;margin-bottom:20px; }
   .divider { border:none;border-top:0.5px solid var(--border);margin:20px 0; }
   .tag { display:inline-block;font-size:11px;padding:2px 8px;border-radius:6px;background:var(--surface2);color:var(--text2);font-family:var(--mono); }
   .upload-area { border:1px dashed var(--border2);border-radius:var(--radius);padding:20px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s; }
@@ -101,7 +101,7 @@
 <body>
 
 <nav>
-  <div class="nav-logo">✦ go manager</div>
+  <div class="nav-logo">⚡ GO manager</div>
   <div class="nav-tabs">
     <div class="nav-tab active" onclick="showPage('orders')">Group orders</div>
     <div class="nav-tab" onclick="showPage('shop')">Shop</div>
