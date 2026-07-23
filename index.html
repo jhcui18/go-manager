@@ -951,8 +951,17 @@ function renderClaimPage(goId) {
   });
 }
 
+// Sub-item image tag (or '' when none). size 'card' = full-width top of card; 'thumb' = small inline.
+function siImg(si, size) {
+  if (!si || !si.imageUrl) return '';
+  const style = size === 'thumb'
+    ? 'width:44px;height:44px;object-fit:cover;border-radius:6px;flex:none;'
+    : 'width:100%;max-height:220px;object-fit:cover;border-radius:var(--radius);margin-bottom:10px;display:block;';
+  return `<img src="${si.imageUrl}" loading="lazy" style="${style}" onerror="this.style.display='none'">`;
+}
+
 function renderSetSubItemPublic(si, goId) {
-  let html = `<div class="card" style="margin-bottom:12px;">
+  let html = `<div class="card" style="margin-bottom:12px;">${siImg(si,'card')}
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
       <div style="font-weight:500;font-size:15px;">${si.name}</div>
       <div style="display:flex;align-items:center;gap:8px;">
@@ -1027,7 +1036,7 @@ function renderSetSubItemPublic(si, goId) {
 function renderVersionedSubItemPublic(si, goId) {
   const totalClaimed = si.claims.reduce((a,c)=>a+c.qty,0);
   const versions = (si.versions && si.versions.length) ? si.versions : ['Default'];
-  let html = `<div class="card" style="margin-bottom:12px;">
+  let html = `<div class="card" style="margin-bottom:12px;">${siImg(si,'card')}
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
       <div style="font-weight:500;font-size:15px;">${si.name}</div>
       <span class="badge badge-fcfs">FCFS</span>
@@ -1054,7 +1063,7 @@ function renderBatchSubItemPublic(si, goId) {
   const n = batchSize(si);
   const batches = goBatches(si);
   const claimed = (si.claims || []).length;
-  let html = `<div class="card" style="margin-bottom:12px;">
+  let html = `<div class="card" style="margin-bottom:12px;">${siImg(si,'card')}
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
       <div style="font-weight:500;font-size:15px;">${si.name}</div>
       <span class="badge badge-fcfs">batch of ${n}</span>
@@ -1140,7 +1149,7 @@ function decBatchOT(siId, goId) {
 
 function renderSingleSubItemPublic(si, goId) {
   const totalClaimed = (si.claims||[]).reduce((a,c)=>a+c.qty,0);
-  return `<div class="card" style="margin-bottom:12px;">
+  return `<div class="card" style="margin-bottom:12px;">${siImg(si,'card')}
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
       <div style="font-weight:500;font-size:15px;">${si.name}</div>
       <span style="font-size:13px;font-weight:500;">$${(si.price||0).toFixed(2)}</span>
@@ -1161,7 +1170,7 @@ function renderMerchPublic(go) {
     const totalClaimed = (si.claims||[]).reduce((a,c)=>a+c.qty,0);
     if (kind === 'member') {
       // Member ver — member tile picker, no set logic, no cap
-      html += `<div class="card" style="margin-bottom:12px;">
+      html += `<div class="card" style="margin-bottom:12px;">${siImg(si,'card')}
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
           <div style="font-weight:500;font-size:15px;">${si.name}</div>
           <div style="display:flex;align-items:center;gap:8px;">
@@ -1191,7 +1200,7 @@ function renderMerchPublic(go) {
       </div>`;
     } else {
       // Random ver — just qty
-      html += `<div class="card" style="margin-bottom:12px;">
+      html += `<div class="card" style="margin-bottom:12px;">${siImg(si,'card')}
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
           <div style="font-weight:500;font-size:15px;">${si.name}</div>
           <div style="display:flex;align-items:center;gap:8px;">
@@ -1979,6 +1988,7 @@ function renderDetailContent() {
     if (nSecurable) html += ` <span class="badge" style="background:var(--accent-light);color:var(--accent-dark);font-size:10px;margin-left:auto;">${nSecurable} securable</span>`;
     html += ` <span style="font-size:12px;color:var(--text3);font-weight:400;${nSecurable ? '' : 'margin-left:auto;'}">${setsSummary(si)}</span></div>`;
     html += `<div id="adm-body-${si.id}" style="display:${siOpen ? 'block' : 'none'};">`;
+    if (si.imageUrl) html += `<div style="margin-bottom:10px;">${siImg(si,'thumb')}</div>`;
 
     if (isBatch(si)) {
       const bn = batchSize(si);
