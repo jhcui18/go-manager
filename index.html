@@ -2499,6 +2499,7 @@ function addSubItem() {
       <div class="field" style="margin-bottom:0;"><label>Members (one per line)</label><textarea id="si-members-${id}" placeholder="Karina\nWinter\nGiselle\nNingning" style="min-height:80px;font-family:var(--mono);font-size:12px;"></textarea></div>
     </div>`;
   }
+  inner += imgFieldHtml('si-img-' + id, '');
   wrap.innerHTML = inner;
   document.getElementById('sub-items-list').appendChild(wrap);
 }
@@ -2593,6 +2594,7 @@ function createGO() {
     }
   });
   if (!subItems.length) { toast('Add at least one item.'); return; }
+  subItems.forEach(si => { const el = document.getElementById('si-img-' + si.id); si.imageUrl = el ? el.value.trim() : ''; });
   allGOs[id] = { id, name, type, deadline, paymentDeadline, status: 'open', subItems };
   if (API_URL) apiPost('createGO', { ...allGOs[id], payment_deadline: paymentDeadline, min_secure: subItems[0]?.minSecure || 7 });
   renderAdminGOList();
@@ -2753,6 +2755,13 @@ function onSubItemDragEnd() {
   }
   dragWrapId = null;
 }
+// One "Image URL" field for a sub-item form (create + edit). fieldId is the full input id.
+function imgFieldHtml(fieldId, current) {
+  return `<div class="field" style="margin-top:8px;margin-bottom:0;"><label>Image URL</label>
+    <input type="text" id="${fieldId}" placeholder="https://… (direct image link)" value="${current || ''}">
+    <div class="field-hint">Optional — shown to buyers on the claim page.</div></div>`;
+}
+
 function renderEditSubItems() {
   const go = currentGO;
   const container = document.getElementById('edit-sub-items-list');
@@ -2813,6 +2822,7 @@ function renderEditSubItems() {
         </div>` : `<div style="font-size:11px;color:var(--text3);">Random ver — no member list needed.</div>`}`;
     }
     const claimCount = getSubItemClaimCount(si);
+    inner += imgFieldHtml('edit-si-img-' + si.id, si.imageUrl || '');
     inner += `</div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;padding-top:20px;">
         <span onpointerdown="onSubItemDragStart(event,'${si.id}')" title="Drag to reorder" style="cursor:grab;touch-action:none;font-size:18px;line-height:1;color:var(--text3);user-select:none;">⠿</span>
@@ -2889,6 +2899,7 @@ function addEditSubItem() {
       <div class="field" style="margin-bottom:0;"><label>Members (one per line)</label><textarea id="edit-si-members-${id}" placeholder="Karina&#10;Winter&#10;Giselle&#10;Ningning" style="min-height:80px;font-family:var(--mono);font-size:12px;"></textarea></div>
     </div>`;
   }
+  inner += imgFieldHtml('edit-si-img-' + id, '');
   wrap.innerHTML = inner;
   wrap.dataset.newItem = '1';
   container.appendChild(wrap);
@@ -3056,6 +3067,7 @@ async function saveGOEdits() {
       return true;
     });
   }
+  go.subItems.forEach(si => { const el = document.getElementById('edit-si-img-' + si.id); if (el) si.imageUrl = el.value.trim(); });
   // AWAIT the write before anything re-reads from the sheet. updateGO rewrites the sub-items
   // via delete-then-append (a window where the sheet has 0 sub-item rows); openGODetail below
   // can trigger a background sync, so reading before this write finishes could pull an empty
@@ -3996,8 +4008,10 @@ async function syncFromBackend(silent) {
           }
         }
 
+        const imgById = {};
         (go.subItems || []).forEach(si => {
           if (!si || !si.sub_item_id || !si.name) return; // skip blank/ghost sub-item rows
+          imgById[si.sub_item_id] = si.image_url || '';
           let members = parseMembers(si.members);
           // Fallback: if members empty in Sheets, reconstruct from now-remapped claims
           if (!members.length) {
@@ -4047,6 +4061,7 @@ async function syncFromBackend(silent) {
             }
           }
         });
+        rebuilt.subItems.forEach(s => { s.imageUrl = imgById[s.id] || ''; });
         allGOs[go.go_id] = rebuilt;
       });
       saveLocal();
