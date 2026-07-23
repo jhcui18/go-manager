@@ -2769,7 +2769,7 @@ function renderEditSubItems() {
     if (go.type === 'photocard') {
       inner += `<div class="field-row" style="margin-bottom:8px;">
           <div class="field" style="margin-bottom:0;"><label>Set name</label><input type="text" id="edit-si-name-${si.id}" value="${si.name}"></div>
-          <div class="field" style="margin-bottom:0;"><label>Price per copy (USD)</label><input type="number" id="edit-si-price-${si.id}" value="${si.price || 0}" step="0.01" style="width:100%;"><div class="field-hint">Applies to new claims only.</div></div>
+          <div class="field" style="margin-bottom:0;"><label>Price per copy (USD)</label><input type="number" id="edit-si-price-${si.id}" value="${si.price || 0}" step="0.01" style="width:100%;"><div class="field-hint">Applies to all claims (old and new).</div></div>
         </div>
         <div class="field" style="margin-bottom:8px;"><label>Full set (OT) price (USD)</label><input type="number" id="edit-si-otprice-${si.id}" value="${si.otPrice || 0}" step="0.01" style="width:100%;"><div class="field-hint">Optional — set to offer a whole-set (OT) claim.</div></div>
         <div class="field" style="margin-bottom:8px;"><label>Order size — cards per batch (blank = full sets)</label><input type="number" id="edit-si-batchsize-${si.id}" min="0" step="1" style="width:100%;" value="${isBatch(si) ? batchSize(si) : ''}"><div class="field-hint">Set e.g. 8 or 16 to order in batches of any members (repeats OK).</div></div>
@@ -2780,7 +2780,7 @@ function renderEditSubItems() {
     } else if (go.type === 'album') {
       inner += `<div class="field-row" style="margin-bottom:8px;">
           <div class="field" style="margin-bottom:0;"><label>Name</label><input type="text" id="edit-si-name-${si.id}" value="${si.name}"></div>
-          <div class="field" style="margin-bottom:0;"><label>Price (USD)</label><input type="number" id="edit-si-price-${si.id}" value="${si.price || 0}" step="0.01" style="width:100%;"><div class="field-hint">Applies to new claims only.</div></div>
+          <div class="field" style="margin-bottom:0;"><label>Price (USD)</label><input type="number" id="edit-si-price-${si.id}" value="${si.price || 0}" step="0.01" style="width:100%;"><div class="field-hint">Applies to all claims (old and new).</div></div>
         </div>`;
       if (si.kind === 'member') {
         inner += `<div class="field" style="margin-bottom:0;"><label>Members (one per line)</label>
@@ -2789,7 +2789,7 @@ function renderEditSubItems() {
         </div>
         <div class="field" style="margin-top:8px;margin-bottom:0;"><label>Full set (OT) price (USD)</label>
           <input type="number" id="edit-si-otprice-${si.id}" value="${si.otPrice || 0}" step="0.01">
-          <div class="field-hint">Optional — offer a whole-set (OT) claim. Applies to new claims only.</div>
+          <div class="field-hint">Optional — offer a whole-set (OT) claim. Price applies to all claims (old and new).</div>
         </div>
         <div class="field" style="margin-top:8px;margin-bottom:0;"><label>Order size — cards per batch (blank = full sets)</label>
           <input type="number" id="edit-si-batchsize-${si.id}" min="0" step="1" value="${isBatch(si) ? batchSize(si) : ''}">
@@ -2806,7 +2806,7 @@ function renderEditSubItems() {
     } else {
       inner += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
           <div class="field" style="margin-bottom:0;"><label>Item name</label><input type="text" id="edit-si-name-${si.id}" value="${si.name}"></div>
-          <div class="field" style="margin-bottom:0;"><label>Price (USD)</label><input type="number" id="edit-si-price-${si.id}" value="${si.price||0}" step="0.01" style="width:100%;"><div class="field-hint">Applies to new claims only.</div></div>
+          <div class="field" style="margin-bottom:0;"><label>Price (USD)</label><input type="number" id="edit-si-price-${si.id}" value="${si.price||0}" step="0.01" style="width:100%;"><div class="field-hint">Applies to all claims (old and new).</div></div>
         </div>
         ${si.kind === 'member' ? `<div class="field" style="margin-bottom:0;"><label>Members (one per line)</label>
           <textarea id="edit-si-members-${si.id}" style="min-height:70px;font-family:var(--mono);font-size:12px;">${(si.members||[]).join('\n')}</textarea>
