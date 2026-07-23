@@ -142,9 +142,9 @@ function createGO(data) {
   const goId = data.id || ('go_' + Date.now());
   goSheet.appendRow([goId, data.name, data.type, data.deadline, data.status || 'open', data.min_secure || 7, new Date().toISOString(), data.payment_deadline || '']);
   // Create per-GO sub-items sheet
-  const siSheet = ensureSheet(ss, 'go_' + goId, ['sub_item_id','name','kind','members','versions','price','ot_price','min_secure']);
+  const siSheet = ensureSheet(ss, 'go_' + goId, ['sub_item_id','name','kind','members','versions','price','ot_price','min_secure','image_url']);
   (data.subItems || []).forEach(si => {
-    siSheet.appendRow([si.id, si.name, si.kind || data.type, JSON.stringify(si.members || []), JSON.stringify(si.versions || []), si.price || 0, si.otPrice || 0, si.minSecure || data.min_secure || 7]);
+    siSheet.appendRow([si.id, si.name, si.kind || data.type, JSON.stringify(si.members || []), JSON.stringify(si.versions || []), si.price || 0, si.otPrice || 0, si.minSecure || data.min_secure || 7, si.imageUrl || '']);
   });
   return { ok: true, go_id: goId };
 }
@@ -175,7 +175,7 @@ function updateGO(data) {
     // (no delete-then-append, so there is never a moment with zero rows), then trim any
     // surplus old rows. Dedupe by id defensively so a duplicated payload can't persist.
     if (data.subItems) {
-      const HEADERS = ['sub_item_id','name','kind','members','versions','price','ot_price','min_secure'];
+      const HEADERS = ['sub_item_id','name','kind','members','versions','price','ot_price','min_secure','image_url'];
       const siSheetName = 'go_' + data.go_id;
       let siSheet = ss.getSheetByName(siSheetName);
       if (!siSheet) siSheet = ensureSheet(ss, siSheetName, HEADERS);
@@ -184,7 +184,7 @@ function updateGO(data) {
       (data.subItems || []).forEach(si => {
         if (!si || !si.id || seen[si.id]) return;
         seen[si.id] = true;
-        grid.push([si.id, si.name || '', si.kind || '', JSON.stringify(si.members || []), JSON.stringify(si.versions || []), si.price || 0, si.otPrice || 0, si.minSecure || 7]);
+        grid.push([si.id, si.name || '', si.kind || '', JSON.stringify(si.members || []), JSON.stringify(si.versions || []), si.price || 0, si.otPrice || 0, si.minSecure || 7, si.imageUrl || '']);
       });
       const oldLast = siSheet.getLastRow();
       if (siSheet.getMaxRows() < grid.length) siSheet.insertRowsAfter(siSheet.getMaxRows(), grid.length - siSheet.getMaxRows());
