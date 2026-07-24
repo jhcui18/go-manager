@@ -3215,6 +3215,37 @@ async function removeSetClaim(goId, siId, setIdx, member) {
   toast('Claim removed.');
 }
 
+// Pack a member's NON-OT claims into the lowest set positions (no gaps), persisting any moved
+// set_num. OT-occupied member slots are obstacles (never moved into/out of). Idempotent.
+async function compactMemberColumn(si, member) {
+  if (!si || !si.sets) return;
+  // Positions available to this member's column: sets whose member slot is empty or a non-OT
+  // claim. OT-occupied slots are excluded (obstacles). Ascending by set number.
+  const avail = si.sets.slice().sort((a, b) => (a.num || 0) - (b.num || 0))
+    .filter(s => !s.slots[member] || !s.slots[member].ot);
+  // Pull out the donor claims (non-OT filled), in order, remembering their current set number.
+  const donors = [];
+  avail.forEach(s => {
+    const sl = s.slots[member];
+    if (sl && !sl.ot) { donors.push({ slot: sl, fromNum: s.num }); s.slots[member] = null; }
+  });
+  // Re-place donors into the lowest available positions; persist any that landed in a new set.
+  const writes = [];
+  donors.forEach((d, i) => {
+    const target = avail[i];
+    target.slots[member] = d.slot;
+    if (target.num !== d.fromNum && API_URL && d.slot.claim_id) {
+      writes.push(apiPost('updateClaim', { claim_id: d.slot.claim_id, set_num: target.num }).catch(() => {}));
+    }
+  });
+  if (writes.length) await Promise.all(writes);
+  // Compaction can change any set's fill — recompute every set's status.
+  si.sets.forEach(s => {
+    const filled = Object.values(s.slots).filter(Boolean);
+    s.status = filled.length && filled.every(v => v.claim_status === 'secured') ? 'secured' : 'open';
+  });
+}
+
 // Remove one set-slot claim (or, for an OT slot, the buyer's whole OT set). Deletes by
 // claim_id — never touches other rows; the normal rebuild may fill the freed spot.
 async function removeSlotClaim(goId, siId, setIdx, member) {
@@ -3237,8 +3268,10 @@ async function removeSlotClaim(goId, siId, setIdx, member) {
     if (API_URL && slot.claim_id) { try { await apiPost('deleteClaim', { claim_id: slot.claim_id }); } catch (e) {} }
     set.slots[member] = null;
   }
-  const filled = Object.values(set.slots).filter(Boolean);
-  set.status = filled.length && filled.every(v => v.claim_status === 'secured') ? 'secured' : 'open';
+  // Cascade-backfill: pack each affected member's column so freed spots are filled from higher
+  // sets (persists moved set_nums, recomputes set statuses).
+  const freed = slot.ot ? (si.members || Object.keys(set.slots)) : [member];
+  for (const m of freed) await compactMemberColumn(si, m);
   saveLocal();
   renderDetailContent(); renderAdminGOList(); renderOrdersList();
   toast('Claim removed.');
