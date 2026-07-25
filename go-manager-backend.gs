@@ -13,6 +13,7 @@ const SHEET_LISTINGS   = 'listings';     // shop listings (leftover stock)
 const SHEET_SHOP_ORDERS = 'shop_orders'; // shop purchase orders
 const SHEET_STORE_ORDERS = 'store_orders'; // admin's own orders placed with stores/proxies
 const SHEET_GC_ADDED = 'gc_added'; // per-GO: joiners marked as added to the IG group chat
+const SHEET_SECURED_SETS = 'secured_sets'; // sets the admin explicitly secured (badge = flagged OR full)
 
 // ── Bootstrap: create all required sheets if missing ─────────────────────────
 function bootstrapSheets() {
@@ -25,6 +26,7 @@ function bootstrapSheets() {
   ensureSheet(ss, SHEET_SHOP_ORDERS, ['order_id','listing_id','listing_name','username','email','qty','unit_price','payment_status','fulfillment','created_at','updated_at','variant']);
   ensureSheet(ss, SHEET_STORE_ORDERS, ['order_id','go_id','go_name','sub_item_id','sub_item_name','store','album_version','qty','unit_cost','status','notes','created_at','updated_at']);
   ensureSheet(ss, SHEET_GC_ADDED, ['go_id','username']);
+  ensureSheet(ss, SHEET_SECURED_SETS, ['go_id','sub_item_id','set_num']);
   // Per-GO sub-item sheets are created when a GO is created.
 }
 
@@ -65,6 +67,7 @@ function doGet(e) {
     else if (action === 'getShopOrders')   result = getShopOrders();
     else if (action === 'getStoreOrders')  result = getStoreOrders();
     else if (action === 'getGcAdded')      result = getGcAdded();
+    else if (action === 'getSecuredSets')  result = getSecuredSets();
     else if (action === 'ping')            result = { ok: true };
     else result = { error: 'Unknown action: ' + action };
     return jsonResponse(result);
@@ -98,6 +101,7 @@ function doPost(e) {
     else if (action === 'updateStoreOrder')  result = updateStoreOrder(body.data);
     else if (action === 'deleteStoreOrder')  result = deleteStoreOrder(body.data.order_id);
     else if (action === 'setGcAdded')       result = setGcAdded(body.data);
+    else if (action === 'setSecuredSet')    result = setSecuredSet(body.data);
     else if (action === 'deletePayment')     result = deletePayment(body.data.payment_id);
     else if (action === 'submitShipping')    result = submitShipping(body.data);
     else if (action === 'updateShipping')    result = updateShipping(body.data);
@@ -204,6 +208,7 @@ function deleteGO(goId) {
   // Remove all claims
   deleteRowsWhere(ss.getSheetByName(SHEET_JOINERS), 'go_id', goId);
   deleteRowsWhere(ss.getSheetByName(SHEET_GC_ADDED), 'go_id', goId);
+  deleteRowsWhere(ss.getSheetByName(SHEET_SECURED_SETS), 'go_id', goId);
   // Delete sub-item sheet
   const siSheet = ss.getSheetByName('go_' + goId);
   if (siSheet) ss.deleteSheet(siSheet);
@@ -490,6 +495,29 @@ function setGcAdded(data) {
   }
   if (data.added) {
     if (foundRow === -1) sheet.appendRow([data.go_id, data.username]);
+  } else if (foundRow !== -1) {
+    sheet.deleteRow(foundRow + 1);
+  }
+  return { ok: true };
+}
+
+function getSecuredSets() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_SECURED_SETS);
+  return { secured_sets: sheet ? sheetToObjects(sheet) : [] };
+}
+
+function setSecuredSet(data) {
+  bootstrapSheets();
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_SECURED_SETS);
+  const rows = sheet.getDataRange().getValues();
+  const h = rows[0];
+  const gi = h.indexOf('go_id'), si = h.indexOf('sub_item_id'), sn = h.indexOf('set_num');
+  let foundRow = -1;
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][si] === data.sub_item_id && String(rows[i][sn]) === String(data.set_num)) { foundRow = i; break; }
+  }
+  if (data.secured) {
+    if (foundRow === -1) sheet.appendRow([data.go_id, data.sub_item_id, data.set_num]);
   } else if (foundRow !== -1) {
     sheet.deleteRow(foundRow + 1);
   }
