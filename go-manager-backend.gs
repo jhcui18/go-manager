@@ -383,7 +383,13 @@ function submitPayment(data) {
 
 function updatePayment(data) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_PAYMENTS);
-  updateRowWhere(sheet, 'payment_id', data.payment_id, { status: data.status });
+  // Write only the fields the caller supplied (confirmPayment sends just status;
+  // the admin edit modal sends amount/username/method/transaction_id too).
+  const fields = {};
+  ['status', 'amount', 'username', 'method', 'transaction_id'].forEach(k => {
+    if (data[k] !== undefined) fields[k] = data[k];
+  });
+  updateRowWhere(sheet, 'payment_id', data.payment_id, fields);
   if (data.status === 'confirmed') {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const now = new Date().toISOString();

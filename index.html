@@ -3933,6 +3933,11 @@ function saveProofEdit(id) {
   p.status = document.getElementById('ep-status').value;
   closeModal();
   renderPaymentProofs();
+  renderDetailContent();
+  if (API_URL) persistWrite(apiPost('updatePayment', {
+    payment_id: p.payment_id, username: p.username, amount: p.amount,
+    method: p.method, transaction_id: p.transaction_id, status: p.status
+  }), 'update payment');
   toast('Proof updated.');
 }
 
