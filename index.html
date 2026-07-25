@@ -745,7 +745,7 @@ function renderShopPage() {
     const qty = listingStock(l);
     const sold = qty <= 0;
     return `<div class="card" style="padding:0;overflow:hidden;${sold?'opacity:0.6;':'cursor:pointer;'}" ${sold?'':`onclick="openShopListing('${l.listing_id}')"`}>
-      ${l.image_url ? `<img src="${l.image_url}" loading="lazy" style="width:100%;aspect-ratio:1;object-fit:cover;display:block;" onerror="this.style.display='none'">` : '<div style="width:100%;aspect-ratio:1;background:var(--surface2);"></div>'}
+      ${l.image_url ? `<img src="${l.image_url}" loading="lazy" style="width:100%;aspect-ratio:1;object-fit:contain;background:var(--surface2);display:block;" onerror="this.style.display='none'">` : '<div style="width:100%;aspect-ratio:1;background:var(--surface2);"></div>'}
       <div style="padding:8px 10px;">
         <div style="font-size:13px;font-weight:500;">${l.name}</div>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;">
@@ -981,7 +981,7 @@ function siImg(si, size) {
   if (!si || !si.imageUrl) return '';
   const style = size === 'thumb'
     ? 'width:44px;height:44px;object-fit:cover;border-radius:6px;flex:none;'
-    : 'width:100%;max-height:220px;object-fit:cover;border-radius:var(--radius);margin-bottom:10px;display:block;';
+    : 'width:100%;max-height:320px;object-fit:contain;background:var(--surface2);border-radius:var(--radius);margin-bottom:10px;display:block;';
   return `<img src="${si.imageUrl}" loading="lazy" style="${style}" onerror="this.style.display='none'">`;
 }
 
