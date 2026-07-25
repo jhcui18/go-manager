@@ -3826,11 +3826,14 @@ function confirmPayment(id) {
   const totalPaid = paymentProofs
     .filter(pp => sameUser(pp.username, p.username) && pp.go_id === p.go_id && (pp.status === 'confirmed' || pp.payment_id === p.payment_id))
     .reduce((a, pp) => a + (parseFloat(pp.amount)||0), 0);
-  // Greedily mark items paid in display order until the money runs out.
-  const eps = 0.001; let acc = 0, cutoff = false; const paid = [], unpaid = [];
+  // Mark items paid in display order, filling as much of the payment as fits. A
+  // too-big item is skipped (not a hard stop), so a later smaller item can still
+  // use the remaining money — e.g. $28 across [7,7,7,11,...] pays the three 7s
+  // AND a later 7 to reach $28, rather than stopping at $21 on the 11.
+  const eps = 0.001; let acc = 0; const paid = [], unpaid = [];
   units.forEach(u => {
-    if (!cutoff && acc + u.value <= totalPaid + eps) { paid.push(u); acc += u.value; }
-    else { cutoff = true; unpaid.push(u); }
+    if (acc + u.value <= totalPaid + eps) { paid.push(u); acc += u.value; }
+    else { unpaid.push(u); }
   });
   pendingConfirm = { paymentId: id, goId: p.go_id, username: p.username, paid, unpaid };
   const credit = Math.max(0, totalPaid - securedTotal);
