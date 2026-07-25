@@ -545,9 +545,8 @@ function goJoiners(go) {
   const add = (u) => { const k = gcNorm(u); if (!k || seen[k]) return; seen[k] = true; out.push(String(u).trim()); };
   (go.subItems || []).forEach(si => {
     if (si.sets) si.sets.forEach(set => {
-      const setSecured = set.status === 'secured';
       Object.values(set.slots || {}).forEach(slot => {
-        if (slot && slot.claim_status !== 'dropped' && (setSecured || slot.claim_status === 'secured')) add(slot.user);
+        if (slot && slot.claim_status === 'secured') add(slot.user);
       });
     });
     if (si.claims) si.claims.forEach(c => {
@@ -1602,13 +1601,13 @@ function doLookup() {
           const isOT = membersToCheck.length && membersToCheck.every(m => { const s = set.slots[m]; return s && sameUser(s.user, u) && s.ot; });
           if (isOT) {
             const s0 = set.slots[membersToCheck[0]];
-            rows.push({ go_id:go.id, go:go.name, item:si.name, detail:'OT'+membersToCheck.length+' full set', qty:1, price:si.otPrice||0, claim:(s0.claim_status==='dropped')?'Not fulfilled':((s0.claim_status==='secured'||set.status==='secured')?'Secured':'Pending'), payment:s0.payment, fulfillment:s0.fulfillment });
+            rows.push({ go_id:go.id, go:go.name, item:si.name, detail:'OT'+membersToCheck.length+' full set', qty:1, price:si.otPrice||0, claim:(s0.claim_status==='dropped')?'Not fulfilled':((s0.claim_status==='secured')?'Secured':'Pending'), payment:s0.payment, fulfillment:s0.fulfillment });
             return;
           }
           membersToCheck.forEach(member => {
             const slot = set.slots[member];
             if (slot && sameUser(slot.user, u)) {
-              rows.push({ go_id:go.id, go:go.name, item:si.name, detail:member, qty:1, price:si.price||0, claim:(slot.claim_status==='dropped')?'Not fulfilled':((slot.claim_status==='secured'||set.status==='secured')?'Secured':'Pending'), payment:slot.payment, fulfillment:slot.fulfillment });
+              rows.push({ go_id:go.id, go:go.name, item:si.name, detail:member, qty:1, price:si.price||0, claim:(slot.claim_status==='dropped')?'Not fulfilled':((slot.claim_status==='secured')?'Secured':'Pending'), payment:slot.payment, fulfillment:slot.fulfillment });
             }
           });
         });
@@ -2315,7 +2314,6 @@ function collectUnsecured(go) {
   (go.subItems || []).forEach(si => {
     if (si.sets) {
       si.sets.forEach((set, setIdx) => {
-        if (set.status === 'secured') return;
         Object.keys(set.slots).forEach(member => {
           const slot = set.slots[member];
           if (!slot || slot.claim_status === 'secured' || slot.claim_status === 'dropped') return;
