@@ -3775,14 +3775,14 @@ function paymentOwedUnits(username, goId) {
   if (!go) return units;
   go.subItems.forEach(si => {
     if (si.sets) {
-      setDisplayOrder(si.sets, si.members).forEach(({ set }) => {
-        if (set.status !== 'secured') return;
+      si.sets.forEach(set => {
         const otSlots = [], normalSlots = [];
         (si.members||[]).forEach(m => {
           const slot = set.slots[m];
-          if (slot && sameUser(slot.user, username)) (slot.ot ? otSlots : normalSlots).push(slot);
+          if (!slot || !sameUser(slot.user, username) || slot.claim_status !== 'secured') return;
+          (slot.ot ? otSlots : normalSlots).push(slot);
         });
-        // OT full set → one unit at the flat OT price, covering all its slots.
+        // OT full set → one unit at the flat OT price, covering all its (secured) slots.
         if (otSlots.length) {
           units.push({ ids: otSlots.map(s => s.claim_id).filter(Boolean), value: si.otPrice||0, kind: 'slot', refs: otSlots });
         }
