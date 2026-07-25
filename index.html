@@ -525,6 +525,14 @@ function nextSetNum(sets) { return (sets||[]).reduce((m, s) => Math.max(m, s.num
 // Instagram handles are case-insensitive, so match usernames without regard to case or
 // surrounding whitespace (a buyer who typed "@Sunshine" still matches "@sunshine").
 function sameUser(a, b) { return String(a == null ? '' : a).trim().toLowerCase() === String(b == null ? '' : b).trim().toLowerCase(); }
+let securedSets = {}; // 'subItemId|setNum' -> true : sets the admin explicitly secured
+function isSetFlagged(siId, setNum) { return !!securedSets[siId + '|' + setNum]; }
+// A set is 'secured' iff explicitly flagged OR full (every member slot filled and all secured).
+function deriveSetStatus(siId, set, members) {
+  const ms = members || [];
+  const full = ms.length && ms.every(m => set.slots[m]) && Object.values(set.slots).filter(Boolean).every(v => v.claim_status === 'secured');
+  return (isSetFlagged(siId, set.num) || full) ? 'secured' : 'open';
+}
 function gcNorm(u) { return String(u == null ? '' : u).trim().toLowerCase(); }
 function isGcAdded(goId, username) { return !!(gcAdded[goId] && gcAdded[goId][gcNorm(username)]); }
 // Unique joiner handles across ALL of a GO's claims (set slots + claims-based), case-insensitive dedup.
@@ -2229,8 +2237,7 @@ function toggleSlotSecure(goId, siId, setIdx, member) {
   const slot = set.slots[member];
   if (!slot) return;
   slot.claim_status = slot.claim_status === 'secured' ? 'pending' : 'secured';
-  const filled = Object.values(set.slots).filter(Boolean);
-  set.status = filled.length && filled.every(v => v.claim_status === 'secured') ? 'secured' : 'open';
+  set.status = deriveSetStatus(si.id, set, si.members);
   if (API_URL && slot.claim_id) persistWrite(apiPost('updateClaim', { claim_id: slot.claim_id, claim_status: slot.claim_status }), 'Secure');
   renderDetailContent();
   renderAdminGOList();
@@ -2276,6 +2283,8 @@ function secureSet(goId, siId, setIdx) {
   Object.values(si.sets[setIdx].slots).forEach(v => { if (v) v.claim_status = 'secured'; });
   const setNum = si.sets[setIdx].num || (setIdx + 1);
   if (API_URL) persistWrite(apiPost('secureSet', { go_id: goId, sub_item_id: siId, set_num: setNum }), 'Secure set');
+  securedSets[siId + '|' + setNum] = true;
+  if (API_URL) persistWrite(apiPost('setSecuredSet', { go_id: goId, sub_item_id: siId, set_num: setNum, secured: true }), 'Secure set');
   renderDetailContent();
   renderAdminGOList();
   renderOrdersList();
@@ -2284,10 +2293,14 @@ function secureSet(goId, siId, setIdx) {
 
 function unsecureSet(goId, siId, setIdx) {
   const si = allGOs[goId].subItems.find(s => s.id === siId);
-  si.sets[setIdx].status = 'open';
   Object.values(si.sets[setIdx].slots).forEach(v => { if (v) v.claim_status = 'pending'; });
   const setNum = si.sets[setIdx].num || (setIdx + 1);
-  if (API_URL) persistWrite(apiPost('unsecureSet', { go_id: goId, sub_item_id: siId, set_num: setNum }), 'Unsecure set');
+  delete securedSets[siId + '|' + setNum];
+  si.sets[setIdx].status = deriveSetStatus(siId, si.sets[setIdx], si.members);
+  if (API_URL) {
+    persistWrite(apiPost('unsecureSet', { go_id: goId, sub_item_id: siId, set_num: setNum }), 'Unsecure set');
+    persistWrite(apiPost('setSecuredSet', { go_id: goId, sub_item_id: siId, set_num: setNum, secured: false }), 'Unsecure set');
+  }
   renderDetailContent();
   renderAdminGOList();
   renderOrdersList();
@@ -2331,8 +2344,7 @@ function applyClaimStatusRef(go, ref, status) {
     const slot = set && set.slots[ref.member];
     if (!slot) return;
     slot.claim_status = status;
-    const filled = Object.values(set.slots).filter(Boolean);
-    set.status = filled.length && filled.every(v => v.claim_status === 'secured') ? 'secured' : 'open';
+    set.status = deriveSetStatus(si.id, set, si.members);
   } else {
     const c = (si.claims || []).find(x => x.claim_id === ref.claimId);
     if (c) c.claim_status = status;
@@ -3241,8 +3253,7 @@ async function compactMemberColumn(si, member) {
   if (writes.length) await Promise.all(writes);
   // Compaction can change any set's fill — recompute every set's status.
   si.sets.forEach(s => {
-    const filled = Object.values(s.slots).filter(Boolean);
-    s.status = filled.length && filled.every(v => v.claim_status === 'secured') ? 'secured' : 'open';
+    s.status = deriveSetStatus(si.id, s, si.members);
   });
 }
 
@@ -4081,9 +4092,15 @@ async function syncFromBackend(silent) {
   if (!silent) showLoadingOverlay(true);
   try {
     // Fetch GOs and payments in parallel so the two round-trips overlap.
-    const [result, payResult, listResult, orderResult, shipResult, storeResult, gcResult] = await Promise.all([
-      apiGet('getAllGOs'), apiGet('getPayments'), apiGet('getListings'), apiGet('getShopOrders'), apiGet('getShipping'), apiGet('getStoreOrders'), apiGet('getGcAdded')
+    const [result, payResult, listResult, orderResult, shipResult, storeResult, gcResult, securedResult] = await Promise.all([
+      apiGet('getAllGOs'), apiGet('getPayments'), apiGet('getListings'), apiGet('getShopOrders'), apiGet('getShipping'), apiGet('getStoreOrders'), apiGet('getGcAdded'), apiGet('getSecuredSets')
     ]);
+    if (securedResult && Array.isArray(securedResult.secured_sets)) {
+      securedSets = {};
+      securedResult.secured_sets.forEach(r => {
+        if (r && r.sub_item_id && r.set_num !== undefined && r.set_num !== '') securedSets[r.sub_item_id + '|' + r.set_num] = true;
+      });
+    }
     if (result && result.gos && result.gos.length) {
       allGOs = {};
       result.gos.forEach(go => {
@@ -4284,10 +4301,9 @@ function buildSetsFromClaims(claims, siId, members) {
     }
   });
   const sets = Object.values(setsByNum).sort((a, b) => a.num - b.num);
-  // A set is "secured" only when all its filled slots are secured — supports per-claim securing.
+  // A set is "secured" iff explicitly flagged or full (see deriveSetStatus) — supports per-claim securing.
   sets.forEach(s => {
-    const filled = Object.values(s.slots).filter(Boolean);
-    s.status = filled.length && filled.every(v => v.claim_status === 'secured') ? 'secured' : 'open';
+    s.status = deriveSetStatus(siId, s, members);
   });
   const last = sets[sets.length - 1];
   const hasEmpty = members.every(m => !last.slots[m]);
