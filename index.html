@@ -2114,7 +2114,7 @@ function renderDetailContent() {
             <span class="badge ${slot.claim_status==='secured'?'badge-secured':'badge-pending'}" style="font-size:10px;cursor:pointer;" title="Click to secure/unsecure this claim" onclick="toggleSlotSecure('${go.id}','${si.id}',${setIdx},'${member}')">${slot.claim_status==='secured'?'Secured':'Secure?'}</span>
             <button class="btn btn-sm btn-ghost" style="font-size:11px;padding:1px 6px;color:var(--red-400);" title="Remove this claim" onclick="removeSlotClaim('${go.id}','${si.id}',${setIdx},'${member}')">×</button>
           </div>`) : '';
-          const fulfillHtml = taken && !isSecured ? '' : taken ? `<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
+          const fulfillHtml = (taken && slot.claim_status === 'secured') ? `<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
             <span class="badge ${fulfillBadge(slot.fulfillment)}" style="font-size:10px;">${slot.fulfillment}</span>
             ${prevFulfillment(slot.fulfillment) ? `<button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 6px;" title="Back to ${prevFulfillment(slot.fulfillment)}" onclick="advanceSetFulfill('${go.id}','${si.id}',${setIdx},'${member}','prev')">←</button>` : ''}
             ${nextFulfillment(slot.fulfillment) ? `<button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 6px;" onclick="advanceSetFulfill('${go.id}','${si.id}',${setIdx},'${member}')">→ ${nextFulfillment(slot.fulfillment)}</button>` : ''}
