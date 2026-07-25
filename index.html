@@ -947,8 +947,8 @@ function renderClaimPage(goId) {
 
   html += `<div class="card" style="margin-top:8px;">
     <div class="section-label">Your details</div>
-    <div class="field"><label>Instagram username</label><input type="text" id="claim-username-${goId}" placeholder="@username"></div>
     <div id="claim-summary-${goId}" style="display:none;background:var(--surface2);border-radius:var(--radius);padding:12px 14px;margin-bottom:16px;font-size:13px;"></div>
+    <div class="field"><label>Instagram username</label><input type="text" id="claim-username-${goId}" placeholder="@username"></div>
     <button class="btn btn-primary" onclick="submitClaim('${goId}')" style="width:100%;justify-content:center;">Submit claim</button>
   </div>`;
   page.innerHTML = html;
