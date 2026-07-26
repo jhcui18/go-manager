@@ -1667,6 +1667,52 @@ function toggleMyOrderGo(gid) {
   if (chev) chev.textContent = isOpen ? '▾' : '▸';
 }
 
+let myOrderPayOpen = {};  // go_id -> bool; default COLLAPSED (missing key renders closed)
+function toggleMyOrderPay(gid) {
+  myOrderPayOpen[gid] = !myOrderPayOpen[gid];
+  const isOpen = !!myOrderPayOpen[gid];
+  const body = document.getElementById('myo-paylist-' + gid);
+  const chev = document.getElementById('myo-paychev-' + gid);
+  if (body) body.style.display = isOpen ? 'block' : 'none';
+  if (chev) chev.textContent = isOpen ? '▾' : '▸';
+}
+
+// Collapsible "Your payments" record for a GO — this user's submitted proofs,
+// newest first, with status badge + any admin note (e.g. a rejection reason).
+function myPaymentsSection(username, goId) {
+  const mine = paymentProofs
+    .filter(pp => sameUser(pp.username, username) && pp.go_id === goId)
+    .sort((a, b) => String(b.created_at||'').localeCompare(String(a.created_at||'')));
+  if (!mine.length) return '';
+  const open = !!myOrderPayOpen[goId];
+  const badge = st => st === 'confirmed'
+    ? '<span class="badge badge-paid" style="font-size:10px;">Confirmed</span>'
+    : st === 'rejected'
+      ? '<span class="badge badge-dropped" style="font-size:10px;">Rejected</span>'
+      : '<span class="badge badge-pending" style="font-size:10px;">Awaiting confirmation</span>';
+  const rows = mine.map(p => {
+    const tx = p.transaction_id ? String(p.transaction_id) : '';
+    const txShort = tx.length > 8 ? '…' + tx.slice(-8) : tx;
+    const note = p.note ? `<div style="font-size:11px;color:var(--red-400);margin-top:3px;">Note: ${p.note}</div>` : '';
+    return `<div style="padding:8px 0;border-top:0.5px solid var(--border);">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span style="font-family:var(--mono);font-size:12px;color:var(--text3);">${fmtDate(p.created_at)}</span>
+        <strong style="font-family:var(--mono);font-size:13px;">$${(parseFloat(p.amount)||0).toFixed(2)}</strong>
+        <span style="font-size:12px;color:var(--text2);">${p.method||''}</span>
+        ${txShort ? `<span style="font-size:11px;color:var(--text3);font-family:var(--mono);">${txShort}</span>` : ''}
+        <span style="margin-left:auto;">${badge(p.status)}</span>
+      </div>${note}
+    </div>`;
+  }).join('');
+  return `<div style="margin-top:12px;">
+    <div style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;font-size:13px;color:var(--text2);" onclick="toggleMyOrderPay('${goId}')">
+      <span id="myo-paychev-${goId}" style="width:10px;color:var(--text3);">${open?'▾':'▸'}</span>
+      <span>Your payments (${mine.length})</span>
+    </div>
+    <div id="myo-paylist-${goId}" style="display:${open?'block':'none'};margin-top:4px;">${rows}</div>
+  </div>`;
+}
+
 // One collapsible card for a GO: claims table + payment section (Paid/Owed/Credit + form).
 function renderMyOrderGoBlock(g, goRows, u) {
   const s = goPaymentSummary(u, g.go_id);
@@ -1720,6 +1766,7 @@ function renderMyOrderGoBlock(g, goRows, u) {
         <tbody>${claimRows}</tbody>
       </table></div>
       <div style="font-size:12px;color:var(--text3);margin:10px 0;">${summaryLine}</div>
+      ${myPaymentsSection(u, g.go_id)}
       ${deadlineNote}${form}${creditNote}
     </div>
   </div>`;
@@ -3938,6 +3985,9 @@ function openEditProofModal(id) {
         <option value="rejected" ${p.status==='rejected'?'selected':''}>Rejected</option>
       </select>
     </div>
+    <div class="field"><label>Note to joiner <span style="color:var(--text3);font-weight:400;">(e.g. reason for rejection)</span></label>
+      <textarea id="ep-note" rows="2" style="width:100%;resize:vertical;">${p.note||''}</textarea>
+    </div>
     <div style="display:flex;gap:8px;margin-top:8px;">
       <button class="btn btn-primary" onclick="saveProofEdit('${p.payment_id}')" style="flex:1;justify-content:center;">Save</button>
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
@@ -3952,12 +4002,13 @@ function saveProofEdit(id) {
   p.method = document.getElementById('ep-method').value;
   p.transaction_id = document.getElementById('ep-txid').value;
   p.status = document.getElementById('ep-status').value;
+  p.note = document.getElementById('ep-note').value.trim();
   closeModal();
   renderPaymentProofs();
   renderDetailContent();
   if (API_URL) persistWrite(apiPost('updatePayment', {
     payment_id: p.payment_id, username: p.username, amount: p.amount,
-    method: p.method, transaction_id: p.transaction_id, status: p.status
+    method: p.method, transaction_id: p.transaction_id, status: p.status, note: p.note
   }), 'update payment');
   toast('Proof updated.');
 }
