@@ -1693,7 +1693,7 @@ function myPaymentsSection(username, goId) {
   const rows = mine.map(p => {
     const tx = p.transaction_id ? String(p.transaction_id) : '';
     const txShort = tx.length > 8 ? '…' + tx.slice(-8) : tx;
-    const note = p.note ? `<div style="font-size:11px;color:var(--red-400);margin-top:3px;">Note: ${p.note}</div>` : '';
+    const note = p.note ? `<div style="font-size:11px;color:var(--red-400);margin-top:3px;">Reject reason: ${p.note}</div>` : '';
     return `<div style="padding:8px 0;border-top:0.5px solid var(--border);">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
         <span style="font-family:var(--mono);font-size:12px;color:var(--text3);">${fmtDate(p.created_at)}</span>
@@ -3955,7 +3955,7 @@ function deletePaymentProof(id) {
 function rejectPayment(id) {
   const p = findProof(id);
   if (!p) return;
-  const reason = prompt('Reject this payment. Add a note the joiner will see (e.g. the reason) — leave blank for none:', p.note || '');
+  const reason = prompt('Reject this payment. Reject reason (the joiner will see this) — leave blank for none:', p.note || '');
   if (reason === null) return;  // cancelled
   p.status = 'rejected';
   p.note = reason.trim();
