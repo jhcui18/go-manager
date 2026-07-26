@@ -1667,10 +1667,10 @@ function toggleMyOrderGo(gid) {
   if (chev) chev.textContent = isOpen ? '▾' : '▸';
 }
 
-let myOrderPayOpen = {};  // go_id -> bool; default COLLAPSED (missing key renders closed)
+let myOrderPayOpen = {};  // go_id -> bool; default OPEN (missing key renders expanded)
 function toggleMyOrderPay(gid) {
-  myOrderPayOpen[gid] = !myOrderPayOpen[gid];
-  const isOpen = !!myOrderPayOpen[gid];
+  myOrderPayOpen[gid] = myOrderPayOpen[gid] === false ? true : false;
+  const isOpen = myOrderPayOpen[gid] !== false;
   const body = document.getElementById('myo-paylist-' + gid);
   const chev = document.getElementById('myo-paychev-' + gid);
   if (body) body.style.display = isOpen ? 'block' : 'none';
@@ -1684,7 +1684,7 @@ function myPaymentsSection(username, goId) {
     .filter(pp => sameUser(pp.username, username) && pp.go_id === goId)
     .sort((a, b) => String(b.created_at||'').localeCompare(String(a.created_at||'')));
   if (!mine.length) return '';
-  const open = !!myOrderPayOpen[goId];
+  const open = myOrderPayOpen[goId] !== false;
   const badge = st => st === 'confirmed'
     ? '<span class="badge badge-paid" style="font-size:10px;">Confirmed</span>'
     : st === 'rejected'
