@@ -84,10 +84,16 @@ dims, `media`, `qty`, and `is_photocard`.
 1. **Card-only stamp case:** if every checked item is a photocard claim and total
    card count ≤ 4 → `dom_fee = 2.00`, `ship_service = 'stamp'`, **skip the API**.
 2. **Otherwise, build the combined parcel:**
-   - `weight_oz = Σ (item.weight_oz × qty) + PACKAGING_BASE_OZ` (`PACKAGING_BASE_OZ = 1`).
-   - Box dims via a documented **stacking heuristic**: `length = max(item lengths)`,
-     `width = max(item widths)`, `height = Σ (item.height_in × qty)`, each floored to
-     a small minimum (mailer). (Approximate by design.)
+   - `weight_oz = Σ (item.weight_oz × qty) + PACKAGING_BASE_OZ` (`PACKAGING_BASE_OZ = 1`),
+     rounded **up** to the next whole ounce.
+   - Box dims via a documented **stacking heuristic, padded larger on purpose** so the
+     quote errs high (gives the admin packing room and never under-charges):
+     `length = max(item lengths) + DIM_MARGIN_IN`,
+     `width  = max(item widths)  + DIM_MARGIN_IN`,
+     `height = Σ (item.height_in × qty) × HEIGHT_PAD`,
+     then each **rounded up to the next whole inch** and floored to a small minimum
+     (mailer). Constants: `DIM_MARGIN_IN = 1`, `HEIGHT_PAD = 1.2`. (Approximate by
+     design, deliberately biased slightly large.)
    - `media_only = every checked claim has media_flag` (and no shop orders).
 3. **Quote:** POST to new backend action `quoteShipping`
    `{ from_zip:'02021', to_zip, to_state, parcel:{weight_oz,length_in,width_in,height_in}, media_only }`.
