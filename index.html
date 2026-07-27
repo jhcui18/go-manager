@@ -1035,7 +1035,7 @@ function renderSetSubItemPublic(si, goId) {
     si.members.forEach(member => {
       const taken = !!set.slots[member];
       const border = taken ? 'var(--border2)' : 'var(--border)';
-      const sub = taken ? 'taken' : 'open';
+      const sub = taken ? (set.slots[member].user || 'taken') : 'open';
       const subColor = taken ? 'var(--text3)' : 'var(--teal-600)';
       html += `<div style="background:var(--surface2);border-radius:8px;padding:8px 10px;border:0.5px solid ${border};">
         <div style="font-size:12px;font-weight:500;">${member}</div>
