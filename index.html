@@ -1002,7 +1002,9 @@ function siImg(si, size) {
 }
 
 function renderSetSubItemPublic(si, goId) {
+  const closed = isPobClosed(allGOs[goId], si);
   let html = `<div class="card" style="margin-bottom:12px;">${siImg(si,'card')}
+    ${closed ? '<div style="background:var(--surface2);border:0.5px solid var(--border2);border-radius:var(--radius);padding:8px 10px;margin-bottom:10px;font-size:12px;color:var(--text2);font-weight:500;">Closed — only filling leftover spots in already-ordered sets.</div>' : ''}
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
       <div style="font-weight:500;font-size:15px;">${si.name}</div>
       <div style="display:flex;align-items:center;gap:8px;">
@@ -1048,6 +1050,24 @@ function renderSetSubItemPublic(si, goId) {
     <div class="member-grid" id="picker-${si.id}">`;
   si.members.forEach(member => {
     const key = member.replace(/\s/g,'_');
+    if (closed) {
+      // Only members with a leftover slot in a secured set are claimable.
+      if (!leftoverSlotOpen(si, member)) {
+        html += `<div class="member-tile" style="opacity:0.45;cursor:default;">
+          <div class="member-tile-name">${member}</div>
+          <div class="member-tile-sub" style="color:var(--text3);">closed</div>
+        </div>`;
+        return;
+      }
+      const leftover = (si.sets || []).filter(s => s.status === 'secured' && !s.slots[member]).length;
+      const label = leftover + ' leftover';
+      html += `<div class="member-tile" id="tile-${si.id}-${key}" style="position:relative;" onclick="incMember('${si.id}','${member}','${goId}')">
+        <button id="dec-${si.id}-${key}" onclick="event.stopPropagation();decMember('${si.id}','${member}','${goId}')" style="display:none;align-items:center;justify-content:center;position:absolute;top:2px;right:2px;width:22px;height:22px;padding:0;border:none;border-radius:6px;background:transparent;color:var(--accent);font-size:18px;font-weight:600;line-height:1;cursor:pointer;">−</button>
+        <div class="member-tile-name">${member}</div>
+        <div class="member-tile-sub" id="sub-${si.id}-${key}" data-label="${label}" style="color:var(--teal-600);">${label}</div>
+      </div>`;
+      return;
+    }
     const openCount = si.sets.filter(s => !s.slots[member]).length;
     const label = openCount > 0 ? openCount + ' open' : 'new set';
     const labelColor = openCount > 0 ? 'var(--text3)' : 'var(--accent)';
@@ -1060,7 +1080,7 @@ function renderSetSubItemPublic(si, goId) {
   html += `</div>
     <div id="qty-display-${si.id}" style="margin-top:10px;font-size:12px;color:var(--text3);"></div>`;
   // OT (full-set) option — only when an OT price is configured
-  if (si.otPrice > 0) {
+  if (si.otPrice > 0 && !closed) {
     const otN = (si.members || []).length;
     html += `<div style="margin-top:12px;">
       <div class="member-tile" id="ot-tile-${si.id}" style="position:relative;text-align:left;padding:10px 12px;" onclick="incOT('${si.id}','${goId}')">
