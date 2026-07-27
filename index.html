@@ -2080,7 +2080,9 @@ function renderDetailContent() {
     }
     const nSecurable = securableCount(si);
     if (nSecurable) html += ` <span class="badge" style="background:var(--accent-light);color:var(--accent-dark);font-size:10px;margin-left:auto;">${nSecurable} securable</span>`;
-    html += ` <span style="font-size:12px;color:var(--text3);font-weight:400;${nSecurable ? '' : 'margin-left:auto;'}">${setsSummary(si)}</span></div>`;
+    html += ` <span style="font-size:12px;color:var(--text3);font-weight:400;${nSecurable ? '' : 'margin-left:auto;'}">${setsSummary(si)}</span>`;
+    if (si.closed) html += ` <span class="badge badge-waitlist" style="font-size:10px;">Closed</span>`;
+    html += ` <button class="btn btn-sm btn-ghost" style="font-size:11px;padding:2px 8px;${si.closed ? 'color:var(--teal-600);' : 'color:var(--red-400);'}" onclick="event.stopPropagation();toggleSubItemClosed('${go.id}','${si.id}')">${si.closed ? 'Reopen POB' : 'Close POB'}</button></div>`;
     html += `<div id="adm-body-${si.id}" style="display:${siOpen ? 'block' : 'none'};">`;
     if (si.imageUrl) html += `<div style="margin-bottom:10px;">${siImg(si,'thumb')}</div>`;
 
@@ -2348,6 +2350,17 @@ function secureBatch(goId, siId, batchNum) {
   });
   renderDetailContent(); renderAdminGOList(); renderOrdersList();
   toast('Batch ' + batchNum + (makeSecured ? ' secured' : ' unsecured'));
+}
+
+function toggleSubItemClosed(goId, siId) {
+  const si = allGOs[goId].subItems.find(s => s.id === siId);
+  if (!si) return;
+  si.closed = !si.closed;
+  closedSubItems[goId + '|' + siId] = si.closed ? true : undefined;
+  if (!si.closed) delete closedSubItems[goId + '|' + siId];
+  if (API_URL) persistWrite(apiPost('setClosedSubItem', { go_id: goId, sub_item_id: siId, closed: si.closed }), si.closed ? 'Close POB' : 'Reopen POB');
+  renderDetailContent();
+  toast(si.closed ? 'POB closed — no new claims (except leftover secured spots).' : 'POB reopened.');
 }
 
 function secureSet(goId, siId, setIdx) {
