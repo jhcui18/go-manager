@@ -2277,24 +2277,24 @@ function logSetClaim(goId, siId) {
   const qty = parseInt(document.getElementById('log-q-' + siId).value) || 1;
   if (!username || !member) { toast('Enter username and member.'); return; }
   const u = username.startsWith('@') ? username : '@' + username;
+  let placedCount = 0, blockedClosed = false;
   for (let q = 0; q < qty; q++) {
     const closed = isPobClosed(allGOs[goId], si);
     const target = pickTargetSet(si, member, closed);
-    let setNum;
     if (target) {
       target.slots[member] = { user:u, payment:'unpaid', fulfillment:'Pending' };
-      setNum = target.num;
+      placedCount++;
     } else if (closed) {
-      toast('This POB is closed — only leftover secured spots can be filled.');
-      return;
+      blockedClosed = true; break; // no more leftover secured slots for this member
     } else {
       const newSet = { status:'open', slots:{}, num: nextSetNum(si.sets) };
       si.members.forEach(m => newSet.slots[m] = null);
       newSet.slots[member] = { user:u, payment:'unpaid', fulfillment:'Pending' };
       si.sets.push(newSet);
-      setNum = newSet.num;
+      placedCount++;
     }
   }
+  if (!placedCount) { toast('This POB is closed — no leftover secured spots for ' + member + '.'); return; }
   if (!isPobClosed(allGOs[goId], si)) {
     const last = si.sets[si.sets.length-1];
     if (countFilled(last, si.members) > 0) {
@@ -2308,7 +2308,7 @@ function logSetClaim(goId, siId) {
   renderDetailContent();
   renderAdminGOList();
   renderOrdersList();
-  toast('Logged: ' + u + ' × ' + member + ' ×' + qty);
+  toast(blockedClosed ? ('Logged ' + placedCount + ' of ' + qty + ' — POB closed, only leftover secured spots.') : ('Logged: ' + u + ' × ' + member + ' ×' + qty));
 }
 
 function toggleSlotPayment(goId, siId, setIdx, member) {
