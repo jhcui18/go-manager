@@ -81,30 +81,46 @@ dims, `media`, `qty`, and `is_photocard`.
 
 `submitShippingRequest(username)` (already builds from the **checked** items):
 
-1. **Card-only stamp case:** if every checked item is a photocard claim and total
-   card count ≤ 4 → `dom_fee = 2.00`, `ship_service = 'stamp'`, **skip the API**.
-2. **Otherwise, build the combined parcel:**
-   - `weight_oz = Σ (item.weight_oz × qty) + PACKAGING_BASE_OZ` (`PACKAGING_BASE_OZ = 1`),
-     rounded **up** to the next whole ounce.
-   - Box dims via a documented **stacking heuristic, padded larger on purpose** so the
-     quote errs high (gives the admin packing room and never under-charges):
-     `length = max(item lengths) + DIM_MARGIN_IN`,
+Determine the case from the checked items (`is_photocard` claim = card; album =
+media-flagged claim; else merch/shop):
+
+1. **Card-only, ≤ 4 cards (stamp):** `dom_fee = 2.00`, `ship_service = 'stamp'`,
+   **skip the API**.
+2. **Card-only, 5–49 cards (fixed 9×7 mailer):** don't stack — use the known mailer:
+   `length = 9`, `width = 7`, `height = ceil(Σ card heights × HEIGHT_PAD)` (min 0.5"),
+   `weight_oz = ceil(Σ card weights) + CARD_PACKAGING_OZ` where
+   `CARD_PACKAGING_OZ = 2` (bubble mailer + freebies). Then **quote** (step 4).
+3. **Everything else** (any album/merch/shop item, or ≥ 50 cards) — build the
+   combined parcel with the **padded stacking heuristic** so the quote errs high
+   (packing room, never under-charges):
+   - `weight_oz = ceil(Σ (item.weight_oz × qty) + PACKAGING_BASE_OZ)`
+     (`PACKAGING_BASE_OZ = 1`).
+   - `length = max(item lengths) + DIM_MARGIN_IN`,
      `width  = max(item widths)  + DIM_MARGIN_IN`,
      `height = Σ (item.height_in × qty) × HEIGHT_PAD`,
-     then each **rounded up to the next whole inch** and floored to a small minimum
-     (mailer). Constants: `DIM_MARGIN_IN = 1`, `HEIGHT_PAD = 1.2`. (Approximate by
-     design, deliberately biased slightly large.)
-   - `media_only = every checked claim has media_flag` (and no shop orders).
-3. **Quote:** POST to new backend action `quoteShipping`
+     each **rounded up to the next whole inch**, floored to a mailer minimum.
+     Constants: `DIM_MARGIN_IN = 1`, `HEIGHT_PAD = 1.2`.
+   - **Album-only → Media Mail:** if every checked item is an album (media-flagged
+     claim) with no cards/merch/shop items, set `media_only = true` so the quote
+     considers USPS Media Mail (usually cheapest for books).
+4. **Quote:** POST to new backend action `quoteShipping`
    `{ from_zip:'02021', to_zip, to_state, parcel:{weight_oz,length_in,width_in,height_in}, media_only }`.
    Backend returns `{ ok, domestic, service }` (cheapest eligible USPS rate) or
    `{ ok:false }`.
-4. **Apply:** `ems_fee = Σ (item.ems × qty)` (photocard/claim items only);
+5. **Apply:** `ems_fee = Σ (item.ems × qty)` (photocard/claim items only);
    `dom_fee = domestic` (or blank on failure); `total_fee = ems_fee + dom_fee`.
    Store `ship_service`.
-5. **Show the joiner** a confirmation before saving: EMS subtotal, domestic, total.
-   On quote failure show "Domestic shipping will be calculated by the admin" and
-   still allow submit (dom_fee blank).
+6. **Show the joiner** a confirmation before saving: EMS subtotal, domestic, total,
+   plus the **estimate disclaimer** (below). On quote failure show "Domestic
+   shipping will be calculated by the admin" and still allow submit (dom_fee blank).
+
+### Joiner-facing disclaimer
+
+Wherever the domestic estimate is shown to the joiner (ship panel + submit
+confirmation), display this note:
+
+> *Domestic shipping is an estimate. If the actual cost is lower, I'll refund the
+> difference; if it's higher, I'll ask for the small extra.*
 
 The joiner needs a destination **ZIP** for the quote (the address form already
 collects it) — validate ZIP present before quoting; if missing, treat as failure
