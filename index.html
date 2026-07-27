@@ -1467,14 +1467,15 @@ function submitClaim(goId) {
   if (!username) { toast('Please enter your username.'); return; }
   const u = username.startsWith('@') ? username : '@' + username;
   const go = allGOs[goId];
-  if (go.status === 'closed') { toast('This GO is closed and no longer accepting claims.'); return; }
   const claimsToWrite = [];
   let placed = false;
+  let rejectedClosed = false;
   go.subItems.forEach(si => {
     const state = claimState[si.id];
     if (!state) return;
     const email = (document.getElementById('claim-email-' + goId) || {}).value || '';
     if (state.type === 'set') {
+      const closed = isPobClosed(go, si);
       const sm = state.selectedMembers || {};
       const members = Object.keys(sm);
       const otQty = state.ot || 0;
@@ -1482,26 +1483,26 @@ function submitClaim(goId) {
       members.forEach(member => {
         const wantQty = sm[member] || 1;
         for (let n = 0; n < wantQty; n++) {
-          let setNum = 1;
-          let slotted = false;
-          for (let s = 0; s < si.sets.length; s++) {
-            if (!si.sets[s].slots[member]) {
-              si.sets[s].slots[member] = { user:u, payment:'unpaid', fulfillment:'Pending' };
-              setNum = si.sets[s].num || (s + 1); slotted = true; placed = true; break;
-            }
-          }
-          if (!slotted) {
+          const target = pickTargetSet(si, member, closed);
+          if (target) {
+            target.slots[member] = { user:u, payment:'unpaid', fulfillment:'Pending' };
+            placed = true;
+            claimsToWrite.push({ go_id:goId, go_name:go.name, sub_item_id:si.id, sub_item_name:si.name, sub_item_kind:si.kind||go.type, username:u, email, member_or_version:member, set_num:target.num, qty:1, assigned_vers:'' });
+          } else if (closed) {
+            rejectedClosed = true; // no secured leftover slot for this member — closed
+          } else {
             const newSet = { status:'open', slots:{}, num: nextSetNum(si.sets) };
             si.members.forEach(m => newSet.slots[m] = null);
             newSet.slots[member] = { user:u, payment:'unpaid', fulfillment:'Pending' };
             si.sets.push(newSet);
-            setNum = newSet.num; placed = true;
+            placed = true;
+            claimsToWrite.push({ go_id:goId, go_name:go.name, sub_item_id:si.id, sub_item_name:si.name, sub_item_kind:si.kind||go.type, username:u, email, member_or_version:member, set_num:newSet.num, qty:1, assigned_vers:'' });
           }
-          claimsToWrite.push({ go_id:goId, go_name:go.name, sub_item_id:si.id, sub_item_name:si.name, sub_item_kind:si.kind||go.type, username:u, email, member_or_version:member, set_num:setNum, qty:1, assigned_vers:'' });
         }
       });
-      // OT full sets — each is a complete set owned by the buyer; secured manually later
-      for (let k = 0; k < otQty; k++) {
+      // OT full sets create a NEW set — never allowed when closed.
+      if (otQty && closed) { rejectedClosed = true; }
+      else for (let k = 0; k < otQty; k++) {
         const fullSet = { status:'open', slots:{}, num: nextSetNum(si.sets) };
         si.members.forEach(m => fullSet.slots[m] = { user:u, payment:'unpaid', fulfillment:'Pending', ot:true });
         si.sets.push(fullSet);
@@ -1511,13 +1512,17 @@ function submitClaim(goId) {
         });
         placed = true;
       }
-      const last = si.sets[si.sets.length-1];
-      if (countFilled(last, si.members) > 0) {
-        const empty = { status:'open', slots:{}, num: nextSetNum(si.sets) };
-        si.members.forEach(m => empty.slots[m] = null);
-        si.sets.push(empty);
+      // Keep a trailing empty set for filling — but never grow a closed POB.
+      if (!closed) {
+        const last = si.sets[si.sets.length-1];
+        if (last && countFilled(last, si.members) > 0) {
+          const empty = { status:'open', slots:{}, num: nextSetNum(si.sets) };
+          si.members.forEach(m => empty.slots[m] = null);
+          si.sets.push(empty);
+        }
       }
     } else if (state.type === 'merch-member') {
+      if (isPobClosed(go, si)) { rejectedClosed = true; return; }
       const members = Object.keys(state.selectedMembers || {});
       if (!members.length) return;
       const qty = state.qty || 1;
@@ -1527,6 +1532,7 @@ function submitClaim(goId) {
         placed = true;
       });
     } else if (state.type === 'version-select') {
+      if (isPobClosed(go, si)) { rejectedClosed = true; return; }
       const sel = state.selected || {};
       const versions = Object.keys(sel);
       if (!versions.length) return;
@@ -1537,6 +1543,7 @@ function submitClaim(goId) {
         placed = true;
       });
     } else if (state.type === 'batch') {
+      if (isPobClosed(go, si)) { rejectedClosed = true; return; }
       const m = state.members || {};
       const members = Object.keys(m);
       const otQty = state.ot || 0;
@@ -1551,13 +1558,18 @@ function submitClaim(goId) {
       members.forEach(member => { for (let k = 0; k < (m[member] || 1); k++) pushCard(member, false); });
       for (let o = 0; o < otQty; o++) (si.members || []).forEach(member => pushCard(member, true));
     } else if (state.qty > 0) {
+      if (isPobClosed(go, si)) { rejectedClosed = true; return; }
       const assigned = si.versions ? assignVersions(state.qty, si.versions) : [];
       si.claims.push({ user:u, qty:state.qty, assignedVers:assigned, payment:'unpaid', fulfillment:'Pending' });
       claimsToWrite.push({ go_id:goId, go_name:go.name, sub_item_id:si.id, sub_item_name:si.name, sub_item_kind:si.kind||go.type, username:u, email, member_or_version:'', set_num:'', qty:state.qty, assigned_vers:assigned.join('+') });
       placed = true;
     }
   });
-  if (!placed) { toast('Please select at least one item.'); return; }
+  if (!placed) {
+    toast(rejectedClosed ? 'That POB is closed — only leftover spots in already-secured sets can be claimed.' : 'Please select at least one item.');
+    return;
+  }
+  if (rejectedClosed) toast('Some items were skipped — that POB is closed to new sets.');
   claimState = {};
   renderOrdersList();
   renderAdminGOList();
@@ -2266,25 +2278,30 @@ function logSetClaim(goId, siId) {
   if (!username || !member) { toast('Enter username and member.'); return; }
   const u = username.startsWith('@') ? username : '@' + username;
   for (let q = 0; q < qty; q++) {
-    let placed = false;
-    for (let s = 0; s < si.sets.length; s++) {
-      if (!si.sets[s].slots[member]) {
-        si.sets[s].slots[member] = { user:u, payment:'unpaid', fulfillment:'Pending' };
-        placed = true; break;
-      }
-    }
-    if (!placed) {
+    const closed = isPobClosed(allGOs[goId], si);
+    const target = pickTargetSet(si, member, closed);
+    let setNum;
+    if (target) {
+      target.slots[member] = { user:u, payment:'unpaid', fulfillment:'Pending' };
+      setNum = target.num;
+    } else if (closed) {
+      toast('This POB is closed — only leftover secured spots can be filled.');
+      return;
+    } else {
       const newSet = { status:'open', slots:{}, num: nextSetNum(si.sets) };
       si.members.forEach(m => newSet.slots[m] = null);
       newSet.slots[member] = { user:u, payment:'unpaid', fulfillment:'Pending' };
       si.sets.push(newSet);
+      setNum = newSet.num;
     }
   }
-  const last = si.sets[si.sets.length-1];
-  if (countFilled(last, si.members) > 0) {
-    const empty = { status:'open', slots:{}, num: nextSetNum(si.sets) };
-    si.members.forEach(m => empty.slots[m] = null);
-    si.sets.push(empty);
+  if (!isPobClosed(allGOs[goId], si)) {
+    const last = si.sets[si.sets.length-1];
+    if (countFilled(last, si.members) > 0) {
+      const empty = { status:'open', slots:{}, num: nextSetNum(si.sets) };
+      si.members.forEach(m => empty.slots[m] = null);
+      si.sets.push(empty);
+    }
   }
   document.getElementById('log-u-' + siId).value = '';
   document.getElementById('log-q-' + siId).value = '1';
