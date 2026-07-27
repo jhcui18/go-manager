@@ -533,6 +533,22 @@ function deriveSetStatus(siId, set, members) {
   const full = ms.length && ms.every(m => set.slots[m]) && Object.values(set.slots).filter(Boolean).every(v => v.claim_status === 'secured');
   return (isSetFlagged(siId, set.num) || full) ? 'secured' : 'open';
 }
+let closedSubItems = {}; // 'goId|siId' -> true : POBs the admin has closed
+function isSubItemClosed(goId, siId) { return !!closedSubItems[goId + '|' + siId]; }
+// A POB is closed to new claims if its GO is closed OR the POB itself is closed.
+function isPobClosed(go, si) { return !!(go && go.status === 'closed') || !!(si && si.closed); }
+// Leftover-claimable: an EMPTY member slot in a whole-set-secured set (status==='secured').
+// Full secured sets have no empty slots; individual-member-secured sets are status 'open'.
+function leftoverSlotOpen(si, member) {
+  return (si.sets || []).some(s => s.status === 'secured' && !s.slots[member]);
+}
+// Choose the set to place `member` into. Closed: only secured sets with an empty slot.
+// Open: first set with an empty slot. Returns the set object, or null (caller decides).
+function pickTargetSet(si, member, closed) {
+  const sets = closed ? (si.sets || []).filter(s => s.status === 'secured') : (si.sets || []);
+  for (const s of sets) if (!s.slots[member]) return s;
+  return null;
+}
 function gcNorm(u) { return String(u == null ? '' : u).trim().toLowerCase(); }
 function isGcAdded(goId, username) { return !!(gcAdded[goId] && gcAdded[goId][gcNorm(username)]); }
 // Unique joiner handles across ALL of a GO's claims (set slots + claims-based), case-insensitive dedup.
@@ -4171,13 +4187,19 @@ async function syncFromBackend(silent) {
   if (!silent) showLoadingOverlay(true);
   try {
     // Fetch GOs and payments in parallel so the two round-trips overlap.
-    const [result, payResult, listResult, orderResult, shipResult, storeResult, gcResult, securedResult] = await Promise.all([
-      apiGet('getAllGOs'), apiGet('getPayments'), apiGet('getListings'), apiGet('getShopOrders'), apiGet('getShipping'), apiGet('getStoreOrders'), apiGet('getGcAdded'), apiGet('getSecuredSets')
+    const [result, payResult, listResult, orderResult, shipResult, storeResult, gcResult, securedResult, closedResult] = await Promise.all([
+      apiGet('getAllGOs'), apiGet('getPayments'), apiGet('getListings'), apiGet('getShopOrders'), apiGet('getShipping'), apiGet('getStoreOrders'), apiGet('getGcAdded'), apiGet('getSecuredSets'), apiGet('getClosedSubItems')
     ]);
     if (securedResult && Array.isArray(securedResult.secured_sets)) {
       securedSets = {};
       securedResult.secured_sets.forEach(r => {
         if (r && r.sub_item_id && r.set_num !== undefined && r.set_num !== '') securedSets[r.sub_item_id + '|' + r.set_num] = true;
+      });
+    }
+    closedSubItems = {};
+    if (closedResult && Array.isArray(closedResult.closed_subitems)) {
+      closedResult.closed_subitems.forEach(r => {
+        if (r && r.go_id && r.sub_item_id) closedSubItems[r.go_id + '|' + r.sub_item_id] = true;
       });
     }
     if (result && result.gos && result.gos.length) {
@@ -4263,6 +4285,7 @@ async function syncFromBackend(silent) {
           }
         });
         rebuilt.subItems.forEach(s => { s.imageUrl = imgById[s.id] || ''; });
+        rebuilt.subItems.forEach(s => { s.closed = isSubItemClosed(go.go_id, s.id); });
         allGOs[go.go_id] = rebuilt;
       });
       saveLocal();
