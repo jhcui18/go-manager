@@ -2483,8 +2483,16 @@ function applyClaimStatusRef(go, ref, status) {
 async function restoreClaim(goId, kind, siId, setIdx, member, claimId) {
   const go = allGOs[goId];
   const ref = { kind, siId, setIdx, member, claimId };
+  // Set-based Restore buttons don't pass a claim_id — it lives on the slot. Derive it
+  // so the backend write actually fires (else restore reverts to dropped on next sync).
+  let cid = claimId;
+  if (kind === 'set' && !cid) {
+    const si = (go.subItems || []).find(s => s.id === siId);
+    const slot = si && si.sets[setIdx] && si.sets[setIdx].slots[member];
+    cid = slot && slot.claim_id;
+  }
   applyClaimStatusRef(go, ref, 'pending');
-  if (API_URL && claimId) { try { await apiPost('updateClaim', { claim_id: claimId, claim_status: 'pending' }); } catch (e) {} }
+  if (API_URL && cid) { try { await apiPost('updateClaim', { claim_id: cid, claim_status: 'pending' }); } catch (e) {} }
   saveLocal();
   renderDetailContent(); renderAdminGOList(); renderOrdersList();
   toast('Claim restored.');
