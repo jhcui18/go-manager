@@ -2249,10 +2249,10 @@ function renderDetailContent() {
       const hasVerCol = si.kind === 'versioned';
       const hasMemberCol = si.kind === 'member' || (si.kind !== 'versioned' && si.kind !== 'random' && si.kind !== 'single');
       html += `<div class="card"><div class="table-wrap"><table>
-        <thead><tr><th>#</th><th>Username</th><th>Qty</th>${hasMemberCol?'<th>Member/Ver</th>':''}${hasVerCol?'<th>Versions</th>':''}<th>Payment</th><th>Fulfillment</th><th></th></tr></thead>
+        <thead><tr><th>#</th><th>Username</th><th>Qty</th>${hasMemberCol?'<th>Member/Ver</th>':''}${hasVerCol?'<th>Versions</th>':''}<th>Claim</th><th>Payment</th><th>Fulfillment</th><th></th></tr></thead>
         <tbody>`;
       if (!claims.length) {
-        html += `<tr><td colspan="${5 + (hasMemberCol?1:0) + (hasVerCol?1:0) + 1}" style="text-align:center;color:var(--text3);padding:20px;">No claims yet.</td></tr>`;
+        html += `<tr><td colspan="${6 + (hasMemberCol?1:0) + (hasVerCol?1:0) + 1}" style="text-align:center;color:var(--text3);padding:20px;">No claims yet.</td></tr>`;
       } else {
         claims.forEach((c, ci) => {
           const nf = nextFulfillment(c.fulfillment);
@@ -2264,6 +2264,12 @@ function renderDetailContent() {
             <td>${c.qty}</td>
             ${hasMemberCol ? `<td style="font-size:12px;color:var(--text2);">${memberOrVer||'—'}</td>` : ''}
             ${hasVerCol ? `<td style="font-size:12px;color:var(--text2);">${(c.assignedVers||[]).join(' + ')}</td>` : ''}
+            <td>${(() => {
+              const sec = !c.claim_status || c.claim_status === 'secured';
+              return c.claim_id
+                ? `<span class="badge ${sec?'badge-secured':'badge-pending'}" style="cursor:pointer;" title="Click to secure/unsecure" onclick="toggleClaimSecure('${c.claim_id}','${go.id}','${si.id}')">${sec?'Secured':'Unsecured'}</span>`
+                : `<span class="badge ${sec?'badge-secured':'badge-pending'}">${sec?'Secured':'Unsecured'}</span>`;
+            })()}</td>
             <td><span class="badge ${c.payment==='paid'?'badge-paid':'badge-unpaid'}">${c.payment==='paid'?'Paid':'Unpaid'}</span></td>
             <td><div style="display:flex;align-items:center;gap:6px;">
               <span class="badge ${fulfillBadge(c.fulfillment)}">${c.fulfillment}</span>
@@ -2368,7 +2374,9 @@ function toggleClaimSecure(claimId, goId, siId) {
   const si = allGOs[goId].subItems.find(s => s.id === siId);
   const c = (si.claims || []).find(x => x.claim_id === claimId);
   if (!c) return;
-  c.claim_status = c.claim_status === 'secured' ? 'pending' : 'secured';
+  // A claim is "secured" when its status is secured OR unset (merch/versioned default
+  // to secured). Toggle: pending -> secured, anything-else (incl. unset) -> pending.
+  c.claim_status = c.claim_status === 'pending' ? 'secured' : 'pending';
   if (API_URL) persistWrite(apiPost('updateClaim', { claim_id: claimId, claim_status: c.claim_status }), 'Secure');
   renderDetailContent(); renderAdminGOList(); renderOrdersList();
   toast(c.member + ': ' + (c.claim_status === 'secured' ? 'Secured' : 'Not secured'));
@@ -3941,6 +3949,7 @@ function paymentOwedUnits(username, goId) {
     if (si.claims) si.claims.forEach(c => {
       if (!sameUser(c.user, username) || c.claim_status === 'dropped') return;
       if (isBatch(si) && c.claim_status !== 'secured') return;  // batch: only secured cards are owed/payable
+      if (c.claim_status === 'pending') return;  // explicitly unsecured (e.g. merch) not owed/payable
       units.push({ ids: [c.claim_id].filter(Boolean), value: (si.price||0) * (c.qty||1), kind: 'claim', refs: [c] });
     });
   });
@@ -4487,7 +4496,8 @@ function buildVersionedClaims(claims, siId) {
     user: c.username, qty: c.qty || 1,
     member: c.member_or_version || '',
     assignedVers: c.assigned_vers ? c.assigned_vers.split('+') : [],
-    payment: c.payment_status, fulfillment: c.fulfillment, claim_id: c.claim_id
+    payment: c.payment_status, fulfillment: c.fulfillment, claim_id: c.claim_id,
+    claim_status: c.claim_status
   }));
 }
 
