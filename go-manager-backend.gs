@@ -16,7 +16,6 @@ const SHEET_GC_ADDED = 'gc_added'; // per-GO: joiners marked as added to the IG 
 const SHEET_SECURED_SETS = 'secured_sets'; // sets the admin explicitly secured (badge = flagged OR full)
 const SHEET_CLOSED_SUBITEMS = 'closed_subitems'; // POBs (sub-items) the admin has closed
 const SHEET_SUBITEM_DEADLINES = 'subitem_deadlines'; // per-POB display-only deadline dates
-const SHEET_SET_PAYMENT_DUE = 'set_payment_due'; // per-set payment due dates (display only)
 
 // ── Bootstrap: create all required sheets if missing ─────────────────────────
 function bootstrapSheets() {
@@ -32,7 +31,6 @@ function bootstrapSheets() {
   ensureSheet(ss, SHEET_SECURED_SETS, ['go_id','sub_item_id','set_num']);
   ensureSheet(ss, SHEET_CLOSED_SUBITEMS, ['go_id','sub_item_id']);
   ensureSheet(ss, SHEET_SUBITEM_DEADLINES, ['go_id','sub_item_id','deadline']);
-  ensureSheet(ss, SHEET_SET_PAYMENT_DUE, ['go_id','sub_item_id','set_num','due_date']);
   // Per-GO sub-item sheets are created when a GO is created.
 }
 
@@ -76,7 +74,6 @@ function doGet(e) {
     else if (action === 'getSecuredSets')  result = getSecuredSets();
     else if (action === 'getClosedSubItems') result = getClosedSubItems();
     else if (action === 'getSubItemDeadlines') result = getSubItemDeadlines();
-    else if (action === 'getSetPaymentDue') result = getSetPaymentDue();
     else if (action === 'ping')            result = { ok: true };
     else result = { error: 'Unknown action: ' + action };
     return jsonResponse(result);
@@ -113,7 +110,6 @@ function doPost(e) {
     else if (action === 'setSecuredSet')    result = setSecuredSet(body.data);
     else if (action === 'setClosedSubItem')  result = setClosedSubItem(body.data);
     else if (action === 'setSubItemDeadline')  result = setSubItemDeadline(body.data);
-    else if (action === 'setSetPaymentDue')  result = setSetPaymentDue(body.data);
     else if (action === 'deletePayment')     result = deletePayment(body.data.payment_id);
     else if (action === 'submitShipping')    result = submitShipping(body.data);
     else if (action === 'updateShipping')    result = updateShipping(body.data);
@@ -223,7 +219,6 @@ function deleteGO(goId) {
   deleteRowsWhere(ss.getSheetByName(SHEET_SECURED_SETS), 'go_id', goId);
   deleteRowsWhere(ss.getSheetByName(SHEET_CLOSED_SUBITEMS), 'go_id', goId);
   deleteRowsWhere(ss.getSheetByName(SHEET_SUBITEM_DEADLINES), 'go_id', goId);
-  deleteRowsWhere(ss.getSheetByName(SHEET_SET_PAYMENT_DUE), 'go_id', goId);
   // Delete sub-item sheet
   const siSheet = ss.getSheetByName('go_' + goId);
   if (siSheet) ss.deleteSheet(siSheet);
@@ -587,31 +582,6 @@ function setSubItemDeadline(data) {
   if (deadline) {
     if (foundRow === -1) sheet.appendRow([data.go_id, data.sub_item_id, deadline]);
     else sheet.getRange(foundRow + 1, di + 1).setValue(deadline);
-  } else if (foundRow !== -1) {
-    sheet.deleteRow(foundRow + 1);
-  }
-  return { ok: true };
-}
-
-function getSetPaymentDue() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_SET_PAYMENT_DUE);
-  return { set_payment_due: sheet ? sheetToObjects(sheet) : [] };
-}
-
-function setSetPaymentDue(data) {
-  bootstrapSheets();
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_SET_PAYMENT_DUE);
-  const rows = sheet.getDataRange().getValues();
-  const h = rows[0];
-  const si = h.indexOf('sub_item_id'), sn = h.indexOf('set_num'), di = h.indexOf('due_date');
-  let foundRow = -1;
-  for (let i = 1; i < rows.length; i++) {
-    if (rows[i][si] === data.sub_item_id && String(rows[i][sn]) === String(data.set_num)) { foundRow = i; break; }
-  }
-  const due = data.due_date || '';
-  if (due) {
-    if (foundRow === -1) sheet.appendRow([data.go_id, data.sub_item_id, data.set_num, due]);
-    else sheet.getRange(foundRow + 1, di + 1).setValue(due);
   } else if (foundRow !== -1) {
     sheet.deleteRow(foundRow + 1);
   }
