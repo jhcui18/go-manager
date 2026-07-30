@@ -551,6 +551,8 @@ function pickTargetSet(si, member, closed) {
 }
 let subItemDeadlines = {}; // 'goId|siId' -> deadline date string (display only)
 function subItemDeadline(goId, siId) { return subItemDeadlines[goId + '|' + siId] || ''; }
+let subItemPayDue = {}; // 'goId|siId' -> payment due date ("Pay by") string (display only)
+function subItemPayByDate(goId, siId) { return subItemPayDue[goId + '|' + siId] || ''; }
 function gcNorm(u) { return String(u == null ? '' : u).trim().toLowerCase(); }
 function isGcAdded(goId, username) { return !!(gcAdded[goId] && gcAdded[goId][gcNorm(username)]); }
 // Unique joiner handles across ALL of a GO's claims (set slots + claims-based), case-insensitive dedup.
@@ -1661,13 +1663,13 @@ function doLookup() {
           const isOT = membersToCheck.length && membersToCheck.every(m => { const s = set.slots[m]; return s && sameUser(s.user, u) && s.ot; });
           if (isOT) {
             const s0 = set.slots[membersToCheck[0]];
-            rows.push({ go_id:go.id, go:go.name, item:si.name, detail:'OT'+membersToCheck.length+' full set', qty:1, price:si.otPrice||0, claim:(s0.claim_status==='dropped')?'Not fulfilled':((s0.claim_status==='secured')?'Secured':'Pending'), payment:s0.payment, fulfillment:s0.fulfillment });
+            rows.push({ go_id:go.id, go:go.name, item:si.name, detail:'OT'+membersToCheck.length+' full set', qty:1, price:si.otPrice||0, claim:(s0.claim_status==='dropped')?'Not fulfilled':((s0.claim_status==='secured')?'Secured':'Pending'), payment:s0.payment, fulfillment:s0.fulfillment, due: subItemPayByDate(go.id, si.id) });
             return;
           }
           membersToCheck.forEach(member => {
             const slot = set.slots[member];
             if (slot && sameUser(slot.user, u)) {
-              rows.push({ go_id:go.id, go:go.name, item:si.name, detail:member, qty:1, price:si.price||0, claim:(slot.claim_status==='dropped')?'Not fulfilled':((slot.claim_status==='secured')?'Secured':'Pending'), payment:slot.payment, fulfillment:slot.fulfillment });
+              rows.push({ go_id:go.id, go:go.name, item:si.name, detail:member, qty:1, price:si.price||0, claim:(slot.claim_status==='dropped')?'Not fulfilled':((slot.claim_status==='secured')?'Secured':'Pending'), payment:slot.payment, fulfillment:slot.fulfillment, due: subItemPayByDate(go.id, si.id) });
             }
           });
         });
@@ -1676,7 +1678,7 @@ function doLookup() {
         (si.claims||[]).forEach(c => {
           if (sameUser(c.user, u)) {
             const detail = c.member || (c.assignedVers||[]).join('+');
-            rows.push({ go_id:go.id, go:go.name, item:si.name, detail, qty:c.qty, price:si.price||0, claim:(c.claim_status==='dropped')?'Not fulfilled':((c.claim_status && c.claim_status !== 'secured') ? 'Pending' : 'Secured'), payment:c.payment, fulfillment:c.fulfillment });
+            rows.push({ go_id:go.id, go:go.name, item:si.name, detail, qty:c.qty, price:si.price||0, claim:(c.claim_status==='dropped')?'Not fulfilled':((c.claim_status && c.claim_status !== 'secured') ? 'Pending' : 'Secured'), payment:c.payment, fulfillment:c.fulfillment, due: subItemPayByDate(go.id, si.id) });
           }
         });
       }
@@ -1788,7 +1790,7 @@ function renderMyOrderGoBlock(g, goRows, u) {
     <td>${r.qty}</td>
     <td style="font-family:var(--mono);font-size:12px;">${r.price > 0 ? '$' + (r.price * r.qty).toFixed(2) : '—'}</td>
     <td><span class="badge ${r.claim==='Secured'?'badge-secured':r.claim==='Not fulfilled'?'badge-dropped':'badge-pending'}">${r.claim}</span></td>
-    <td><span class="badge ${r.payment==='paid'?'badge-paid':'badge-unpaid'}">${r.payment==='paid'?'Paid':'Unpaid'}</span></td>
+    <td><span class="badge ${r.payment==='paid'?'badge-paid':'badge-unpaid'}">${r.payment==='paid'?'Paid':'Unpaid'}</span>${(r.claim==='Secured' && r.payment!=='paid' && r.due) ? `<div style="font-size:10px;color:var(--red-400);margin-top:2px;">Pay by ${r.due}</div>` : ''}</td>
     <td><span class="badge ${fulfillBadge(r.fulfillment)}">${r.fulfillment}</span></td>
   </tr>`).join('');
   const summaryLine = `Paid $${s.paid.toFixed(2)} · Owed $${s.owed.toFixed(2)}`
@@ -2128,6 +2130,7 @@ function renderDetailContent() {
     if (si.closed) html += ` <span class="badge badge-waitlist" style="font-size:10px;">Closed</span>`;
     html += ` <button class="btn btn-sm btn-ghost" style="font-size:11px;padding:2px 8px;${si.closed ? 'color:var(--teal-600);' : 'color:var(--red-400);'}" onclick="event.stopPropagation();toggleSubItemClosed('${go.id}','${si.id}')">${si.closed ? 'Reopen POB' : 'Close POB'}</button>`;
     html += ` <span style="font-size:11px;color:var(--text3);">closes</span> <input type="date" value="${si.deadline || ''}" onclick="event.stopPropagation()" onchange="setSubItemDeadline('${go.id}','${si.id}', this.value)" style="font-size:11px;padding:1px 4px;border:0.5px solid var(--border2);border-radius:5px;">`;
+    html += ` <span style="font-size:11px;color:var(--text3);">pay by</span> <input type="date" value="${si.payDue || ''}" onclick="event.stopPropagation()" onchange="setSubItemPayDue('${go.id}','${si.id}', this.value)" style="font-size:11px;padding:1px 4px;border:0.5px solid var(--border2);border-radius:5px;">`;
     html += `</div>`;
     html += `<div id="adm-body-${si.id}" style="display:${siOpen ? 'block' : 'none'};">`;
     if (si.imageUrl) html += `<div style="margin-bottom:10px;">${siImg(si,'thumb')}</div>`;
@@ -2420,6 +2423,16 @@ function setSubItemDeadline(goId, siId, value) {
   if (API_URL) persistWrite(apiPost('setSubItemDeadline', { go_id: goId, sub_item_id: siId, deadline: si.deadline }), 'Deadline');
   renderDetailContent();
   toast(si.deadline ? ('Deadline set: ' + fmtDate(si.deadline)) : 'Deadline cleared.');
+}
+function setSubItemPayDue(goId, siId, value) {
+  const si = allGOs[goId].subItems.find(s => s.id === siId);
+  if (!si) return;
+  si.payDue = value || '';
+  const key = goId + '|' + siId;
+  if (si.payDue) subItemPayDue[key] = si.payDue; else delete subItemPayDue[key];
+  if (API_URL) persistWrite(apiPost('setSubItemPayDue', { go_id: goId, sub_item_id: siId, due_date: si.payDue }), 'Payment due');
+  renderDetailContent();
+  toast(si.payDue ? ('Payment due: ' + fmtDate(si.payDue)) : 'Payment due cleared.');
 }
 function toggleSubItemClosed(goId, siId) {
   const si = allGOs[goId].subItems.find(s => s.id === siId);
@@ -4278,8 +4291,8 @@ async function syncFromBackend(silent) {
   if (!silent) showLoadingOverlay(true);
   try {
     // Fetch GOs and payments in parallel so the two round-trips overlap.
-    const [result, payResult, listResult, orderResult, shipResult, storeResult, gcResult, securedResult, closedResult, deadlineResult] = await Promise.all([
-      apiGet('getAllGOs'), apiGet('getPayments'), apiGet('getListings'), apiGet('getShopOrders'), apiGet('getShipping'), apiGet('getStoreOrders'), apiGet('getGcAdded'), apiGet('getSecuredSets'), apiGet('getClosedSubItems'), apiGet('getSubItemDeadlines')
+    const [result, payResult, listResult, orderResult, shipResult, storeResult, gcResult, securedResult, closedResult, deadlineResult, payDueResult] = await Promise.all([
+      apiGet('getAllGOs'), apiGet('getPayments'), apiGet('getListings'), apiGet('getShopOrders'), apiGet('getShipping'), apiGet('getStoreOrders'), apiGet('getGcAdded'), apiGet('getSecuredSets'), apiGet('getClosedSubItems'), apiGet('getSubItemDeadlines'), apiGet('getSubItemPayDue')
     ]);
     if (securedResult && Array.isArray(securedResult.secured_sets)) {
       securedSets = {};
@@ -4291,6 +4304,12 @@ async function syncFromBackend(silent) {
     if (closedResult && Array.isArray(closedResult.closed_subitems)) {
       closedResult.closed_subitems.forEach(r => {
         if (r && r.go_id && r.sub_item_id) closedSubItems[r.go_id + '|' + r.sub_item_id] = true;
+      });
+    }
+    subItemPayDue = {};
+    if (payDueResult && Array.isArray(payDueResult.subitem_payment_due)) {
+      payDueResult.subitem_payment_due.forEach(r => {
+        if (r && r.go_id && r.sub_item_id && r.due_date) subItemPayDue[r.go_id + '|' + r.sub_item_id] = fmtDate(r.due_date);
       });
     }
     subItemDeadlines = {};
@@ -4384,6 +4403,7 @@ async function syncFromBackend(silent) {
         rebuilt.subItems.forEach(s => { s.imageUrl = imgById[s.id] || ''; });
         rebuilt.subItems.forEach(s => { s.closed = isSubItemClosed(go.go_id, s.id); });
         rebuilt.subItems.forEach(s => { s.deadline = subItemDeadline(go.go_id, s.id); });
+        rebuilt.subItems.forEach(s => { s.payDue = subItemPayByDate(go.go_id, s.id); });
         allGOs[go.go_id] = rebuilt;
       });
       saveLocal();
