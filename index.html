@@ -2309,7 +2309,7 @@ function renderDetailContent() {
   el.innerHTML = html;
 }
 
-function logSetClaim(goId, siId) {
+async function logSetClaim(goId, siId) {
   const go = allGOs[goId];
   const si = go.subItems.find(s => s.id === siId);
   const username = document.getElementById('log-u-' + siId).value.trim();
@@ -2317,38 +2317,38 @@ function logSetClaim(goId, siId) {
   const qty = parseInt(document.getElementById('log-q-' + siId).value) || 1;
   if (!username || !member) { toast('Enter username and member.'); return; }
   const u = username.startsWith('@') ? username : '@' + username;
-  let placedCount = 0, blockedClosed = false;
-  for (let q = 0; q < qty; q++) {
-    const closed = isPobClosed(allGOs[goId], si);
-    const target = pickTargetSet(si, member, closed);
-    if (target) {
-      target.slots[member] = { user:u, payment:'unpaid', fulfillment:'Pending' };
-      placedCount++;
-    } else if (closed) {
-      blockedClosed = true; break; // no more leftover secured slots for this member
-    } else {
-      const newSet = { status:'open', slots:{}, num: nextSetNum(si.sets) };
-      si.members.forEach(m => newSet.slots[m] = null);
-      newSet.slots[member] = { user:u, payment:'unpaid', fulfillment:'Pending' };
-      si.sets.push(newSet);
-      placedCount++;
-    }
+  const closed = isPobClosed(go, si);
+  let n = qty;
+  if (closed) {
+    // Closed POB: only leftover spots in whole-set-secured sets can be filled.
+    const leftover = (si.sets || []).filter(s => s.status === 'secured' && !s.slots[member]).length;
+    if (!leftover) { toast('This POB is closed — no leftover secured spots for ' + member + '.'); return; }
+    n = Math.min(qty, leftover);
   }
-  if (!placedCount) { toast('This POB is closed — no leftover secured spots for ' + member + '.'); return; }
-  if (!isPobClosed(allGOs[goId], si)) {
-    const last = si.sets[si.sets.length-1];
-    if (countFilled(last, si.members) > 0) {
-      const empty = { status:'open', slots:{}, num: nextSetNum(si.sets) };
-      si.members.forEach(m => empty.slots[m] = null);
-      si.sets.push(empty);
-    }
+  // Persist to the sheet via the backend, which assigns each claim's set_num AUTHORITATIVELY
+  // (first set where the member is free). Previously logSetClaim only mutated local state and
+  // never saved — so IG claims got hand-entered in the sheet, the source of set collisions/gaps.
+  const claims = [];
+  for (let q = 0; q < n; q++) {
+    claims.push({ go_id:goId, go_name:go.name, sub_item_id:si.id, sub_item_name:si.name, sub_item_kind:si.kind||go.type, username:u, email:'', member_or_version:member, set_num:'', qty:1, assigned_vers:'' });
   }
-  document.getElementById('log-u-' + siId).value = '';
-  document.getElementById('log-q-' + siId).value = '1';
-  renderDetailContent();
-  renderAdminGOList();
-  renderOrdersList();
-  toast(blockedClosed ? ('Logged ' + placedCount + ' of ' + qty + ' — POB closed, only leftover secured spots.') : ('Logged: ' + u + ' × ' + member + ' ×' + qty));
+  if (!API_URL) {
+    for (let q = 0; q < n; q++) { const t = pickTargetSet(si, member, closed); if (t) t.slots[member] = { user:u, payment:'unpaid', fulfillment:'Pending' }; }
+    document.getElementById('log-u-' + siId).value = '';
+    document.getElementById('log-q-' + siId).value = '1';
+    renderDetailContent(); renderAdminGOList(); renderOrdersList();
+    toast('Logged (local): ' + u + ' × ' + member); return;
+  }
+  toast('Logging ' + n + ' × ' + member + '…');
+  const res = await submitClaimWithRetry(claims);
+  if (res && res.ok) {
+    document.getElementById('log-u-' + siId).value = '';
+    document.getElementById('log-q-' + siId).value = '1';
+    await refreshCurrentGO(true);  // pull the backend-assigned set_nums into the admin view
+    toast('Logged ' + n + ' × ' + member + ' for ' + u + (n < qty ? ' (capped to leftover spots)' : '') + '.');
+  } else {
+    toast((res && res.message) || 'Could not save — please retry.');
+  }
 }
 
 function toggleSlotPayment(goId, siId, setIdx, member) {
