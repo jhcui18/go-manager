@@ -549,6 +549,8 @@ function pickTargetSet(si, member, closed) {
   for (const s of sets) if (!s.slots[member]) return s;
   return null;
 }
+let subItemDeadlines = {}; // 'goId|siId' -> deadline date string (display only)
+function subItemDeadline(goId, siId) { return subItemDeadlines[goId + '|' + siId] || ''; }
 function gcNorm(u) { return String(u == null ? '' : u).trim().toLowerCase(); }
 function isGcAdded(goId, username) { return !!(gcAdded[goId] && gcAdded[goId][gcNorm(username)]); }
 // Unique joiner handles across ALL of a GO's claims (set slots + claims-based), case-insensitive dedup.
@@ -2120,7 +2122,9 @@ function renderDetailContent() {
     if (nSecurable) html += ` <span class="badge" style="background:var(--accent-light);color:var(--accent-dark);font-size:10px;margin-left:auto;">${nSecurable} securable</span>`;
     html += ` <span style="font-size:12px;color:var(--text3);font-weight:400;${nSecurable ? '' : 'margin-left:auto;'}">${setsSummary(si)}</span>`;
     if (si.closed) html += ` <span class="badge badge-waitlist" style="font-size:10px;">Closed</span>`;
-    html += ` <button class="btn btn-sm btn-ghost" style="font-size:11px;padding:2px 8px;${si.closed ? 'color:var(--teal-600);' : 'color:var(--red-400);'}" onclick="event.stopPropagation();toggleSubItemClosed('${go.id}','${si.id}')">${si.closed ? 'Reopen POB' : 'Close POB'}</button></div>`;
+    html += ` <button class="btn btn-sm btn-ghost" style="font-size:11px;padding:2px 8px;${si.closed ? 'color:var(--teal-600);' : 'color:var(--red-400);'}" onclick="event.stopPropagation();toggleSubItemClosed('${go.id}','${si.id}')">${si.closed ? 'Reopen POB' : 'Close POB'}</button>`;
+    html += ` <span style="font-size:11px;color:var(--text3);">closes</span> <input type="date" value="${si.deadline || ''}" onclick="event.stopPropagation()" onchange="setSubItemDeadline('${go.id}','${si.id}', this.value)" style="font-size:11px;padding:1px 4px;border:0.5px solid var(--border2);border-radius:5px;">`;
+    html += `</div>`;
     html += `<div id="adm-body-${si.id}" style="display:${siOpen ? 'block' : 'none'};">`;
     if (si.imageUrl) html += `<div style="margin-bottom:10px;">${siImg(si,'thumb')}</div>`;
 
@@ -2403,6 +2407,16 @@ function secureBatch(goId, siId, batchNum) {
   toast('Batch ' + batchNum + (makeSecured ? ' secured' : ' unsecured'));
 }
 
+function setSubItemDeadline(goId, siId, value) {
+  const si = allGOs[goId].subItems.find(s => s.id === siId);
+  if (!si) return;
+  si.deadline = value || '';
+  const key = goId + '|' + siId;
+  if (si.deadline) subItemDeadlines[key] = si.deadline; else delete subItemDeadlines[key];
+  if (API_URL) persistWrite(apiPost('setSubItemDeadline', { go_id: goId, sub_item_id: siId, deadline: si.deadline }), 'Deadline');
+  renderDetailContent();
+  toast(si.deadline ? ('Deadline set: ' + fmtDate(si.deadline)) : 'Deadline cleared.');
+}
 function toggleSubItemClosed(goId, siId) {
   const si = allGOs[goId].subItems.find(s => s.id === siId);
   if (!si) return;
@@ -4260,8 +4274,8 @@ async function syncFromBackend(silent) {
   if (!silent) showLoadingOverlay(true);
   try {
     // Fetch GOs and payments in parallel so the two round-trips overlap.
-    const [result, payResult, listResult, orderResult, shipResult, storeResult, gcResult, securedResult, closedResult] = await Promise.all([
-      apiGet('getAllGOs'), apiGet('getPayments'), apiGet('getListings'), apiGet('getShopOrders'), apiGet('getShipping'), apiGet('getStoreOrders'), apiGet('getGcAdded'), apiGet('getSecuredSets'), apiGet('getClosedSubItems')
+    const [result, payResult, listResult, orderResult, shipResult, storeResult, gcResult, securedResult, closedResult, deadlineResult] = await Promise.all([
+      apiGet('getAllGOs'), apiGet('getPayments'), apiGet('getListings'), apiGet('getShopOrders'), apiGet('getShipping'), apiGet('getStoreOrders'), apiGet('getGcAdded'), apiGet('getSecuredSets'), apiGet('getClosedSubItems'), apiGet('getSubItemDeadlines')
     ]);
     if (securedResult && Array.isArray(securedResult.secured_sets)) {
       securedSets = {};
@@ -4273,6 +4287,12 @@ async function syncFromBackend(silent) {
     if (closedResult && Array.isArray(closedResult.closed_subitems)) {
       closedResult.closed_subitems.forEach(r => {
         if (r && r.go_id && r.sub_item_id) closedSubItems[r.go_id + '|' + r.sub_item_id] = true;
+      });
+    }
+    subItemDeadlines = {};
+    if (deadlineResult && Array.isArray(deadlineResult.subitem_deadlines)) {
+      deadlineResult.subitem_deadlines.forEach(r => {
+        if (r && r.go_id && r.sub_item_id && r.deadline) subItemDeadlines[r.go_id + '|' + r.sub_item_id] = fmtDate(r.deadline);
       });
     }
     if (result && result.gos && result.gos.length) {
@@ -4359,6 +4379,7 @@ async function syncFromBackend(silent) {
         });
         rebuilt.subItems.forEach(s => { s.imageUrl = imgById[s.id] || ''; });
         rebuilt.subItems.forEach(s => { s.closed = isSubItemClosed(go.go_id, s.id); });
+        rebuilt.subItems.forEach(s => { s.deadline = subItemDeadline(go.go_id, s.id); });
         allGOs[go.go_id] = rebuilt;
       });
       saveLocal();
