@@ -551,8 +551,6 @@ function pickTargetSet(si, member, closed) {
 }
 let subItemDeadlines = {}; // 'goId|siId' -> deadline date string (display only)
 function subItemDeadline(goId, siId) { return subItemDeadlines[goId + '|' + siId] || ''; }
-let setPaymentDue = {}; // 'siId|setNum' -> due date string (display only)
-function setDueDate(siId, setNum) { return setPaymentDue[siId + '|' + setNum] || ''; }
 function gcNorm(u) { return String(u == null ? '' : u).trim().toLowerCase(); }
 function isGcAdded(goId, username) { return !!(gcAdded[goId] && gcAdded[goId][gcNorm(username)]); }
 // Unique joiner handles across ALL of a GO's claims (set slots + claims-based), case-insensitive dedup.
@@ -2216,8 +2214,6 @@ function renderDetailContent() {
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
             <div style="font-size:13px;font-weight:500;">Set ${admSetNo} — ${filled}/${total}</div>
             <div style="display:flex;gap:6px;align-items:center;">
-              <span style="font-size:10px;color:var(--text3);">pay by</span>
-              <input type="date" value="${setDueDate(si.id, set.num)}" onclick="event.stopPropagation()" onchange="setSetPaymentDue('${go.id}','${si.id}',${set.num}, this.value)" style="font-size:10px;padding:1px 3px;border:0.5px solid var(--border2);border-radius:5px;">
               ${isSecured ? `<span class="badge badge-secured" style="cursor:pointer;" title="Click to unsecure" onclick="unsecureSet('${go.id}','${si.id}',${setIdx})">Secured ✕</span>` : ''}
               ${!isSecured ? `<button class="btn btn-sm" style="color:${reachedMin?'var(--teal-600)':'var(--text3)'};border-color:var(--border2);" title="${reachedMin?'Secure this set':'Below '+si.minSecure+' — secure early'}" onclick="secureSet('${go.id}','${si.id}',${setIdx})">${reachedMin?'Secure':'Secure early'}</button>` : ''}
             </div>
@@ -2424,13 +2420,6 @@ function setSubItemDeadline(goId, siId, value) {
   if (API_URL) persistWrite(apiPost('setSubItemDeadline', { go_id: goId, sub_item_id: siId, deadline: si.deadline }), 'Deadline');
   renderDetailContent();
   toast(si.deadline ? ('Deadline set: ' + fmtDate(si.deadline)) : 'Deadline cleared.');
-}
-function setSetPaymentDue(goId, siId, setNum, value) {
-  const key = siId + '|' + setNum;
-  if (value) setPaymentDue[key] = value; else delete setPaymentDue[key];
-  if (API_URL) persistWrite(apiPost('setSetPaymentDue', { go_id: goId, sub_item_id: siId, set_num: setNum, due_date: value }), 'Payment due');
-  renderDetailContent();
-  toast(value ? ('Set payment due: ' + fmtDate(value)) : 'Payment due cleared.');
 }
 function toggleSubItemClosed(goId, siId) {
   const si = allGOs[goId].subItems.find(s => s.id === siId);
@@ -4289,8 +4278,8 @@ async function syncFromBackend(silent) {
   if (!silent) showLoadingOverlay(true);
   try {
     // Fetch GOs and payments in parallel so the two round-trips overlap.
-    const [result, payResult, listResult, orderResult, shipResult, storeResult, gcResult, securedResult, closedResult, deadlineResult, dueResult] = await Promise.all([
-      apiGet('getAllGOs'), apiGet('getPayments'), apiGet('getListings'), apiGet('getShopOrders'), apiGet('getShipping'), apiGet('getStoreOrders'), apiGet('getGcAdded'), apiGet('getSecuredSets'), apiGet('getClosedSubItems'), apiGet('getSubItemDeadlines'), apiGet('getSetPaymentDue')
+    const [result, payResult, listResult, orderResult, shipResult, storeResult, gcResult, securedResult, closedResult, deadlineResult] = await Promise.all([
+      apiGet('getAllGOs'), apiGet('getPayments'), apiGet('getListings'), apiGet('getShopOrders'), apiGet('getShipping'), apiGet('getStoreOrders'), apiGet('getGcAdded'), apiGet('getSecuredSets'), apiGet('getClosedSubItems'), apiGet('getSubItemDeadlines')
     ]);
     if (securedResult && Array.isArray(securedResult.secured_sets)) {
       securedSets = {};
@@ -4308,12 +4297,6 @@ async function syncFromBackend(silent) {
     if (deadlineResult && Array.isArray(deadlineResult.subitem_deadlines)) {
       deadlineResult.subitem_deadlines.forEach(r => {
         if (r && r.go_id && r.sub_item_id && r.deadline) subItemDeadlines[r.go_id + '|' + r.sub_item_id] = fmtDate(r.deadline);
-      });
-    }
-    setPaymentDue = {};
-    if (dueResult && Array.isArray(dueResult.set_payment_due)) {
-      dueResult.set_payment_due.forEach(r => {
-        if (r && r.sub_item_id && r.set_num !== undefined && r.set_num !== '' && r.due_date) setPaymentDue[r.sub_item_id + '|' + r.set_num] = fmtDate(r.due_date);
       });
     }
     if (result && result.gos && result.gos.length) {
