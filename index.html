@@ -3746,11 +3746,11 @@ function storeTallyHtml(orders, scopeLabel) {
   </div>`;
 }
 function storeOrderRow(o, showGO) {
-  const cost = (parseFloat(o.unit_cost) || 0) * (parseInt(o.qty) || 0);
+  const cost = parseFloat(o.unit_cost) || 0;  // set price as entered — no qty calculation
   return `<div class="card-sm" style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
     <div style="flex:1;min-width:0;">
       <div style="font-size:13px;font-weight:500;">${o.store || '(store?)'}${o.album_version ? ` <span style="font-weight:400;color:var(--text3);">· ${o.album_version}</span>` : ''}</div>
-      <div style="font-size:12px;color:var(--text3);">${showGO ? (o.go_name || '') + ' · ' : ''}${o.sub_item_name || ''} · ${parseInt(o.qty)||0}${cost ? ` · $${cost.toFixed(2)}` : ''}${o.notes ? ` · ${o.notes}` : ''}</div>
+      <div style="font-size:12px;color:var(--text3);">${showGO ? (o.go_name || '') + ' · ' : ''}${o.sub_item_name || ''} · ${parseInt(o.qty)||0}${cost ? ` · ¥${cost.toFixed(2)}` : ''}${o.notes ? ` · ${o.notes}` : ''}</div>
     </div>
     <span class="badge ${storeStatusBadge(o.status)}" style="cursor:pointer;font-size:10px;" onclick="advanceStoreStatus('${o.order_id}')" title="Click to advance status">${o.status || 'Ordered'}</span>
     <button class="btn btn-sm btn-ghost" onclick="openStoreOrderModal('${o.order_id}')">Edit</button>
@@ -3799,7 +3799,7 @@ function openStoreOrderModal(orderId, prefillGoId, prefillSiId) {
     </div>
     <div class="field-row">
       <div class="field"><label>Quantity</label><input type="number" id="sto-qty" min="0" value="${o ? (o.qty||1) : 1}"></div>
-      <div class="field"><label>Unit cost (USD)</label><input type="number" id="sto-cost" step="0.01" value="${o ? (o.unit_cost||0) : 0}"></div>
+      <div class="field"><label>Set price (¥ CNY)</label><input type="number" id="sto-cost" step="0.01" value="${o ? (o.unit_cost||0) : 0}"></div>
     </div>
     <div class="field"><label>Status</label><select id="sto-status">${statusOpts}</select></div>
     <div class="field"><label>Notes (optional)</label><input type="text" id="sto-notes" value="${o ? (o.notes||'') : ''}"></div>
