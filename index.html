@@ -1504,6 +1504,7 @@ function submitClaim(goId) {
   const claimsToWrite = [];
   let placed = false;
   let rejectedClosed = false;
+  const skippedClosed = new Set(); // POB names skipped because closed (for a precise message)
   go.subItems.forEach(si => {
     const state = claimState[si.id];
     if (!state) return;
@@ -1523,7 +1524,7 @@ function submitClaim(goId) {
             placed = true;
             claimsToWrite.push({ go_id:goId, go_name:go.name, sub_item_id:si.id, sub_item_name:si.name, sub_item_kind:si.kind||go.type, username:u, email, member_or_version:member, set_num:target.num, qty:1, assigned_vers:'' });
           } else if (closed) {
-            rejectedClosed = true; // no secured leftover slot for this member — closed
+            rejectedClosed = true; skippedClosed.add(si.name); // no secured leftover slot for this member — closed
           } else {
             const newSet = { status:'open', slots:{}, num: nextSetNum(si.sets) };
             si.members.forEach(m => newSet.slots[m] = null);
@@ -1535,7 +1536,7 @@ function submitClaim(goId) {
         }
       });
       // OT full sets create a NEW set — never allowed when closed.
-      if (otQty && closed) { rejectedClosed = true; }
+      if (otQty && closed) { rejectedClosed = true; skippedClosed.add(si.name); }
       else for (let k = 0; k < otQty; k++) {
         const fullSet = { status:'open', slots:{}, num: nextSetNum(si.sets) };
         si.members.forEach(m => fullSet.slots[m] = { user:u, payment:'unpaid', fulfillment:'Pending', ot:true });
@@ -1556,7 +1557,7 @@ function submitClaim(goId) {
         }
       }
     } else if (state.type === 'merch-member') {
-      if (isPobClosed(go, si)) { rejectedClosed = true; return; }
+      if (isPobClosed(go, si)) { rejectedClosed = true; skippedClosed.add(si.name); return; }
       const members = Object.keys(state.selectedMembers || {});
       if (!members.length) return;
       const qty = state.qty || 1;
@@ -1566,7 +1567,7 @@ function submitClaim(goId) {
         placed = true;
       });
     } else if (state.type === 'version-select') {
-      if (isPobClosed(go, si)) { rejectedClosed = true; return; }
+      if (isPobClosed(go, si)) { rejectedClosed = true; skippedClosed.add(si.name); return; }
       const sel = state.selected || {};
       const versions = Object.keys(sel);
       if (!versions.length) return;
@@ -1577,7 +1578,7 @@ function submitClaim(goId) {
         placed = true;
       });
     } else if (state.type === 'batch') {
-      if (isPobClosed(go, si)) { rejectedClosed = true; return; }
+      if (isPobClosed(go, si)) { rejectedClosed = true; skippedClosed.add(si.name); return; }
       const m = state.members || {};
       const members = Object.keys(m);
       const otQty = state.ot || 0;
@@ -1592,18 +1593,20 @@ function submitClaim(goId) {
       members.forEach(member => { for (let k = 0; k < (m[member] || 1); k++) pushCard(member, false); });
       for (let o = 0; o < otQty; o++) (si.members || []).forEach(member => pushCard(member, true));
     } else if (state.qty > 0) {
-      if (isPobClosed(go, si)) { rejectedClosed = true; return; }
+      if (isPobClosed(go, si)) { rejectedClosed = true; skippedClosed.add(si.name); return; }
       const assigned = si.versions ? assignVersions(state.qty, si.versions) : [];
       si.claims.push({ user:u, qty:state.qty, assignedVers:assigned, payment:'unpaid', fulfillment:'Pending' });
       claimsToWrite.push({ go_id:goId, go_name:go.name, sub_item_id:si.id, sub_item_name:si.name, sub_item_kind:si.kind||go.type, username:u, email, member_or_version:'', set_num:'', qty:state.qty, assigned_vers:assigned.join('+') });
       placed = true;
     }
   });
+  const closedNames = [...skippedClosed].join(', ');
   if (!placed) {
-    toast(rejectedClosed ? 'That POB is closed — only leftover spots in already-secured sets can be claimed.' : 'Please select at least one item.');
+    toast(rejectedClosed ? ((closedNames || 'That POB') + ' is closed — only leftover spots in already-secured sets can be claimed.') : 'Please select at least one item.');
     return;
   }
-  if (rejectedClosed) toast('Some items were skipped — that POB is closed to new sets.');
+  // Some items placed; note (precisely) any that were skipped because their POB is closed.
+  const skippedNote = closedNames ? (' — but ' + closedNames + ' is closed, so those weren’t added') : '';
   claimState = {};
   renderOrdersList();
   renderAdminGOList();
@@ -1615,14 +1618,14 @@ function submitClaim(goId) {
   if (API_URL && claimsToWrite.length) {
     submitClaimWithRetry(claimsToWrite).then(res => {
       if (res && res.ok) {
-        toast('Claim submitted! Check "My orders" to track status.');
+        toast('Claim submitted' + skippedNote + '! Check "My orders" to track status.');
       } else {
         toast((res && res.message) || 'Your claim could not be saved — please try again.');
         syncFromBackend();  // drop the un-saved optimistic claim so it doesn't linger till refresh
       }
     });
   } else {
-    toast('Claim submitted! Check "My orders" to track status.');  // local-only mode (no backend)
+    toast('Claim submitted' + skippedNote + '! Check "My orders" to track status.');  // local-only mode (no backend)
   }
 }
 
