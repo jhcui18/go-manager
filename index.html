@@ -4257,11 +4257,23 @@ const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbyNkei3xGy6AEzv
 let API_URL = localStorage.getItem('go_api_url') || DEFAULT_API_URL;
 let useBackend = !!API_URL;
 
-async function apiGet(action, params = {}) {
+async function apiGet(action, params = {}, attempts = 3) {
   if (!API_URL) return null;
   const qs = new URLSearchParams({ action, ...params }).toString();
-  const res = await fetch(API_URL + '?' + qs);
-  return res.json();
+  // Apps Script intermittently 404/500s a request when many fire at once. GET is
+  // idempotent, so retry with backoff before giving up.
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(API_URL + '?' + qs);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return await res.json();
+    } catch (e) {
+      lastErr = e;
+      if (i < attempts - 1) await new Promise(r => setTimeout(r, 400 * (i + 1)));
+    }
+  }
+  throw lastErr;
 }
 
 async function apiPost(action, data = {}) {
@@ -4293,10 +4305,14 @@ async function syncFromBackend(silent) {
   lastSyncAt = Date.now();
   if (!silent) showLoadingOverlay(true);
   try {
-    // Fetch GOs and payments in parallel so the two round-trips overlap.
-    const [result, payResult, listResult, orderResult, shipResult, storeResult, gcResult, securedResult, closedResult, deadlineResult, payDueResult] = await Promise.all([
+    // Fetch everything in parallel. Use allSettled so one throttled call (Apps Script
+    // intermittently 404s under a burst) degrades that one slice instead of aborting the
+    // whole sync — each slice below already guards for a missing/undefined result.
+    const settled = await Promise.allSettled([
       apiGet('getAllGOs'), apiGet('getPayments'), apiGet('getListings'), apiGet('getShopOrders'), apiGet('getShipping'), apiGet('getStoreOrders'), apiGet('getGcAdded'), apiGet('getSecuredSets'), apiGet('getClosedSubItems'), apiGet('getSubItemDeadlines'), apiGet('getSubItemPayDue')
     ]);
+    const [result, payResult, listResult, orderResult, shipResult, storeResult, gcResult, securedResult, closedResult, deadlineResult, payDueResult] = settled.map(s => s.status === 'fulfilled' ? s.value : undefined);
+    if (!result || !result.gos) toast('Some data could not be refreshed — showing the latest that loaded.');
     if (securedResult && Array.isArray(securedResult.secured_sets)) {
       securedSets = {};
       securedResult.secured_sets.forEach(r => {
