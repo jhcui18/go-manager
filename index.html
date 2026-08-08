@@ -494,6 +494,7 @@ const PAYMENT_METHODS = [
 
 function saveLocal() { try { localStorage.setItem('go_data', JSON.stringify(allGOs)); } catch(e) {} }
 let allGOs = (function() { try { return JSON.parse(localStorage.getItem('go_data') || '{}'); } catch(e) { return {}; } })();
+let claimsLoaded = {}; // goId -> true once that GO's claims have been fetched (buyer lazy-load)
 
 let currentGO = null;
 let claimState = {}; // { subItemId: { type:'set', selectedMembers:{} } | { type:'versioned'|'merch', qty:0 } }
@@ -725,7 +726,7 @@ function renderOrdersList() {
     </div>`;
   });
   container.innerHTML = html;
-  orderedGOs.forEach(go => renderGoPreview(go.id));
+  if (isAdmin) orderedGOs.forEach(go => renderGoPreview(go.id));
   renderPaymentGoSelect();
 }
 
@@ -2890,6 +2891,7 @@ function submitAdminPass() {
     sessionStorage.setItem('go_admin', '1');
     closeAdminLogin();
     applyAdminState();
+    if (API_URL) syncFromBackend();  // pull full data (claims) now that we're admin
     showPage('admin');
   } else {
     document.getElementById('admin-pass-err').textContent = 'Incorrect password.';
@@ -4313,10 +4315,14 @@ async function syncFromBackend(silent) {
     // intermittently 404s under a burst) degrades that one slice instead of aborting the
     // whole sync — each slice below already guards for a missing/undefined result.
     const settled = await Promise.allSettled([
-      apiGet('getAllGOs'), apiGet('getPayments'), apiGet('getListings'), apiGet('getShopOrders'), apiGet('getShipping'), apiGet('getStoreOrders'), apiGet('getGcAdded'), apiGet('getSecuredSets'), apiGet('getClosedSubItems'), apiGet('getSubItemDeadlines'), apiGet('getSubItemPayDue')
+      (isAdmin ? apiGet('getAllGOs') : apiGet('getGOsList')), apiGet('getPayments'), apiGet('getListings'), apiGet('getShopOrders'), apiGet('getShipping'), apiGet('getStoreOrders'), apiGet('getGcAdded'), apiGet('getSecuredSets'), apiGet('getClosedSubItems'), apiGet('getSubItemDeadlines'), apiGet('getSubItemPayDue')
     ]);
     const [result, payResult, listResult, orderResult, shipResult, storeResult, gcResult, securedResult, closedResult, deadlineResult, payDueResult] = settled.map(s => s.status === 'fulfilled' ? s.value : undefined);
-    if (!result || !result.gos) toast('Some data could not be refreshed — showing the latest that loaded.');
+    let gosData = result;
+    if (!isAdmin && (!gosData || !gosData.gos)) {
+      try { gosData = await apiGet('getAllGOs'); } catch (e) {}
+    }
+    if (!gosData || !gosData.gos) toast('Some data could not be refreshed — showing the latest that loaded.');
     if (securedResult && Array.isArray(securedResult.secured_sets)) {
       securedSets = {};
       securedResult.secured_sets.forEach(r => {
@@ -4341,9 +4347,9 @@ async function syncFromBackend(silent) {
         if (r && r.go_id && r.sub_item_id && r.deadline) subItemDeadlines[r.go_id + '|' + r.sub_item_id] = fmtDate(r.deadline);
       });
     }
-    if (result && result.gos && result.gos.length) {
+    if (gosData && gosData.gos && gosData.gos.length) {
       allGOs = {};
-      result.gos.forEach(go => {
+      gosData.gos.forEach(go => {
         if (!go.go_id) return; // skip blank rows
         const rebuilt = {
           id: go.go_id, name: go.name || '', type: go.type || 'photocard',
@@ -4429,6 +4435,10 @@ async function syncFromBackend(silent) {
         rebuilt.subItems.forEach(s => { s.payDue = subItemPayByDate(go.go_id, s.id); });
         allGOs[go.go_id] = rebuilt;
       });
+      // A getAllGOs load already has every GO's claims; a getGOsList load has none.
+      const fullLoad = isAdmin || (gosData && gosData.gos && gosData.gos.some(g => g.claims));
+      claimsLoaded = {};
+      if (fullLoad) Object.keys(allGOs).forEach(id => { claimsLoaded[id] = true; });
       saveLocal();
       renderOrdersList();
       renderAdminGOList();
