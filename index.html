@@ -1595,9 +1595,9 @@ function submitClaim(goId) {
         }
       }
     } else if (state.type === 'merch-member') {
-      if (isPobClosed(go, si)) { rejectedClosed = true; skippedClosed.add(si.name); return; }
       const members = Object.keys(state.selectedMembers || {});
-      if (!members.length) return;
+      if (!members.length) return;  // nothing selected here — don't flag a closed POB the buyer never touched
+      if (isPobClosed(go, si)) { rejectedClosed = true; skippedClosed.add(si.name); return; }
       const qty = state.qty || 1;
       members.forEach(member => {
         si.claims.push({ user:u, qty, member, assignedVers:[], payment:'unpaid', fulfillment:'Pending' });
@@ -1605,10 +1605,10 @@ function submitClaim(goId) {
         placed = true;
       });
     } else if (state.type === 'version-select') {
-      if (isPobClosed(go, si)) { rejectedClosed = true; skippedClosed.add(si.name); return; }
       const sel = state.selected || {};
       const versions = Object.keys(sel);
-      if (!versions.length) return;
+      if (!versions.length) return;  // nothing selected here — don't flag a closed POB the buyer never touched
+      if (isPobClosed(go, si)) { rejectedClosed = true; skippedClosed.add(si.name); return; }
       versions.forEach(version => {
         const qty = sel[version];
         si.claims.push({ user:u, qty, member:version, assignedVers:[version], payment:'unpaid', fulfillment:'Pending' });
@@ -1616,11 +1616,11 @@ function submitClaim(goId) {
         placed = true;
       });
     } else if (state.type === 'batch') {
-      if (isPobClosed(go, si)) { rejectedClosed = true; skippedClosed.add(si.name); return; }
       const m = state.members || {};
       const members = Object.keys(m);
       const otQty = state.ot || 0;
-      if (!members.length && !otQty) return;
+      if (!members.length && !otQty) return;  // nothing selected here — don't flag a closed POB the buyer never touched
+      if (isPobClosed(go, si)) { rejectedClosed = true; skippedClosed.add(si.name); return; }
       const now = new Date().toISOString();
       const pushCard = (member, ot) => {
         const cid = 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
