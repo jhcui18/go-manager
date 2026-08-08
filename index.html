@@ -931,9 +931,42 @@ function renderGoPreview(goId) {
 }
 
 // ── CLAIM PAGE ───────────────────────────────────────────────────────────────
-function openClaimPage(goId) {
+// Buyer lazy-load: fetch one GO's claims (+ the small flag stores the board needs) and
+// rebuild that GO's sub-items in place. Idempotent; sets claimsLoaded[goId].
+async function loadGOClaims(goId) {
+  const go = allGOs[goId];
+  if (!go) return;
+  const [claimsRes, sec, closed, deads, pdue] = await Promise.all([
+    apiGet('getGOClaims', { go_id: goId }), apiGet('getSecuredSets'), apiGet('getClosedSubItems'),
+    apiGet('getSubItemDeadlines'), apiGet('getSubItemPayDue')
+  ]);
+  const claims = (claimsRes && claimsRes.claims) || [];
+  // Refresh the flag maps (same parse as syncFromBackend).
+  if (sec && Array.isArray(sec.secured_sets)) { securedSets = {}; sec.secured_sets.forEach(r => { if (r && r.sub_item_id && r.set_num !== undefined && r.set_num !== '') securedSets[r.sub_item_id + '|' + r.set_num] = true; }); }
+  if (closed && Array.isArray(closed.closed_subitems)) { closedSubItems = {}; closed.closed_subitems.forEach(r => { if (r && r.go_id && r.sub_item_id) closedSubItems[r.go_id + '|' + r.sub_item_id] = true; }); }
+  if (deads && Array.isArray(deads.subitem_deadlines)) { subItemDeadlines = {}; deads.subitem_deadlines.forEach(r => { if (r && r.go_id && r.sub_item_id && r.deadline) subItemDeadlines[r.go_id + '|' + r.sub_item_id] = fmtDate(r.deadline); }); }
+  if (pdue && Array.isArray(pdue.subitem_payment_due)) { subItemPayDue = {}; pdue.subitem_payment_due.forEach(r => { if (r && r.go_id && r.sub_item_id && r.due_date) subItemPayDue[r.go_id + '|' + r.sub_item_id] = fmtDate(r.due_date); }); }
+  // Rebuild each sub-item's claims/sets from the fetched claims, matching its shape.
+  go.subItems.forEach(si => {
+    const members = si.members || [];
+    if (si.sets !== undefined) si.sets = buildSetsFromClaims(claims, si.id, members);
+    else if (isBatch(si)) si.claims = buildBatchClaims(claims, si.id);
+    else si.claims = buildVersionedClaims(claims, si.id);
+    si.closed = isSubItemClosed(goId, si.id);
+    si.deadline = subItemDeadline(goId, si.id);
+    si.payDue = subItemPayByDate(goId, si.id);
+  });
+  go.status = go.status || 'open';
+  claimsLoaded[goId] = true;
+}
+
+async function openClaimPage(goId) {
   currentClaimGoId = goId;
   claimState = {};
+  if (!isAdmin && !claimsLoaded[goId] && API_URL) {
+    try { await loadGOClaims(goId); }
+    catch (e) { toast('Couldn’t load this group order — please try again.'); return; }
+  }
   const go = allGOs[goId];
   let page = document.getElementById('page-claim-' + goId);
   if (!page) {
