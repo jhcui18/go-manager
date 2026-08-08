@@ -155,14 +155,25 @@ function getAllGOs() {
 
 // Lightweight list for the buyer landing: GOs + sub-items, but NO claims (skips the
 // joiners-sheet read entirely — that's the 3k-row / multi-second cost of getAllGOs).
+const GOS_LIST_CACHE_KEY = 'gos_list_v1';
+function invalidateGOsListCache() { try { CacheService.getScriptCache().remove(GOS_LIST_CACHE_KEY); } catch (e) {} }
+
+// Buyer landing payload (GO + sub-item metadata, no claims). Reading each GO's sub-item
+// sheet is the slow part (16 sheet reads), so cache the built JSON for a few minutes and
+// invalidate it whenever a GO changes (create/update/deleteGO). First visitor pays the
+// build; everyone within the window gets it instantly.
 function getGOsList() {
+  const cache = CacheService.getScriptCache();
+  const cached = cache.get(GOS_LIST_CACHE_KEY);
+  if (cached) { try { return JSON.parse(cached); } catch (e) {} }
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const goSheet = ss.getSheetByName(SHEET_GOS);
-  if (!goSheet) return { gos: [] };
-  return { gos: sheetToObjects(goSheet).map(row => {
+  const result = { gos: goSheet ? sheetToObjects(goSheet).map(row => {
     const siSheet = ss.getSheetByName('go_' + row.go_id);
     return { ...row, subItems: siSheet ? sheetToObjects(siSheet) : [] };
-  }) };
+  }) : [] };
+  try { const s = JSON.stringify(result); if (s.length < 90000) cache.put(GOS_LIST_CACHE_KEY, s, 300); } catch (e) {}
+  return result;
 }
 
 // Claims for ONE GO — used when a buyer opens that GO.
@@ -183,6 +194,7 @@ function createGO(data) {
   (data.subItems || []).forEach(si => {
     siSheet.appendRow([si.id, si.name, si.kind || data.type, JSON.stringify(si.members || []), JSON.stringify(si.versions || []), si.price || 0, si.otPrice || 0, si.minSecure || data.min_secure || 7, si.imageUrl || '']);
   });
+  invalidateGOsListCache();
   return { ok: true, go_id: goId };
 }
 
@@ -228,6 +240,7 @@ function updateGO(data) {
       siSheet.getRange(1, 1, grid.length, HEADERS.length).setValues(grid);
       if (oldLast > grid.length) siSheet.deleteRows(grid.length + 1, oldLast - grid.length);
     }
+    invalidateGOsListCache();
     return { ok: true };
   } finally {
     lock.releaseLock();
@@ -248,6 +261,7 @@ function deleteGO(goId) {
   // Delete sub-item sheet
   const siSheet = ss.getSheetByName('go_' + goId);
   if (siSheet) ss.deleteSheet(siSheet);
+  invalidateGOsListCache();
   return { ok: true };
 }
 

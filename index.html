@@ -966,8 +966,10 @@ async function openClaimPage(goId) {
   currentClaimGoId = goId;
   claimState = {};
   if (!isAdmin && !claimsLoaded[goId] && API_URL) {
+    showLoadingOverlay(true, 'Loading group order…');
     try { await loadGOClaims(goId); }
-    catch (e) { toast('Couldn’t load this group order — please try again.'); return; }
+    catch (e) { showLoadingOverlay(false); toast('Couldn’t load this group order — please try again.'); return; }
+    showLoadingOverlay(false);
   }
   const go = allGOs[goId];
   let page = document.getElementById('page-claim-' + goId);
@@ -4744,15 +4746,17 @@ function batchClaimsToSets(si) {
   return buildSetsFromClaims(rows, si.id, si.members || []);
 }
 
-function showLoadingOverlay(show) {
+function showLoadingOverlay(show, msg) {
   let el = document.getElementById('loading-overlay');
   if (!el) {
     el = document.createElement('div');
     el.id = 'loading-overlay';
     el.style.cssText = 'position:fixed;inset:0;background:rgba(255,255,255,0.8);display:flex;align-items:center;justify-content:center;z-index:9999;font-size:14px;color:var(--text2);';
-    el.innerHTML = '<div>Syncing with Google Sheets…</div>';
+    el.innerHTML = '<div id="loading-overlay-msg"></div>';
     document.body.appendChild(el);
   }
+  const m = el.querySelector('#loading-overlay-msg');
+  if (m) m.textContent = msg || 'Syncing with Google Sheets…';
   el.style.display = show ? 'flex' : 'none';
 }
 
