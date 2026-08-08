@@ -1682,45 +1682,99 @@ async function submitClaimWithRetry(claims, attempts = 3) {
 }
 
 // ── LOOKUP ───────────────────────────────────────────────────────────────────
-function doLookup() {
-  const val = document.getElementById('lookup-input').value.trim();
-  if (!val) return;
-  const u = val.startsWith('@') ? val : '@' + val;
+let myLookupClaims = []; // buyer My Orders: this user's flat claims from getJoiners
+async function doLookup() {
+  const raw = (document.getElementById('lookup-input') || {}).value || '';
+  const u = raw.trim().startsWith('@') ? raw.trim() : '@' + raw.trim();
+  if (!raw.trim()) { toast('Enter your username.'); return; }
+  if (!isAdmin && API_URL) {
+    // Buyer lazy path: pull just this user's claims + payments/shop/shipping.
+    const [jr, pr, so, sh] = await Promise.all([
+      apiGet('getJoiners', { username: raw.trim() }), apiGet('getPayments'),
+      apiGet('getShopOrders'), apiGet('getShipping')
+    ]);
+    myLookupClaims = (jr && jr.claims) || [];
+    if (pr && Array.isArray(pr.payments)) paymentProofs = pr.payments.filter(p => p && p.payment_id).map(p => ({ payment_id:p.payment_id, username:p.username, go_id:p.go_id, go_name:p.go_name, amount:p.amount, method:p.method, transaction_id:p.transaction_id, proof_url:p.proof_url, status:p.status||'pending', created_at:p.created_at, note:p.note||'' }));
+    if (so && Array.isArray(so.shop_orders)) shopOrders = so.shop_orders;
+    if (sh && Array.isArray(sh.requests)) shippingRequests = sh.requests;
+  }
+  doLookupRender(u);
+}
+
+function doLookupRender(u) {
   document.getElementById('result-avatar').textContent = u.replace('@','').slice(0,2).toUpperCase();
   document.getElementById('result-username').textContent = u;
   const rows = [];
-  Object.values(allGOs).forEach(go => {
-    go.subItems.forEach(si => {
-      if (si.sets) {
-        // set-based: photocard and album member ver
-        si.sets.forEach(set => {
-          // use si.members if available, otherwise fall back to actual slot keys
-          const membersToCheck = (si.members||[]).length ? si.members : Object.keys(set.slots);
-          // OT full set owned by this user → single line at the flat OT price
-          const isOT = membersToCheck.length && membersToCheck.every(m => { const s = set.slots[m]; return s && sameUser(s.user, u) && s.ot; });
-          if (isOT) {
-            const s0 = set.slots[membersToCheck[0]];
-            rows.push({ go_id:go.id, go:go.name, item:si.name, detail:'OT'+membersToCheck.length+' full set', qty:1, price:si.otPrice||0, claim:(s0.claim_status==='dropped')?'Not fulfilled':((s0.claim_status==='secured')?'Secured':'Pending'), payment:s0.payment, fulfillment:s0.fulfillment, due: subItemPayByDate(go.id, si.id) });
-            return;
-          }
-          membersToCheck.forEach(member => {
-            const slot = set.slots[member];
-            if (slot && sameUser(slot.user, u)) {
-              rows.push({ go_id:go.id, go:go.name, item:si.name, detail:member, qty:1, price:si.price||0, claim:(slot.claim_status==='dropped')?'Not fulfilled':((slot.claim_status==='secured')?'Secured':'Pending'), payment:slot.payment, fulfillment:slot.fulfillment, due: subItemPayByDate(go.id, si.id) });
-            }
-          });
-        });
+  const buyerMode = !isAdmin; // My Orders lazy path: build from flat claims, not allGOs
+  // sub_item_id -> metadata (price/otPrice/kind/minSecure/name), from allGOs (present even
+  // in the buyer's metadata-only landing state — see getGOsList/loadAllGOs).
+  const siMeta = {};
+  Object.values(allGOs).forEach(go => (go.subItems || []).forEach(si => { siMeta[si.id] = si; }));
+  if (buyerMode) {
+    const mine = myLookupClaims.filter(c => sameUser(c.username, u));
+    const setGroups = {}; // sub_item_id|set_num -> { meta, go_id, go, item, claims:[] }
+    mine.forEach(c => {
+      const meta = siMeta[c.sub_item_id];
+      const isSetKind = meta && (meta.kind === 'member' || meta.kind === 'photocard') && parseInt(meta.minSecure) >= 0 && c.member_or_version && c.set_num !== '' && c.set_num !== undefined && c.set_num !== null;
+      if (isSetKind) {
+        const key = c.sub_item_id + '|' + c.set_num;
+        (setGroups[key] = setGroups[key] || { meta, go_id: c.go_id, go: c.go_name, item: (meta && meta.name) || c.sub_item_name, claims: [] }).claims.push(c);
       } else {
-        // claims-based: versioned, random, merch member
-        (si.claims||[]).forEach(c => {
-          if (sameUser(c.user, u)) {
-            const detail = c.member || (c.assignedVers||[]).join('+');
-            rows.push({ go_id:go.id, go:go.name, item:si.name, detail, qty:c.qty, price:si.price||0, claim:(c.claim_status==='dropped')?'Not fulfilled':((c.claim_status && c.claim_status !== 'secured') ? 'Pending' : 'Secured'), payment:c.payment, fulfillment:c.fulfillment, due: subItemPayByDate(go.id, si.id) });
-          }
-        });
+        const detail = c.member_or_version || c.assigned_vers || '';
+        rows.push({ go_id:c.go_id, go:c.go_name, item:(meta && meta.name) || c.sub_item_name, detail, qty: parseInt(c.qty)||1, price: parseFloat(meta && meta.price)||0,
+          claim:(c.claim_status==='dropped')?'Not fulfilled':((c.claim_status && c.claim_status !== 'secured') ? 'Pending' : 'Secured'),
+          payment:c.payment_status, fulfillment:c.fulfillment, due: subItemPayByDate(c.go_id, c.sub_item_id) });
       }
     });
-  });
+    Object.values(setGroups).forEach(g => {
+      const otClaims = g.claims.filter(c => c.assigned_vers === 'OT');
+      const normalClaims = g.claims.filter(c => c.assigned_vers !== 'OT');
+      if (otClaims.length) {
+        const c0 = otClaims.find(c => c.claim_status !== 'dropped') || otClaims[0];
+        rows.push({ go_id:g.go_id, go:g.go, item:g.item, detail:'OT'+otClaims.length+' full set', qty:1, price:(g.meta && g.meta.otPrice)||0,
+          claim:(c0.claim_status==='dropped')?'Not fulfilled':((c0.claim_status==='secured')?'Secured':'Pending'), payment:c0.payment_status, fulfillment:c0.fulfillment,
+          due: subItemPayByDate(g.go_id, g.meta && g.meta.id) });
+      }
+      normalClaims.forEach(c => {
+        rows.push({ go_id:g.go_id, go:g.go, item:g.item, detail:c.member_or_version, qty:1, price:(g.meta && g.meta.price)||0,
+          claim:(c.claim_status==='dropped')?'Not fulfilled':((c.claim_status==='secured')?'Secured':'Pending'), payment:c.payment_status, fulfillment:c.fulfillment,
+          due: subItemPayByDate(g.go_id, g.meta && g.meta.id) });
+      });
+    });
+  } else {
+    Object.values(allGOs).forEach(go => {
+      go.subItems.forEach(si => {
+        if (si.sets) {
+          // set-based: photocard and album member ver
+          si.sets.forEach(set => {
+            // use si.members if available, otherwise fall back to actual slot keys
+            const membersToCheck = (si.members||[]).length ? si.members : Object.keys(set.slots);
+            // OT full set owned by this user → single line at the flat OT price
+            const isOT = membersToCheck.length && membersToCheck.every(m => { const s = set.slots[m]; return s && sameUser(s.user, u) && s.ot; });
+            if (isOT) {
+              const s0 = set.slots[membersToCheck[0]];
+              rows.push({ go_id:go.id, go:go.name, item:si.name, detail:'OT'+membersToCheck.length+' full set', qty:1, price:si.otPrice||0, claim:(s0.claim_status==='dropped')?'Not fulfilled':((s0.claim_status==='secured')?'Secured':'Pending'), payment:s0.payment, fulfillment:s0.fulfillment, due: subItemPayByDate(go.id, si.id) });
+              return;
+            }
+            membersToCheck.forEach(member => {
+              const slot = set.slots[member];
+              if (slot && sameUser(slot.user, u)) {
+                rows.push({ go_id:go.id, go:go.name, item:si.name, detail:member, qty:1, price:si.price||0, claim:(slot.claim_status==='dropped')?'Not fulfilled':((slot.claim_status==='secured')?'Secured':'Pending'), payment:slot.payment, fulfillment:slot.fulfillment, due: subItemPayByDate(go.id, si.id) });
+              }
+            });
+          });
+        } else {
+          // claims-based: versioned, random, merch member
+          (si.claims||[]).forEach(c => {
+            if (sameUser(c.user, u)) {
+              const detail = c.member || (c.assignedVers||[]).join('+');
+              rows.push({ go_id:go.id, go:go.name, item:si.name, detail, qty:c.qty, price:si.price||0, claim:(c.claim_status==='dropped')?'Not fulfilled':((c.claim_status && c.claim_status !== 'secured') ? 'Pending' : 'Secured'), payment:c.payment, fulfillment:c.fulfillment, due: subItemPayByDate(go.id, si.id) });
+            }
+          });
+        }
+      });
+    });
+  }
   // Shop orders for this user — grouped under a "Shop" pseudo-GO.
   shopOrders.filter(o => sameUser(o.username, u)).forEach(o => {
     rows.push({
@@ -1729,6 +1783,18 @@ function doLookup() {
       claim: 'Secured', payment: o.payment_status, fulfillment: o.fulfillment
     });
   });
+  // Buyer-mode owed/credit: computed from flat claims (ownedUnitsFromClaims) rather than
+  // allGOs, so it works without a full per-GO claims load. Admin path is unchanged.
+  const getSummary = buyerMode
+    ? (goId) => {
+        const claims = myLookupClaims.filter(c => sameUser(c.username, u) && c.go_id === goId);
+        const securedValue = ownedUnitsFromClaims(claims, siMeta).reduce((a, un) => a + un.value, 0);
+        const mine = paymentProofs.filter(pp => sameUser(pp.username, u) && pp.go_id === goId);
+        const paid = mine.filter(pp => pp.status === 'confirmed').reduce((a, pp) => a + (parseFloat(pp.amount) || 0), 0);
+        const pendingSubmitted = mine.filter(pp => pp.status === 'pending').reduce((a, pp) => a + (parseFloat(pp.amount) || 0), 0);
+        return { paid, securedValue, owed: Math.max(0, securedValue - paid), credit: Math.max(0, paid - securedValue), pendingSubmitted };
+      }
+    : (goId) => goPaymentSummary(u, goId);
   const activeRows = rows.filter(r => r.claim !== 'Not fulfilled');
   document.getElementById('result-count').textContent = activeRows.length + ' active claim' + (activeRows.length!==1?'s':'');
   document.getElementById('lookup-form').style.display = 'none';
@@ -1745,12 +1811,12 @@ function doLookup() {
         if (b.go_id === 'shop') return -1;
         return goCreatedTs({ id: b.go_id }) - goCreatedTs({ id: a.go_id });
       });
-      const totalOwed = goList.reduce((a, g) => a + goPaymentSummary(u, g.go_id).owed, 0);
+      const totalOwed = goList.reduce((a, g) => a + getSummary(g.go_id).owed, 0);
       const totalCard = totalOwed > 0 ? `<div class="card" style="margin-bottom:12px;">
         <div style="font-size:15px;font-weight:500;">Total to pay across all GOs: <span style="font-family:var(--mono);">$${totalOwed.toFixed(2)}</span></div>
         <div style="font-size:12px;color:var(--text3);margin-top:4px;">You can send this in one transfer — just paste the same transaction ID on each GO's payment below.</div>
       </div>` : '';
-      blocksEl.innerHTML = totalCard + goList.map(g => renderMyOrderGoBlock(g, rows.filter(r => r.go_id === g.go_id), u)).join('');
+      blocksEl.innerHTML = totalCard + goList.map(g => renderMyOrderGoBlock(g, rows.filter(r => r.go_id === g.go_id), u, getSummary(g.go_id))).join('');
     }
   }
   renderShipPanel(u);
@@ -1813,8 +1879,8 @@ function myPaymentsSection(username, goId) {
 }
 
 // One collapsible card for a GO: claims table + payment section (Paid/Owed/Credit + form).
-function renderMyOrderGoBlock(g, goRows, u) {
-  const s = goPaymentSummary(u, g.go_id);
+function renderMyOrderGoBlock(g, goRows, u, summary) {
+  const s = summary || goPaymentSummary(u, g.go_id);
   const open = myOrderGoOpen[g.go_id] !== false;
   const rightBadge = s.owed > 0
     ? `Owed: <strong style="font-family:var(--mono);">$${s.owed.toFixed(2)}</strong>`
@@ -3983,6 +4049,38 @@ function viewProofImage(url) {
 }
 
 function findProof(id) { return paymentProofs.find(p => p.payment_id === id); }
+
+// Owed units for ONE user's flat claims (My Orders lazy path), keyed to sub-item metadata.
+// Mirrors paymentOwedUnits: set OT full set -> one otPrice unit; other secured set slots ->
+// one price unit each; batch/FCFS secured -> price*qty; skip dropped and unsecured batch.
+// siMeta: sub_item_id -> { price, otPrice, kind, minSecure }.
+function ownedUnitsFromClaims(claims, siMeta) {
+  const units = [];
+  // group set-based claims by sub_item + set_num
+  const sets = {}; // key -> { ot:[], normal:[] }
+  (claims || []).forEach(c => {
+    const meta = siMeta[c.sub_item_id]; if (!meta) return;
+    if (c.claim_status === 'dropped') return;
+    const isSetKind = (meta.kind === 'member' || meta.kind === 'photocard') && (parseInt(meta.minSecure) >= 0) && c.member_or_version && c.set_num !== '' && c.set_num !== undefined;
+    if (isSetKind) {
+      const key = c.sub_item_id + '|' + c.set_num;
+      (sets[key] = sets[key] || { meta, ot: [], normal: [] });
+      if (c.assigned_vers === 'OT') sets[key].ot.push(c);
+      else if (c.claim_status === 'secured') sets[key].normal.push(c);
+    } else {
+      // batch / versioned / single / merch
+      const isBatchKind = (meta.kind === 'member' || meta.kind === 'photocard') && parseInt(meta.minSecure) < 0;
+      if (isBatchKind && c.claim_status !== 'secured') return; // batch: only secured owed
+      if (c.claim_status === 'pending') return;                // explicitly unsecured merch not owed
+      units.push({ value: (parseFloat(meta.price) || 0) * (parseInt(c.qty) || 1) });
+    }
+  });
+  Object.values(sets).forEach(s => {
+    if (s.ot.length) units.push({ value: parseFloat(s.meta.otPrice) || 0 });
+    s.normal.forEach(() => units.push({ value: parseFloat(s.meta.price) || 0 }));
+  });
+  return units;
+}
 
 // Ordered OWED units for a buyer in a GO (or shop): secured set slots + claims-based
 // items, in the order shown in My orders. Each: { id, value, kind, ref }.
