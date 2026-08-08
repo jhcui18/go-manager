@@ -936,11 +936,13 @@ function renderGoPreview(goId) {
 async function loadGOClaims(goId) {
   const go = allGOs[goId];
   if (!go) return;
-  const [claimsRes, sec, closed, deads, pdue] = await Promise.all([
+  const settled = await Promise.allSettled([
     apiGet('getGOClaims', { go_id: goId }), apiGet('getSecuredSets'), apiGet('getClosedSubItems'),
     apiGet('getSubItemDeadlines'), apiGet('getSubItemPayDue')
   ]);
-  const claims = (claimsRes && claimsRes.claims) || [];
+  const [claimsRes, sec, closed, deads, pdue] = settled.map(s => s.status === 'fulfilled' ? s.value : undefined);
+  if (!claimsRes || !claimsRes.claims) throw new Error('claims load failed');  // openClaimPage catches -> toast, no empty board
+  const claims = claimsRes.claims;
   // Refresh the flag maps (same parse as syncFromBackend).
   if (sec && Array.isArray(sec.secured_sets)) { securedSets = {}; sec.secured_sets.forEach(r => { if (r && r.sub_item_id && r.set_num !== undefined && r.set_num !== '') securedSets[r.sub_item_id + '|' + r.set_num] = true; }); }
   if (closed && Array.isArray(closed.closed_subitems)) { closedSubItems = {}; closed.closed_subitems.forEach(r => { if (r && r.go_id && r.sub_item_id) closedSubItems[r.go_id + '|' + r.sub_item_id] = true; }); }
@@ -1787,6 +1789,7 @@ function doLookupRender(u) {
   // allGOs, so it works without a full per-GO claims load. Admin path is unchanged.
   const getSummary = buyerMode
     ? (goId) => {
+        if (goId === 'shop') return goPaymentSummary(u, goId); // shop owed uses shopOrders (loaded), not getJoiners claims
         const claims = myLookupClaims.filter(c => sameUser(c.username, u) && c.go_id === goId);
         const securedValue = ownedUnitsFromClaims(claims, siMeta).reduce((a, un) => a + un.value, 0);
         const mine = paymentProofs.filter(pp => sameUser(pp.username, u) && pp.go_id === goId);
@@ -4061,7 +4064,7 @@ function ownedUnitsFromClaims(claims, siMeta) {
   (claims || []).forEach(c => {
     const meta = siMeta[c.sub_item_id]; if (!meta) return;
     if (c.claim_status === 'dropped') return;
-    const isSetKind = (meta.kind === 'member' || meta.kind === 'photocard') && (parseInt(meta.minSecure) >= 0) && c.member_or_version && c.set_num !== '' && c.set_num !== undefined;
+    const isSetKind = (meta.kind === 'member' || meta.kind === 'photocard') && (parseInt(meta.minSecure) >= 0) && c.member_or_version && c.set_num !== '' && c.set_num !== undefined && c.set_num !== null;
     if (isSetKind) {
       if (c.claim_status !== 'secured') return; // set slots (OT or normal) only owed once secured — matches paymentOwedUnits
       const key = c.sub_item_id + '|' + c.set_num;
