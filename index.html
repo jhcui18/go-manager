@@ -4063,10 +4063,11 @@ function ownedUnitsFromClaims(claims, siMeta) {
     if (c.claim_status === 'dropped') return;
     const isSetKind = (meta.kind === 'member' || meta.kind === 'photocard') && (parseInt(meta.minSecure) >= 0) && c.member_or_version && c.set_num !== '' && c.set_num !== undefined;
     if (isSetKind) {
+      if (c.claim_status !== 'secured') return; // set slots (OT or normal) only owed once secured — matches paymentOwedUnits
       const key = c.sub_item_id + '|' + c.set_num;
       (sets[key] = sets[key] || { meta, ot: [], normal: [] });
       if (c.assigned_vers === 'OT') sets[key].ot.push(c);
-      else if (c.claim_status === 'secured') sets[key].normal.push(c);
+      else sets[key].normal.push(c);
     } else {
       // batch / versioned / single / merch
       const isBatchKind = (meta.kind === 'member' || meta.kind === 'photocard') && parseInt(meta.minSecure) < 0;

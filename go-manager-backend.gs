@@ -820,7 +820,8 @@ function getJoiners(username) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_JOINERS);
   if (!sheet) return { claims: [] };
   const all = sheetToObjects(sheet);
-  return { claims: username ? all.filter(c => c.username === username || c.username === '@' + username) : all };
+  const target = String(username).trim().toLowerCase().replace(/^@/, '');
+  return { claims: username ? all.filter(c => String(c.username || '').trim().toLowerCase().replace(/^@/, '') === target) : all };
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
