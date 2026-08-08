@@ -66,6 +66,8 @@ function doGet(e) {
   try {
     let result;
     if      (action === 'getAllGOs')       result = getAllGOs();
+    else if (action === 'getGOsList')      result = getGOsList();
+    else if (action === 'getGOClaims')     result = getGOClaims(e.parameter.go_id);
     else if (action === 'getJoiners')      result = getJoiners(e.parameter.username);
     else if (action === 'getShipping')     result = getShipping();
     else if (action === 'getPayments')     result = getPayments();
@@ -149,6 +151,25 @@ function getAllGOs() {
     go.claims = allClaims.filter(c => c.go_id === go.go_id);
   });
   return { gos };
+}
+
+// Lightweight list for the buyer landing: GOs + sub-items, but NO claims (skips the
+// joiners-sheet read entirely — that's the 3k-row / multi-second cost of getAllGOs).
+function getGOsList() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const goSheet = ss.getSheetByName(SHEET_GOS);
+  if (!goSheet) return { gos: [] };
+  return { gos: sheetToObjects(goSheet).map(row => {
+    const siSheet = ss.getSheetByName('go_' + row.go_id);
+    return { ...row, subItems: siSheet ? sheetToObjects(siSheet) : [] };
+  }) };
+}
+
+// Claims for ONE GO — used when a buyer opens that GO.
+function getGOClaims(goId) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_JOINERS);
+  if (!sheet) return { claims: [] };
+  return { claims: sheetToObjects(sheet).filter(c => c.go_id === goId) };
 }
 
 function createGO(data) {
