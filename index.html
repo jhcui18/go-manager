@@ -3441,12 +3441,13 @@ async function saveGOEdits() {
         go.subItems.push({ id, name, kind:'member', members, price, claims:[] });
       } else if (kind === 'member-set') {
         const members = ((document.getElementById('edit-si-members-' + id)||{}).value||'').split('\n').map(m=>m.trim()).filter(Boolean);
+        if (!members.length) return;
         const bs = parseInt((document.getElementById('edit-si-batchsize-' + id)||{}).value) || 0;
         if (bs > 0) {
           go.subItems.push({ id, name, kind:'member-set', members, minSecure:-bs, price, otPrice, claims:[] });
         } else {
           const slots = {}; members.forEach(m => slots[m] = null);
-          go.subItems.push({ id, name, kind:'member-set', members, minSecure:members.length, price, otPrice, sets:[{ status:'open', slots, num:1 }], claims:[] });
+          go.subItems.push({ id, name, kind:'member-set', members, minSecure:members.length, price, otPrice, sets:[{ status:'open', slots, num:1 }] });
         }
       } else {
         go.subItems.push({ id, name, kind:'random', price, claims:[] });
