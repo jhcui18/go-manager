@@ -2112,7 +2112,11 @@ function renderAdminGOList() {
       },0);
       meta = total + ' total claims';
     } else {
-      const total = go.subItems.reduce((a,si)=>a+si.claims.reduce((b,c)=>b+c.qty,0),0);
+      const total = go.subItems.reduce((a,si) => {
+        if (isBatch(si)) return a + (si.claims||[]).length;
+        if (si.sets) return a + si.sets.reduce((b,s)=>b+countFilled(s,si.members),0);  // member-set sub-item
+        return a + (si.claims||[]).reduce((b,c)=>b+(c.qty||1),0);
+      },0);
       meta = total + ' items claimed';
     }
     const collected = (paymentProofs || []).filter(p => p.go_id === go.id && p.status === 'confirmed').reduce((a, p) => a + (parseFloat(p.amount) || 0), 0);
