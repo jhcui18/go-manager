@@ -3386,6 +3386,9 @@ async function saveGOEdits() {
           si.members = newMembers;
         }
       }
+      // Set mode: keep the secure-when-full threshold synced to the member count. Merch has no
+      // GO-level min-secure field, so member-set derives it here (not from the stale hidden input).
+      if (si.kind === 'member-set') si.minSecure = si.members.length;
     } else if (si.kind === 'member' && si.claims) {
       // Merch member — just update members list, no sets
       const membersEl = document.getElementById('edit-si-members-' + si.id);
