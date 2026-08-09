@@ -2830,6 +2830,7 @@ function addSubItem() {
         <select id="si-kind-${id}" onchange="onMerchKindChange('${id}')">
           <option value="random">Random ver</option>
           <option value="member">Member ver</option>
+          <option value="member-set">Member set (order by set)</option>
         </select>
       </div>
       <button class="btn btn-sm btn-ghost" onclick="removeSubItem('${id}')">×</button>
@@ -2837,9 +2838,7 @@ function addSubItem() {
     <div class="field-row" style="margin-top:8px;">
       <div class="field" style="margin-bottom:0;"><label>Price (USD)</label><input type="number" id="si-price-${id}" placeholder="0.00" step="0.01"></div>
     </div>
-    <div id="si-merch-extra-${id}" style="display:none;margin-top:8px;">
-      <div class="field" style="margin-bottom:0;"><label>Members (one per line)</label><textarea id="si-members-${id}" placeholder="Karina\nWinter\nGiselle\nNingning" style="min-height:80px;font-family:var(--mono);font-size:12px;"></textarea></div>
-    </div>`;
+    <div id="si-merch-extra-${id}" style="display:none;margin-top:8px;"></div>`;
   }
   inner += imgFieldHtml('si-img-' + id, '');
   wrap.innerHTML = inner;
@@ -2849,7 +2848,19 @@ function addSubItem() {
 function onMerchKindChange(id) {
   const kind = document.getElementById('si-kind-' + id).value;
   const extra = document.getElementById('si-merch-extra-' + id);
-  if (extra) extra.style.display = kind === 'member' ? 'block' : 'none';
+  if (!extra) return;
+  if (kind === 'member') {
+    extra.style.display = 'block';
+    extra.innerHTML = `<div class="field" style="margin-bottom:0;"><label>Members (one per line)</label><textarea id="si-members-${id}" placeholder="Karina\nWinter\nGiselle\nNingning" style="min-height:80px;font-family:var(--mono);font-size:12px;"></textarea></div>`;
+  } else if (kind === 'member-set') {
+    extra.style.display = 'block';
+    extra.innerHTML = `<div class="field" style="margin-bottom:0;"><label>Members (one per line)</label><textarea id="si-members-${id}" placeholder="Karina\nWinter\nGiselle\nNingning" style="min-height:80px;font-family:var(--mono);font-size:12px;"></textarea></div>
+      <div class="field" style="margin-top:8px;margin-bottom:0;"><label>Full set (OT) price (USD)</label><input type="number" id="si-otprice-${id}" placeholder="0.00" step="0.01"><div class="field-hint">Optional — offer a whole-set (OT) claim.</div></div>
+      <div class="field" style="margin-top:8px;margin-bottom:0;"><label>Order size — cards per batch (blank = full sets)</label><input type="number" id="si-batchsize-${id}" min="0" step="1" placeholder="blank = full sets"><div class="field-hint">Set e.g. 8 or 16 to order in batches of any members (repeats OK).</div></div>`;
+  } else {
+    extra.style.display = 'none';
+    extra.innerHTML = '';
+  }
 }
 
 function onSubItemKindChange(id) {
@@ -2930,6 +2941,19 @@ function createGO() {
         const membersRaw = (document.getElementById('si-members-' + siId)||{}).value || '';
         const members = membersRaw.split('\n').map(m=>m.trim()).filter(Boolean);
         subItems.push({ id:siId, name:siName, kind:'member', members, price, claims:[] });
+      } else if (kind === 'member-set') {
+        const membersRaw = (document.getElementById('si-members-' + siId)||{}).value || '';
+        const members = membersRaw.split('\n').map(m=>m.trim()).filter(Boolean);
+        if (!members.length) return;
+        const otPrice = parseFloat((document.getElementById('si-otprice-' + siId)||{}).value) || 0;
+        const bs = parseInt((document.getElementById('si-batchsize-' + siId)||{}).value) || 0;
+        if (bs > 0) {
+          subItems.push({ id:siId, name:siName, kind:'member-set', members, minSecure:-bs, price, otPrice, claims:[] });
+        } else {
+          const emptySet = { status:'open', slots:{}, num:1 };
+          members.forEach(m => emptySet.slots[m] = null);
+          subItems.push({ id:siId, name:siName, kind:'member-set', members, minSecure:members.length, price, otPrice, sets:[emptySet] });
+        }
       } else {
         subItems.push({ id:siId, name:siName, kind:'random', price, claims:[] });
       }
