@@ -582,7 +582,7 @@ let adminOpenSI = {};   // si.id -> bool (admin detail); default collapsed
 let claimOpenSI = {};   // goId|si.id -> bool (buyer claim page); default collapsed
 // Batch-mode POB: minSecure < 0 means "order in batches of |minSecure| cards" — buyers claim any
 // members (repeats allowed), pooled and grouped into fixed-size batches. Claims-based (no si.sets).
-function isBatch(si) { return !!si && (si.kind === 'member' || si.kind === 'photocard') && parseInt(si.minSecure) < 0; }
+function isBatch(si) { return !!si && (si.kind === 'member' || si.kind === 'photocard' || si.kind === 'member-set') && parseInt(si.minSecure) < 0; }
 function batchSize(si) { return Math.abs(parseInt(si.minSecure)) || 1; }
 // Group a batch POB's claims into runs of batchSize, ordered by created_at (oldest first).
 function goBatches(si) {
@@ -1022,7 +1022,7 @@ function renderClaimPage(goId) {
     const kind = si.kind || (go.type === 'photocard' ? 'photocard' : 'random');
     if (isBatch(si)) {
       claimState[si.id] = { type:'batch', members:{}, ot:0 };
-    } else if (kind === 'photocard' || kind === 'member' && go.type !== 'merch') {
+    } else if (kind === 'photocard' || kind === 'member-set' || kind === 'member' && go.type !== 'merch') {
       claimState[si.id] = { type:'set', selectedMembers:{} };
     } else if (kind === 'member' && go.type === 'merch') {
       claimState[si.id] = { type:'merch-member', selectedMembers:{}, qty:1 };
@@ -1281,6 +1281,10 @@ function renderMerchPublic(go) {
   go.subItems.forEach(si => {
     const kind = si.kind || 'random';
     const totalClaimed = (si.claims||[]).reduce((a,c)=>a+c.qty,0);
+    if (kind === 'member-set') {
+      html += claimCollapsible(go.id, si, isBatch(si) ? renderBatchSubItemPublic(si, go.id) : renderSetSubItemPublic(si, go.id));
+      return; // next sub-item — reuse the same set/batch board the album path uses
+    }
     if (kind === 'member') {
       // Member ver — member tile picker, no set logic, no cap
       html += `<div class="card" style="margin-bottom:12px;">${siImg(si,'card')}
@@ -1719,7 +1723,7 @@ function doLookupRender(u) {
     const setGroups = {}; // sub_item_id|set_num -> { meta, go_id, go, item, claims:[] }
     mine.forEach(c => {
       const meta = siMeta[c.sub_item_id];
-      const isSetKind = meta && (meta.kind === 'member' || meta.kind === 'photocard') && parseInt(meta.minSecure) >= 0 && c.member_or_version && c.set_num !== '' && c.set_num !== undefined && c.set_num !== null;
+      const isSetKind = meta && (meta.kind === 'member' || meta.kind === 'photocard' || meta.kind === 'member-set') && parseInt(meta.minSecure) >= 0 && c.member_or_version && c.set_num !== '' && c.set_num !== undefined && c.set_num !== null;
       if (isSetKind) {
         const key = c.sub_item_id + '|' + c.set_num;
         (setGroups[key] = setGroups[key] || { meta, go_id: c.go_id, go: c.go_name, item: (meta && meta.name) || c.sub_item_name, claims: [] }).claims.push(c);
@@ -4066,7 +4070,7 @@ function ownedUnitsFromClaims(claims, siMeta) {
   (claims || []).forEach(c => {
     const meta = siMeta[c.sub_item_id]; if (!meta) return;
     if (c.claim_status === 'dropped') return;
-    const isSetKind = (meta.kind === 'member' || meta.kind === 'photocard') && (parseInt(meta.minSecure) >= 0) && c.member_or_version && c.set_num !== '' && c.set_num !== undefined && c.set_num !== null;
+    const isSetKind = (meta.kind === 'member' || meta.kind === 'photocard' || meta.kind === 'member-set') && (parseInt(meta.minSecure) >= 0) && c.member_or_version && c.set_num !== '' && c.set_num !== undefined && c.set_num !== null;
     if (isSetKind) {
       if (c.claim_status !== 'secured') return; // set slots (OT or normal) only owed once secured — matches paymentOwedUnits
       const key = c.sub_item_id + '|' + c.set_num;
@@ -4075,7 +4079,7 @@ function ownedUnitsFromClaims(claims, siMeta) {
       else sets[key].normal.push(c);
     } else {
       // batch / versioned / single / merch
-      const isBatchKind = (meta.kind === 'member' || meta.kind === 'photocard') && parseInt(meta.minSecure) < 0;
+      const isBatchKind = (meta.kind === 'member' || meta.kind === 'photocard' || meta.kind === 'member-set') && parseInt(meta.minSecure) < 0;
       if (isBatchKind && c.claim_status !== 'secured') return; // batch: only secured owed
       if (c.claim_status === 'pending') return;                // explicitly unsecured merch not owed
       units.push({ value: (parseFloat(meta.price) || 0) * (parseInt(c.qty) || 1) });
@@ -4527,7 +4531,7 @@ async function syncFromBackend(silent) {
           if (!members.length) console.warn('[sync] empty members for sub-item', si.sub_item_id);
           const versions = tryParse(si.versions, []);
           const kind = si.kind || go.type || 'photocard';
-          if (rebuilt.type === 'photocard' || (rebuilt.type === 'album' && kind === 'member')) {
+          if (rebuilt.type === 'photocard' || (rebuilt.type === 'album' && kind === 'member') || (rebuilt.type === 'merch' && kind === 'member-set')) {
             const ms = parseInt(si.min_secure) || 7;
             const base = {
               id: si.sub_item_id, name: si.name || '', kind,

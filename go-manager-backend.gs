@@ -339,7 +339,7 @@ function submitClaim(data) {
       const claimId = 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
       claimIds.push(claimId);
       let setNum = c.set_num || '';
-      const isSet = (c.sub_item_kind === 'member' || c.sub_item_kind === 'photocard') && c.member_or_version;
+      const isSet = (c.sub_item_kind === 'member' || c.sub_item_kind === 'photocard' || c.sub_item_kind === 'member-set') && c.member_or_version;
       if (isSet) {
         const key = c.go_id + '|' + c.sub_item_id;
         if (c.assigned_vers === 'OT') {
