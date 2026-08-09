@@ -3186,6 +3186,17 @@ function renderEditSubItems() {
         </div>
         ${si.kind === 'member' ? `<div class="field" style="margin-bottom:0;"><label>Members (one per line)</label>
           <textarea id="edit-si-members-${si.id}" style="min-height:70px;font-family:var(--mono);font-size:12px;">${(si.members||[]).join('\n')}</textarea>
+        </div>` : si.kind === 'member-set' ? `<div class="field" style="margin-bottom:0;"><label>Members (one per line)</label>
+          <textarea id="edit-si-members-${si.id}" style="min-height:70px;font-family:var(--mono);font-size:12px;">${(si.members||[]).join('\n')}</textarea>
+          ${hasClaims ? '<div class="field-hint" style="color:var(--amber-800);">New members added will appear as open slots in existing sets.</div>' : ''}
+        </div>
+        <div class="field" style="margin-top:8px;margin-bottom:0;"><label>Full set (OT) price (USD)</label>
+          <input type="number" id="edit-si-otprice-${si.id}" value="${si.otPrice || 0}" step="0.01">
+          <div class="field-hint">Optional — offer a whole-set (OT) claim.</div>
+        </div>
+        <div class="field" style="margin-top:8px;margin-bottom:0;"><label>Order size — cards per batch (blank = full sets)</label>
+          <input type="number" id="edit-si-batchsize-${si.id}" min="0" step="1" value="${isBatch(si) ? batchSize(si) : ''}">
+          <div class="field-hint">Set e.g. 8 or 16 to order in batches of any members (repeats OK).</div>
         </div>` : `<div style="font-size:11px;color:var(--text3);">Random ver — no member list needed.</div>`}`;
     }
     const claimCount = getSubItemClaimCount(si);
@@ -3255,6 +3266,7 @@ function addEditSubItem() {
         <select id="edit-si-kind-${id}" onchange="onEditMerchKindChange('${id}')">
           <option value="random">Random ver</option>
           <option value="member">Member ver</option>
+          <option value="member-set">Member set (order by set)</option>
         </select>
       </div>
       <button class="btn btn-sm btn-ghost" style="color:var(--red-400);" onclick="removeNewEditSubItem('${id}')">×</button>
@@ -3262,9 +3274,7 @@ function addEditSubItem() {
     <div class="field-row" style="margin-top:8px;">
       <div class="field" style="margin-bottom:0;"><label>Price (USD)</label><input type="number" id="edit-si-price-${id}" placeholder="0.00" step="0.01" value="0"></div>
     </div>
-    <div id="edit-si-merch-extra-${id}" style="display:none;margin-top:8px;">
-      <div class="field" style="margin-bottom:0;"><label>Members (one per line)</label><textarea id="edit-si-members-${id}" placeholder="Karina&#10;Winter&#10;Giselle&#10;Ningning" style="min-height:80px;font-family:var(--mono);font-size:12px;"></textarea></div>
-    </div>`;
+    <div id="edit-si-merch-extra-${id}" style="display:none;margin-top:8px;"></div>`;
   }
   inner += imgFieldHtml('edit-si-img-' + id, '');
   wrap.innerHTML = inner;
@@ -3291,7 +3301,19 @@ function onEditSubItemKindChange(id) {
 function onEditMerchKindChange(id) {
   const kind = document.getElementById('edit-si-kind-' + id).value;
   const extra = document.getElementById('edit-si-merch-extra-' + id);
-  if (extra) extra.style.display = kind === 'member' ? 'block' : 'none';
+  if (!extra) return;
+  if (kind === 'member') {
+    extra.style.display = 'block';
+    extra.innerHTML = `<div class="field" style="margin-bottom:0;"><label>Members (one per line)</label><textarea id="edit-si-members-${id}" placeholder="Karina&#10;Winter&#10;Giselle&#10;Ningning" style="min-height:80px;font-family:var(--mono);font-size:12px;"></textarea></div>`;
+  } else if (kind === 'member-set') {
+    extra.style.display = 'block';
+    extra.innerHTML = `<div class="field" style="margin-bottom:0;"><label>Members (one per line)</label><textarea id="edit-si-members-${id}" placeholder="Karina&#10;Winter&#10;Giselle&#10;Ningning" style="min-height:80px;font-family:var(--mono);font-size:12px;"></textarea></div>
+      <div class="field" style="margin-top:8px;margin-bottom:0;"><label>Full set (OT) price (USD)</label><input type="number" id="edit-si-otprice-${id}" placeholder="0.00" step="0.01" value="0"><div class="field-hint">Optional — offer a whole-set (OT) claim.</div></div>
+      <div class="field" style="margin-top:8px;margin-bottom:0;"><label>Order size — cards per batch (blank = full sets)</label><input type="number" id="edit-si-batchsize-${id}" min="0" step="1" placeholder="blank = full sets"><div class="field-hint">Set e.g. 8 or 16 to order in batches.</div></div>`;
+  } else {
+    extra.style.display = 'none';
+    extra.innerHTML = '';
+  }
 }
 
 function removeNewEditSubItem(id) {
@@ -3332,7 +3354,7 @@ async function saveGOEdits() {
     const otPriceEl = document.getElementById('edit-si-otprice-' + si.id);
     if (otPriceEl) si.otPrice = parseFloat(otPriceEl.value) || 0;
     // Batch-mode toggle for photocard / album-member POBs (converts the in-memory shape).
-    const canBatch = go.type === 'photocard' || (si.kind === 'member' && go.type === 'album');
+    const canBatch = go.type === 'photocard' || (si.kind === 'member' && go.type === 'album') || (si.kind === 'member-set' && go.type === 'merch');
     if (canBatch) {
       const bsEl = document.getElementById('edit-si-batchsize-' + si.id);
       const bs = bsEl ? (parseInt(bsEl.value) || 0) : (isBatch(si) ? batchSize(si) : 0);
@@ -3347,11 +3369,11 @@ async function saveGOEdits() {
         if (newMembers0.length) si.members = newMembers0;
         si.sets = batchClaimsToSets(si);
         delete si.claims;
-        si.minSecure = minSecure || 7;
+        si.minSecure = (si.kind === 'member-set') ? (si.members.length || 7) : (minSecure || 7);
         return;
       }
     }
-    if (go.type === 'photocard' || (si.kind === 'member' && si.sets)) {
+    if (go.type === 'photocard' || (si.kind === 'member' && si.sets) || (si.kind === 'member-set' && si.sets)) {
       si.minSecure = minSecure || si.minSecure;
       const membersEl = document.getElementById('edit-si-members-' + si.id);
       if (membersEl) {
@@ -3377,7 +3399,7 @@ async function saveGOEdits() {
       if (versionsEl) si.versions = versionsEl.value.split(',').map(v => v.trim()).filter(Boolean);
     }
     // Handle newly added sub-items (no existing sets)
-    if ((go.type === 'photocard' || (si.kind === 'member' && si.sets)) && si.sets.length === 1 && Object.keys(si.sets[0].slots).length === 0) {
+    if ((go.type === 'photocard' || (si.kind === 'member' && si.sets) || (si.kind === 'member-set' && si.sets)) && si.sets.length === 1 && Object.keys(si.sets[0].slots).length === 0) {
       const membersEl = document.getElementById('edit-si-members-' + si.id);
       if (membersEl) {
         const members = membersEl.value.split('\n').map(m => m.trim()).filter(Boolean);
@@ -3417,6 +3439,15 @@ async function saveGOEdits() {
       if (kind === 'member') {
         const members = ((document.getElementById('edit-si-members-' + id)||{}).value||'').split('\n').map(m=>m.trim()).filter(Boolean);
         go.subItems.push({ id, name, kind:'member', members, price, claims:[] });
+      } else if (kind === 'member-set') {
+        const members = ((document.getElementById('edit-si-members-' + id)||{}).value||'').split('\n').map(m=>m.trim()).filter(Boolean);
+        const bs = parseInt((document.getElementById('edit-si-batchsize-' + id)||{}).value) || 0;
+        if (bs > 0) {
+          go.subItems.push({ id, name, kind:'member-set', members, minSecure:-bs, price, otPrice, claims:[] });
+        } else {
+          const slots = {}; members.forEach(m => slots[m] = null);
+          go.subItems.push({ id, name, kind:'member-set', members, minSecure:members.length, price, otPrice, sets:[{ status:'open', slots, num:1 }], claims:[] });
+        }
       } else {
         go.subItems.push({ id, name, kind:'random', price, claims:[] });
       }
