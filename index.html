@@ -4145,12 +4145,12 @@ function ownedUnitsFromClaims(claims, siMeta) {
       const isBatchKind = (meta.kind === 'member' || meta.kind === 'photocard' || meta.kind === 'member-set') && parseInt(meta.minSecure) < 0;
       if (isBatchKind && c.claim_status !== 'secured') return; // batch: only secured owed
       if (c.claim_status === 'pending') return;                // explicitly unsecured merch not owed
-      units.push({ value: (parseFloat(meta.price) || 0) * (parseInt(c.qty) || 1) });
+      units.push({ value: (parseFloat(meta.price) || 0) * (parseInt(c.qty) || 1), ids: [c.claim_id].filter(Boolean) });
     }
   });
   Object.values(sets).forEach(s => {
-    if (s.ot.length) units.push({ value: parseFloat(s.meta.otPrice) || 0 });
-    s.normal.forEach(() => units.push({ value: parseFloat(s.meta.price) || 0 }));
+    if (s.ot.length) units.push({ value: parseFloat(s.meta.otPrice) || 0, ids: s.ot.map(c => c.claim_id).filter(Boolean) });
+    s.normal.forEach(c => units.push({ value: parseFloat(s.meta.price) || 0, ids: [c.claim_id].filter(Boolean) }));
   });
   return units;
 }
@@ -4207,6 +4207,94 @@ function goPaymentSummary(username, goId) {
   const owed = Math.max(0, securedValue - paid);
   const credit = Math.max(0, paid - securedValue);
   return { paid, securedValue, owed, credit, pendingSubmitted };
+}
+
+// Store-credit spend over owed units in display order. A unit already covered by prior
+// payments (running total <= oldPaid) stays Paid. Otherwise, cover the WHOLE unit only if it
+// fits the remaining balance budget; a too-big unit is skipped but we keep checking later
+// (cheaper) units. Units are {value, ids:[]}. Returns amount spent + claim_id split.
+// Used by apply (balance>0) and by reverse recompute (balance=0 -> mark up to remaining paid).
+// KNOWN EDGE (rare, accepted for v1): a stranded partial cash payment (oldPaid that doesn't
+// tile to a whole unit) can overlap with a balance-covered unit; admin can reconcile.
+function applyStoreCredit(units, oldPaid, balance) {
+  const eps = 0.001; let acc = 0, spent = 0; const paidIds = [], unpaidIds = [];
+  (units || []).forEach(u => {
+    if (acc + u.value <= oldPaid + eps) { acc += u.value; (u.ids || []).forEach(id => paidIds.push(id)); }
+    else if (spent + u.value <= balance + eps) { acc += u.value; spent += u.value; (u.ids || []).forEach(id => paidIds.push(id)); }
+    else { (u.ids || []).forEach(id => unpaidIds.push(id)); }
+  });
+  return { spent, paidIds: paidIds.filter(Boolean), unpaidIds: unpaidIds.filter(Boolean) };
+}
+
+// Draw `amount` of credit from per-GO surplus, largest-credit-first, capped per source.
+// perGoCredit: [{go_id, go_name, credit}]. Returns [{go_id, go_name, amount}] summing to <= amount.
+function drawSources(perGoCredit, amount) {
+  const eps = 0.001;
+  const sorted = (perGoCredit || []).filter(g => g.credit > eps).sort((a, b) => b.credit - a.credit);
+  const out = []; let need = amount;
+  for (const g of sorted) {
+    if (need <= eps) break;
+    const take = Math.min(g.credit, need);
+    if (take > eps) { out.push({ go_id: g.go_id, go_name: g.go_name, amount: Math.round(take * 100) / 100 }); need -= take; }
+  }
+  return out;
+}
+
+// Buyer-mode per-GO summary (My Orders lazy path) — mirrors the inline getSummary in
+// doLookupRender so account-balance math matches what the joiner sees. Shop delegates
+// to goPaymentSummary (uses shopOrders, which are loaded).
+function buyerGoSummary(u, goId) {
+  if (goId === 'shop') return goPaymentSummary(u, goId);
+  const siMeta = {}; Object.values(allGOs).forEach(go => (go.subItems || []).forEach(si => { siMeta[si.id] = si; }));
+  const claims = (myLookupClaims || []).filter(c => sameUser(c.username, u) && c.go_id === goId);
+  const securedValue = ownedUnitsFromClaims(claims, siMeta).reduce((a, un) => a + un.value, 0);
+  const mine = paymentProofs.filter(pp => sameUser(pp.username, u) && pp.go_id === goId);
+  const paid = mine.filter(pp => pp.status === 'confirmed').reduce((a, pp) => a + (parseFloat(pp.amount) || 0), 0);
+  const pendingSubmitted = mine.filter(pp => pp.status === 'pending').reduce((a, pp) => a + (parseFloat(pp.amount) || 0), 0);
+  return { paid, securedValue, owed: Math.max(0, securedValue - paid), credit: Math.max(0, paid - securedValue), pendingSubmitted };
+}
+
+function myGoSummary(u, goId) { return isAdmin ? goPaymentSummary(u, goId) : buyerGoSummary(u, goId); }
+
+// GO ids (incl. 'shop') the joiner has claims/orders in — mode-aware.
+function joinerGoIds(u) {
+  const ids = new Set();
+  if (isAdmin) {
+    Object.values(allGOs).forEach(go => (go.subItems || []).forEach(si => {
+      if (si.sets) si.sets.forEach(s => Object.values(s.slots).forEach(sl => { if (sl && sameUser(sl.user, u)) ids.add(go.id); }));
+      if (si.claims) si.claims.forEach(c => { if (sameUser(c.user, u)) ids.add(go.id); });
+    }));
+  } else {
+    (myLookupClaims || []).forEach(c => { if (sameUser(c.username, u)) ids.add(c.go_id); });
+  }
+  if (shopOrders.some(o => sameUser(o.username, u))) ids.add('shop');
+  return [...ids];
+}
+
+function goDisplayName(goId) { return goId === 'shop' ? 'Shop' : ((allGOs[goId] && allGOs[goId].name) || goId); }
+
+// Per-GO surplus credit across the joiner's GOs (credit>0 only) and the total.
+function joinerGoCredit(u) {
+  return joinerGoIds(u).map(id => ({ go_id: id, go_name: goDisplayName(id), credit: myGoSummary(u, id).credit }))
+    .filter(g => g.credit > 0.001);
+}
+function accountBalance(u) { return joinerGoCredit(u).reduce((a, g) => a + g.credit, 0); }
+
+// The full "what happens if this joiner applies balance to goId" computation — shared by the
+// button label (Task 3 Step 2) and payWithBalance (Task 3 Step 3) so they never disagree.
+// balance = surplus from the joiner's OTHER GOs; spent = whole owed items of goId that fit;
+// sources = which GOs the spent is drawn from; paid/unpaidIds = target marking.
+function computeBalanceApply(u, goId) {
+  const s = myGoSummary(u, goId);
+  const perGo = joinerGoCredit(u).filter(g => g.go_id !== goId);
+  const balance = perGo.reduce((a, g) => a + g.credit, 0);
+  const siMeta = {}; Object.values(allGOs).forEach(go => (go.subItems || []).forEach(si => { siMeta[si.id] = si; }));
+  const units = isAdmin
+    ? paymentOwedUnits(u, goId)
+    : ownedUnitsFromClaims((myLookupClaims || []).filter(c => sameUser(c.username, u) && c.go_id === goId), siMeta);
+  const { spent, paidIds, unpaidIds } = applyStoreCredit(units, s.paid, balance);
+  const sources = drawSources(perGo, spent);
+  return { balance, spent, paidIds, unpaidIds, sources };
 }
 
 function setUnitPaid(u, paid) {
