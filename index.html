@@ -3775,12 +3775,26 @@ function renderPaymentProofs() {
     tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px;">No pending proofs.</td></tr>';
     return;
   }
-  tbody.innerHTML = paymentProofs.filter(p => p.status === 'pending').map(p => `
+  tbody.innerHTML = paymentProofs.filter(p => p.status === 'pending' || p.method === 'credit').map(p => {
+    const isCredit = p.method === 'credit';
+    const isCreditTarget = isCredit && (parseFloat(p.amount) || 0) > 0;
+    const actions = isCreditTarget
+      ? `<button class="btn btn-sm btn-ghost" style="color:var(--red-400);" onclick="reverseCreditApplication('${p.transaction_id}')">Reverse</button>`
+      : isCredit
+        ? `<span style="font-size:11px;color:var(--text3);">${p.note || ''}</span>`
+        : `<div style="display:flex;gap:4px;">
+          ${p.proof_url ? `<button class="btn btn-sm btn-ghost" onclick="viewProofImage('${p.proof_url}')">View</button>` : ''}
+          <button class="btn btn-sm" style="color:var(--teal-600);border-color:var(--teal-100);" onclick="confirmPayment('${p.payment_id}')">✓ Confirm</button>
+          <button class="btn btn-sm btn-ghost" style="color:var(--red-400);" onclick="rejectPayment('${p.payment_id}')">Reject</button>
+          <button class="btn btn-sm btn-ghost" onclick="openEditProofModal('${p.payment_id}')">Edit</button>
+          <button class="btn btn-sm btn-ghost" style="color:var(--red-400);" onclick="deletePaymentProof('${p.payment_id}')">Delete</button>
+        </div>`;
+    return `
     <tr>
       <td style="font-weight:500;">${p.username}</td>
       <td style="font-size:12px;">${p.go_name}</td>
-      <td style="font-family:var(--mono);">$${parseFloat(p.amount||0).toFixed(2)}</td>
-      <td>${p.method}</td>
+      <td style="font-family:var(--mono);">${(parseFloat(p.amount)||0) < 0 ? '-' : ''}$${Math.abs(parseFloat(p.amount)||0).toFixed(2)}</td>
+      <td>${isCredit ? '👛 balance' : p.method}</td>
       <td style="font-size:11px;color:var(--text3);font-family:var(--mono);">${p.transaction_id||'—'}${(() => {
         if (!p.transaction_id) return '';
         const others = paymentProofs.filter(o => o.payment_id !== p.payment_id && o.transaction_id && o.transaction_id === p.transaction_id);
@@ -3788,16 +3802,9 @@ function renderPaymentProofs() {
         return names.length ? `<span style="color:var(--amber-800);"> · same txid on ${names.join(', ')}</span>` : '';
       })()}</td>
       <td style="font-size:11px;color:var(--text3);">${formatRelTime(p.created_at)}</td>
-      <td>
-        <div style="display:flex;gap:4px;">
-          ${p.proof_url ? `<button class="btn btn-sm btn-ghost" onclick="viewProofImage('${p.proof_url}')">View</button>` : ''}
-          <button class="btn btn-sm" style="color:var(--teal-600);border-color:var(--teal-100);" onclick="confirmPayment('${p.payment_id}')">✓ Confirm</button>
-          <button class="btn btn-sm btn-ghost" style="color:var(--red-400);" onclick="rejectPayment('${p.payment_id}')">Reject</button>
-          <button class="btn btn-sm btn-ghost" onclick="openEditProofModal('${p.payment_id}')">Edit</button>
-          <button class="btn btn-sm btn-ghost" style="color:var(--red-400);" onclick="deletePaymentProof('${p.payment_id}')">Delete</button>
-        </div>
-      </td>
-    </tr>`).join('');
+      <td>${actions}</td>
+    </tr>`;
+  }).join('');
 }
 
 function renderAdminListings() {
@@ -4414,6 +4421,30 @@ function deletePaymentProof(id) {
   if (API_URL) apiPost('deletePayment', { payment_id: id }).catch(()=>{});
   renderPaymentProofs();
   toast('Payment record deleted.');
+}
+
+function reverseCreditApplication(link) {
+  if (!confirm('Reverse this balance application? The credit returns to its source GOs.')) return;
+  const linked = paymentProofs.filter(p => p.transaction_id === link && p.method === 'credit');
+  const target = linked.find(p => (parseFloat(p.amount) || 0) > 0);   // the +Y target row
+  paymentProofs = paymentProofs.filter(p => !(p.transaction_id === link && p.method === 'credit'));
+  let paidIds = [], unpaidIds = [];
+  if (target) {
+    // re-mark the target GO up to its now-reduced confirmed paid (admin has full refs).
+    // balance=0 → applyStoreCredit just marks the whole units covered by the remaining paid.
+    const s = goPaymentSummary(target.username, target.go_id);
+    const alloc = applyStoreCredit(paymentOwedUnits(target.username, target.go_id), s.paid, 0);
+    paidIds = alloc.paidIds; unpaidIds = alloc.unpaidIds;
+    // reflect locally
+    paymentOwedUnits(target.username, target.go_id).forEach(u => {
+      const isPaid = u.ids.some(id => paidIds.includes(id));
+      setUnitPaid(u, isPaid);
+    });
+  }
+  if (API_URL) apiPost('reverseCredit', { transaction_id: link, paid_claim_ids: paidIds, unpaid_claim_ids: unpaidIds }).catch(()=>{});
+  renderPaymentProofs();
+  renderDetailContent();
+  toast('Balance application reversed.');
 }
 
 function rejectPayment(id) {
