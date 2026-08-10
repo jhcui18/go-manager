@@ -102,6 +102,8 @@ function doPost(e) {
     else if (action === 'unsecureSet')       result = unsecureSet(body.data);
     else if (action === 'submitPayment')     result = submitPayment(body.data);
     else if (action === 'updatePayment')     result = updatePayment(body.data);
+    else if (action === 'applyCredit')       result = applyCredit(body.data);
+    else if (action === 'reverseCredit')      result = reverseCredit(body.data);
     else if (action === 'createListing')     result = createListing(body.data);
     else if (action === 'updateListing')     result = updateListing(body.data);
     else if (action === 'deleteListing')     result = deleteListing(body.data.listing_id);
@@ -463,6 +465,44 @@ function updatePayment(data) {
     }
   }
   return { ok: true };
+}
+
+function applyCredit(data) {
+  bootstrapSheets();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const lock = LockService.getScriptLock();
+  try { lock.waitLock(10000); } catch (e) { return { ok: false, error: 'busy', message: 'Server busy, please retry.' }; }
+  try {
+    const sheet = ss.getSheetByName(SHEET_PAYMENTS);
+    const now = new Date().toISOString();
+    (data.rows || []).forEach((r, i) => {
+      const id = 'cr_' + Date.now() + '_' + i + '_' + Math.random().toString(36).slice(2, 5);
+      sheet.appendRow([id, data.username, r.go_id, r.go_name || '', r.amount, 'credit', data.transaction_id || '', '', '', 'confirmed', now, r.note || '']);
+    });
+    if (data.paid_claim_ids || data.unpaid_claim_ids) {
+      setPaymentByIds(ss.getSheetByName(SHEET_JOINERS), 'claim_id', data.paid_claim_ids || [], data.unpaid_claim_ids || [], now);
+    }
+    return { ok: true, transaction_id: data.transaction_id };
+  } finally { lock.releaseLock(); }
+}
+
+function reverseCredit(data) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const lock = LockService.getScriptLock();
+  try { lock.waitLock(10000); } catch (e) { return { ok: false, error: 'busy' }; }
+  try {
+    const sheet = ss.getSheetByName(SHEET_PAYMENTS);
+    const rows = sheet.getDataRange().getValues();
+    const txCol = rows[0].indexOf('transaction_id');
+    // delete bottom-up so row indices stay valid
+    for (let i = rows.length - 1; i >= 1; i--) {
+      if (String(rows[i][txCol]) === String(data.transaction_id)) sheet.deleteRow(i + 1);
+    }
+    if (data.paid_claim_ids || data.unpaid_claim_ids) {
+      setPaymentByIds(ss.getSheetByName(SHEET_JOINERS), 'claim_id', data.paid_claim_ids || [], data.unpaid_claim_ids || [], new Date().toISOString());
+    }
+    return { ok: true };
+  } finally { lock.releaseLock(); }
 }
 
 // Set payment_status='paid' for rows whose id is in paidIds, 'unpaid' for unpaidIds.
