@@ -1825,7 +1825,12 @@ function doLookupRender(u) {
         <div style="font-size:15px;font-weight:500;">Total to pay across all GOs: <span style="font-family:var(--mono);">$${totalOwed.toFixed(2)}</span></div>
         <div style="font-size:12px;color:var(--text3);margin-top:4px;">You can send this in one transfer — just paste the same transaction ID on each GO's payment below.</div>
       </div>` : '';
-      blocksEl.innerHTML = totalCard + goList.map(g => renderMyOrderGoBlock(g, rows.filter(r => r.go_id === g.go_id), u, getSummary(g.go_id))).join('');
+      const balance = accountBalance(u);
+      const balanceCard = balance > 0.001 ? `<div class="card" style="margin-bottom:12px;border-color:var(--teal-100);">
+        <div style="font-size:15px;font-weight:500;color:var(--teal-700);">👛 Account balance: <span style="font-family:var(--mono);">$${balance.toFixed(2)}</span></div>
+        <div style="font-size:12px;color:var(--text3);margin-top:4px;">From overpayments/credit — use it on any GO you owe on below.</div>
+      </div>` : '';
+      blocksEl.innerHTML = totalCard + balanceCard + goList.map(g => renderMyOrderGoBlock(g, rows.filter(r => r.go_id === g.go_id), u, getSummary(g.go_id))).join('');
     }
   }
   renderShipPanel(u);
@@ -1865,6 +1870,19 @@ function myPaymentsSection(username, goId) {
       ? '<span class="badge badge-dropped" style="font-size:10px;">Rejected</span>'
       : '<span class="badge badge-pending" style="font-size:10px;">Awaiting confirmation</span>';
   const rows = mine.map(p => {
+    if (p.method === 'credit') {
+      const amt = parseFloat(p.amount) || 0;
+      const label = amt < 0 ? 'Credit moved out' : 'Paid with balance';
+      const color = amt < 0 ? 'var(--text2)' : 'var(--teal-600)';
+      return `<div style="padding:8px 0;border-top:0.5px solid var(--border);">
+      <div style="display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap;">
+        <span style="font-family:var(--mono);font-size:12px;color:var(--text3);">${fmtDate(p.created_at)}</span>
+        <strong style="font-family:var(--mono);font-size:13px;color:${color};">${amt < 0 ? '-' : '+'}$${Math.abs(amt).toFixed(2)}</strong>
+        <span style="font-size:12px;color:var(--text2);">👛 ${label}${p.note ? ' — ' + p.note : ''}</span>
+        <div style="margin-left:auto;text-align:right;">${badge(p.status)}</div>
+      </div>
+    </div>`;
+    }
     const tx = p.transaction_id ? String(p.transaction_id) : '';
     const txShort = tx.length > 8 ? '…' + tx.slice(-8) : tx;
     const reason = (p.status === 'rejected' && p.note) ? `<div style="font-size:11px;color:var(--red-400);margin-top:3px;">Reason: ${p.note}</div>` : '';
@@ -1893,9 +1911,7 @@ function renderMyOrderGoBlock(g, goRows, u, summary) {
   const open = myOrderGoOpen[g.go_id] !== false;
   const rightBadge = s.owed > 0
     ? `Owed: <strong style="font-family:var(--mono);">$${s.owed.toFixed(2)}</strong>`
-    : s.credit > 0
-      ? `<span style="color:var(--teal-600);">Credit: <strong style="font-family:var(--mono);">$${s.credit.toFixed(2)}</strong></span>`
-      : (s.paid > 0 ? `<span style="color:var(--teal-600);font-weight:500;">All paid ✓</span>` : '');
+    : (s.paid > 0 ? `<span style="color:var(--teal-600);font-weight:500;">All paid ✓</span>` : '');
   const claimRows = goRows.map(r => `<tr>
     <td>${r.item}</td>
     <td style="color:var(--text2);">${r.detail}</td>
@@ -1906,7 +1922,6 @@ function renderMyOrderGoBlock(g, goRows, u, summary) {
     <td><span class="badge ${fulfillBadge(r.fulfillment)}">${r.fulfillment}</span></td>
   </tr>`).join('');
   const summaryLine = `Paid $${s.paid.toFixed(2)} · Owed $${s.owed.toFixed(2)}`
-    + (s.credit > 0 ? ` · Credit $${s.credit.toFixed(2)}` : '')
     + (s.pendingSubmitted > 0 ? ` · $${s.pendingSubmitted.toFixed(2)} awaiting confirmation` : '');
   const handles = PAYMENT_METHODS.map(p => `<span class="tag">${p.method}${p.note ? ' ' + p.note : ''}: ${p.handle}</span>`).join(' ');
   const form = s.owed > 0 ? `
@@ -1924,8 +1939,13 @@ function renderMyOrderGoBlock(g, goRows, u, summary) {
           <input type="text" id="pay-txid-${g.go_id}" placeholder="e.g. PayPal transaction ID">
         </div>
         <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="submitGoPayment('${g.go_id}','${u}')">I paid</button>` : '';
-  const creditNote = (s.owed <= 0 && s.credit > 0) ? `
-        <div style="font-size:12px;color:var(--teal-600);background:var(--teal-50);border-radius:var(--radius);padding:8px 10px;">$${s.credit.toFixed(2)} is held as credit toward claims secured later.</div>` : '';
+  const ba = computeBalanceApply(u, g.go_id);   // {balance, spent, sources, paidIds, unpaidIds}
+  const balanceControl = (s.owed > 0 && ba.spent > 0.001) ? `
+        <div style="margin-top:10px;font-size:12px;color:var(--teal-700);background:var(--teal-50);border-radius:var(--radius);padding:8px 10px;">
+          👛 You have <strong>$${ba.balance.toFixed(2)}</strong> account balance.
+          <button class="btn btn-sm" style="margin-left:6px;" onclick="payWithBalance('${u}','${g.go_id}')">Use $${ba.spent.toFixed(2)} of balance</button>
+        </div>` : '';
+  const creditNote = '';
   const goObj = allGOs[g.go_id];
   const deadlineNote = (s.owed > 0 && goObj && goObj.paymentDeadline) ? `<div style="font-size:12px;color:var(--red-400);font-weight:500;margin:0 0 10px;">Pay by ${fmtDate(goObj.paymentDeadline)}</div>` : '';
   return `<div class="card" style="margin-bottom:12px;">
@@ -1941,7 +1961,7 @@ function renderMyOrderGoBlock(g, goRows, u, summary) {
       </table></div>
       <div style="font-size:12px;color:var(--text3);margin:10px 0;">${summaryLine}</div>
       ${myPaymentsSection(u, g.go_id)}
-      ${deadlineNote}${form}${creditNote}
+      ${deadlineNote}${form}${creditNote}${balanceControl}
     </div>
   </div>`;
 }
@@ -2059,6 +2079,27 @@ function submitGoPayment(goId, lookedUpUser) {
   // Disable the button to prevent double-submit until next lookup refresh
   const btn = document.querySelector(`#lookup-go-blocks button[onclick^="submitGoPayment('${goId}'"]`);
   if (btn) { btn.disabled = true; btn.textContent = 'Submitted ✓'; }
+}
+
+let creditApplyInFlight = false;
+async function payWithBalance(u, goId) {
+  if (creditApplyInFlight) { toast('One moment…'); return; }
+  const ba = computeBalanceApply(u, goId);   // {balance, spent, sources, paidIds, unpaidIds}
+  if (ba.spent <= 0.001) { toast('Balance too small for any item on this GO.'); return; }
+  const link = 'cr_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+  const rows = ba.sources.map(src => ({ go_id: src.go_id, go_name: goDisplayName(src.go_id), amount: -src.amount, note: 'Credit applied to ' + goDisplayName(goId) }));
+  rows.push({ go_id: goId, go_name: goDisplayName(goId), amount: ba.spent, note: 'From credit on ' + ba.sources.map(s2 => goDisplayName(s2.go_id)).join(', ') });
+  creditApplyInFlight = true;
+  try {
+    const res = await apiPost('applyCredit', { username: u, transaction_id: link, rows, target_go_id: goId, paid_claim_ids: ba.paidIds, unpaid_claim_ids: ba.unpaidIds });
+    if (!res || res.ok === false) { toast('Couldn’t apply balance — try again.'); return; }
+    // optimistic local update so the view reflects it before the next sync
+    rows.forEach((r, i) => paymentProofs.push({ payment_id: 'cr_' + Date.now() + '_' + i + '_' + Math.random().toString(36).slice(2, 4), username: u, go_id: r.go_id, go_name: r.go_name, amount: r.amount, method: 'credit', transaction_id: link, status: 'confirmed', created_at: new Date().toISOString(), note: r.note }));
+    (myLookupClaims || []).forEach(c => { if (ba.paidIds.includes(c.claim_id)) c.payment_status = 'paid'; else if (ba.unpaidIds.includes(c.claim_id)) c.payment_status = 'unpaid'; });
+    toast('Applied $' + ba.spent.toFixed(2) + ' from your balance.');
+    doLookupRender(u);
+  } catch (e) { toast('Couldn’t apply balance — check your connection.'); }
+  finally { creditApplyInFlight = false; }
 }
 
 function resetLookup() {
