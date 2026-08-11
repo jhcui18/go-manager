@@ -2098,34 +2098,23 @@ async function payWithBalance(u, goId) {
   const link = 'cr_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
   const rows = ba.sources.map(src => ({ go_id: src.go_id, go_name: goDisplayName(src.go_id), amount: -src.amount, note: 'Credit applied to ' + goDisplayName(goId) }));
   rows.push({ go_id: goId, go_name: goDisplayName(goId), amount: ba.spent, note: 'From credit on ' + ba.sources.map(s2 => goDisplayName(s2.go_id)).join(', ') });
-  creditApplyInFlight = true;
-  showLoadingOverlay(true, 'Applying $' + ba.spent.toFixed(2) + ' from balance…');
-  // Fire the write. Apps Script's POST redirect can make the response fail to parse even when the
-  // write LANDED, so don't judge success from the response — confirm from the sheet by the unique
-  // link id below. (This was surfacing false "check your connection" errors on successful applies.)
-  try { await apiPost('applyCredit', { username: u, transaction_id: link, rows, target_go_id: goId, paid_claim_ids: ba.paidIds, unpaid_claim_ids: ba.unpaidIds }); } catch (e) {}
-  let landed = false, checked = false;
+  // Optimistic: update the UI INSTANTLY (matches the app's other writes — no blocking wait).
+  // Push the credit rows so balance/owed recompute now; mark the covered items paid.
+  rows.forEach((r, i) => paymentProofs.push({ payment_id: 'cr_' + Date.now() + '_' + i + '_' + Math.random().toString(36).slice(2, 4), username: u, go_id: r.go_id, go_name: r.go_name, amount: r.amount, method: 'credit', transaction_id: link, status: 'confirmed', created_at: new Date().toISOString(), note: r.note }));
   try {
-    const pr = await apiGet('getPayments');
-    if (pr && Array.isArray(pr.payments)) {
-      paymentProofs = pr.payments.filter(p => p && p.payment_id).map(p => ({ payment_id:p.payment_id, username:p.username, go_id:p.go_id, go_name:p.go_name, amount:p.amount, method:p.method, transaction_id:p.transaction_id, proof_url:p.proof_url, status:p.status||'pending', created_at:p.created_at, note:p.note||'' }));
-      checked = true;
-      landed = paymentProofs.some(p => p.transaction_id === link);
-    }
+    (myLookupClaims || []).forEach(c => { if (ba.paidIds.includes(c.claim_id)) c.payment_status = 'paid'; else if (ba.unpaidIds.includes(c.claim_id)) c.payment_status = 'unpaid'; });
+    if (isAdmin) paymentOwedUnits(u, goId).forEach(unit => { if (unit.ids && unit.ids.length) setUnitPaid(unit, unit.ids.some(id => ba.paidIds.includes(id))); });
   } catch (e) {}
-  if (landed) {
-    // Confirmed on the sheet — now mark items paid locally so badges flip without a full refresh.
-    try {
-      (myLookupClaims || []).forEach(c => { if (ba.paidIds.includes(c.claim_id)) c.payment_status = 'paid'; else if (ba.unpaidIds.includes(c.claim_id)) c.payment_status = 'unpaid'; });
-      if (isAdmin) paymentOwedUnits(u, goId).forEach(unit => { if (unit.ids && unit.ids.length) setUnitPaid(unit, unit.ids.some(id => ba.paidIds.includes(id))); });
-    } catch (e) {}
-  }
-  creditApplyInFlight = false;
-  showLoadingOverlay(false);
   doLookupRender(u);
-  if (landed) toast('Applied $' + ba.spent.toFixed(2) + ' from your balance.');
-  else if (checked) toast('Couldn’t apply balance — please try again.');
-  else toast('Sent — please refresh to confirm it went through.');
+  toast('Applied $' + ba.spent.toFixed(2) + ' from your balance.');
+  // Persist in the background. A parsed rejection (e.g. lock busy) → tell them to refresh; a
+  // redirect-quirk/network throw is ignored (the write lands; the next sync reconciles).
+  if (!API_URL) return;
+  creditApplyInFlight = true;
+  apiPost('applyCredit', { username: u, transaction_id: link, rows, target_go_id: goId, paid_claim_ids: ba.paidIds, unpaid_claim_ids: ba.unpaidIds })
+    .then(res => { if (res && (res.ok === false || res.error)) toast('That balance apply didn’t go through — please refresh.'); })
+    .catch(() => {})
+    .finally(() => { creditApplyInFlight = false; });
 }
 
 function resetLookup() {
