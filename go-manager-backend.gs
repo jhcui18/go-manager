@@ -473,6 +473,8 @@ function applyCredit(data) {
   const lock = LockService.getScriptLock();
   try { lock.waitLock(10000); } catch (e) { return { ok: false, error: 'busy', message: 'Server busy, please retry.' }; }
   try {
+    const sumAmt = (data.rows || []).reduce((a, r) => a + (Number(r.amount) || 0), 0);
+    if (Math.abs(sumAmt) > 0.01) { return { ok: false, error: 'unbalanced', message: 'Credit rows do not net to zero.' }; }
     const sheet = ss.getSheetByName(SHEET_PAYMENTS);
     const now = new Date().toISOString();
     (data.rows || []).forEach((r, i) => {
@@ -494,9 +496,10 @@ function reverseCredit(data) {
     const sheet = ss.getSheetByName(SHEET_PAYMENTS);
     const rows = sheet.getDataRange().getValues();
     const txCol = rows[0].indexOf('transaction_id');
+    const mCol = rows[0].indexOf('method');
     // delete bottom-up so row indices stay valid
     for (let i = rows.length - 1; i >= 1; i--) {
-      if (String(rows[i][txCol]) === String(data.transaction_id)) sheet.deleteRow(i + 1);
+      if (String(rows[i][txCol]) === String(data.transaction_id) && String(rows[i][mCol]) === 'credit') sheet.deleteRow(i + 1);
     }
     if (data.paid_claim_ids || data.unpaid_claim_ids) {
       setPaymentByIds(ss.getSheetByName(SHEET_JOINERS), 'claim_id', data.paid_claim_ids || [], data.unpaid_claim_ids || [], new Date().toISOString());
