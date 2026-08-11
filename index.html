@@ -2096,6 +2096,9 @@ async function payWithBalance(u, goId) {
     // optimistic local update so the view reflects it before the next sync
     rows.forEach((r, i) => paymentProofs.push({ payment_id: 'cr_' + Date.now() + '_' + i + '_' + Math.random().toString(36).slice(2, 4), username: u, go_id: r.go_id, go_name: r.go_name, amount: r.amount, method: 'credit', transaction_id: link, status: 'confirmed', created_at: new Date().toISOString(), note: r.note }));
     (myLookupClaims || []).forEach(c => { if (ba.paidIds.includes(c.claim_id)) c.payment_status = 'paid'; else if (ba.unpaidIds.includes(c.claim_id)) c.payment_status = 'unpaid'; });
+    // Admin My-Orders/Manage render from allGOs refs (not myLookupClaims), so mark the slot/claim
+    // refs paid too — mirrors confirmPayment's setUnitPaid so the badge flips without a refresh.
+    if (isAdmin) paymentOwedUnits(u, goId).forEach(unit => { if (unit.ids && unit.ids.length) setUnitPaid(unit, unit.ids.some(id => ba.paidIds.includes(id))); });
     toast('Applied $' + ba.spent.toFixed(2) + ' from your balance.');
     doLookupRender(u);
   } catch (e) { toast('Couldn’t apply balance — check your connection.'); }
