@@ -1697,10 +1697,19 @@ async function doLookup() {
   if (!raw.trim()) { toast('Enter your username.'); return; }
   if (!isAdmin && API_URL) {
     // Buyer lazy path: pull just this user's claims + payments/shop/shipping.
-    const [jr, pr, so, sh] = await Promise.all([
-      apiGet('getJoiners', { username: raw.trim() }), apiGet('getPayments'),
-      apiGet('getShopOrders'), apiGet('getShipping')
-    ]);
+    showLoadingOverlay(true, 'Looking up your orders…');
+    let jr, pr, so, sh;
+    try {
+      [jr, pr, so, sh] = await Promise.all([
+        apiGet('getJoiners', { username: raw.trim() }), apiGet('getPayments'),
+        apiGet('getShopOrders'), apiGet('getShipping')
+      ]);
+    } catch (e) {
+      showLoadingOverlay(false);
+      toast('Couldn’t load your orders — check your connection and try again.');
+      return;
+    }
+    showLoadingOverlay(false);
     myLookupClaims = (jr && jr.claims) || [];
     if (pr && Array.isArray(pr.payments)) paymentProofs = pr.payments.filter(p => p && p.payment_id).map(p => ({ payment_id:p.payment_id, username:p.username, go_id:p.go_id, go_name:p.go_name, amount:p.amount, method:p.method, transaction_id:p.transaction_id, proof_url:p.proof_url, status:p.status||'pending', created_at:p.created_at, note:p.note||'' }));
     if (so && Array.isArray(so.shop_orders)) shopOrders = so.shop_orders;
