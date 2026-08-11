@@ -2121,8 +2121,9 @@ async function payWithBalance(u, goId) {
   // Saved — reflect it locally (wrapped so a hiccup here can't look like a failure).
   rows.forEach((r, i) => paymentProofs.push({ payment_id: 'cr_' + Date.now() + '_' + i + '_' + Math.random().toString(36).slice(2, 4), username: u, go_id: r.go_id, go_name: r.go_name, amount: r.amount, method: 'credit', transaction_id: link, status: 'confirmed', created_at: new Date().toISOString(), note: r.note }));
   try {
-    (myLookupClaims || []).forEach(c => { if (ba.paidIds.includes(c.claim_id)) c.payment_status = 'paid'; else if (ba.unpaidIds.includes(c.claim_id)) c.payment_status = 'unpaid'; });
-    if (isAdmin) paymentOwedUnits(u, goId).forEach(unit => { if (unit.ids && unit.ids.length) setUnitPaid(unit, unit.ids.some(id => ba.paidIds.includes(id))); });
+    // Mark ONLY the newly-covered items paid — never un-mark anything already paid.
+    (myLookupClaims || []).forEach(c => { if (ba.paidIds.includes(c.claim_id)) c.payment_status = 'paid'; });
+    if (isAdmin) paymentOwedUnits(u, goId).forEach(unit => { if (unit.ids && unit.ids.some(id => ba.paidIds.includes(id))) setUnitPaid(unit, true); });
   } catch (e) {}
   doLookupRender(u);
   toast('Applied $' + ba.spent.toFixed(2) + ' from your balance.');
@@ -4246,12 +4247,12 @@ function ownedUnitsFromClaims(claims, siMeta) {
       const isBatchKind = (meta.kind === 'member' || meta.kind === 'photocard' || meta.kind === 'member-set') && parseInt(meta.minSecure) < 0;
       if (isBatchKind && c.claim_status !== 'secured') return; // batch: only secured owed
       if (c.claim_status === 'pending') return;                // explicitly unsecured merch not owed
-      units.push({ value: (parseFloat(meta.price) || 0) * (parseInt(c.qty) || 1), ids: [c.claim_id].filter(Boolean) });
+      units.push({ value: (parseFloat(meta.price) || 0) * (parseInt(c.qty) || 1), ids: [c.claim_id].filter(Boolean), paid: c.payment_status === 'paid' });
     }
   });
   Object.values(sets).forEach(s => {
-    if (s.ot.length) units.push({ value: parseFloat(s.meta.otPrice) || 0, ids: s.ot.map(c => c.claim_id).filter(Boolean) });
-    s.normal.forEach(c => units.push({ value: parseFloat(s.meta.price) || 0, ids: [c.claim_id].filter(Boolean) }));
+    if (s.ot.length) units.push({ value: parseFloat(s.meta.otPrice) || 0, ids: s.ot.map(c => c.claim_id).filter(Boolean), paid: s.ot.every(c => c.payment_status === 'paid') });
+    s.normal.forEach(c => units.push({ value: parseFloat(s.meta.price) || 0, ids: [c.claim_id].filter(Boolean), paid: c.payment_status === 'paid' }));
   });
   return units;
 }
@@ -4265,7 +4266,7 @@ function paymentOwedUnits(username, goId) {
   const units = [];
   if (goId === 'shop') {
     shopOrders.filter(o => sameUser(o.username, username)).forEach(o => {
-      units.push({ ids: [o.order_id], value: (parseFloat(o.unit_price)||0) * (parseInt(o.qty)||1), kind: 'shop', refs: [o] });
+      units.push({ ids: [o.order_id], value: (parseFloat(o.unit_price)||0) * (parseInt(o.qty)||1), kind: 'shop', refs: [o], paid: o.payment_status === 'paid' });
     });
     return units;
   }
@@ -4282,16 +4283,16 @@ function paymentOwedUnits(username, goId) {
         });
         // OT full set → one unit at the flat OT price, covering all its (secured) slots.
         if (otSlots.length) {
-          units.push({ ids: otSlots.map(s => s.claim_id).filter(Boolean), value: si.otPrice||0, kind: 'slot', refs: otSlots });
+          units.push({ ids: otSlots.map(s => s.claim_id).filter(Boolean), value: si.otPrice||0, kind: 'slot', refs: otSlots, paid: otSlots.every(s => s.payment === 'paid') });
         }
-        normalSlots.forEach(slot => units.push({ ids: [slot.claim_id].filter(Boolean), value: si.price||0, kind: 'slot', refs: [slot] }));
+        normalSlots.forEach(slot => units.push({ ids: [slot.claim_id].filter(Boolean), value: si.price||0, kind: 'slot', refs: [slot], paid: slot.payment === 'paid' }));
       });
     }
     if (si.claims) si.claims.forEach(c => {
       if (!sameUser(c.user, username) || c.claim_status === 'dropped') return;
       if (isBatch(si) && c.claim_status !== 'secured') return;  // batch: only secured cards are owed/payable
       if (c.claim_status === 'pending') return;  // explicitly unsecured (e.g. merch) not owed/payable
-      units.push({ ids: [c.claim_id].filter(Boolean), value: (si.price||0) * (c.qty||1), kind: 'claim', refs: [c] });
+      units.push({ ids: [c.claim_id].filter(Boolean), value: (si.price||0) * (c.qty||1), kind: 'claim', refs: [c], paid: c.payment === 'paid' });
     });
   });
   return units;
@@ -4317,14 +4318,18 @@ function goPaymentSummary(username, goId) {
 // Used by apply (balance>0) and by reverse recompute (balance=0 -> mark up to remaining paid).
 // KNOWN EDGE (rare, accepted for v1): a stranded partial cash payment (oldPaid that doesn't
 // tile to a whole unit) can overlap with a balance-covered unit; admin can reconcile.
-function applyStoreCredit(units, oldPaid, balance) {
-  const eps = 0.001; let acc = 0, spent = 0; const paidIds = [], unpaidIds = [];
+// Spend `balance` on the joiner's ACTUALLY-unpaid whole owed items (store-credit rule: whole items
+// only, remainder kept). Uses each unit's real paid flag (u.paid) rather than re-deriving which
+// items are paid from an aggregate — the old aggregate greedy could wrongly mark a partially-paid
+// big item as "unpaid" and block the balance even when the real unpaid items were small.
+function applyStoreCredit(units, balance) {
+  const eps = 0.001; let spent = 0; const paidIds = [];
   (units || []).forEach(u => {
-    if (acc + u.value <= oldPaid + eps) { acc += u.value; (u.ids || []).forEach(id => paidIds.push(id)); }
-    else if (spent + u.value <= balance + eps) { acc += u.value; spent += u.value; (u.ids || []).forEach(id => paidIds.push(id)); }
-    else { (u.ids || []).forEach(id => unpaidIds.push(id)); }
+    if (u.paid) return;                        // already paid — leave it as is
+    if (spent + u.value <= balance + eps) { spent += u.value; (u.ids || []).forEach(id => paidIds.push(id)); }
+    // else too big for the remaining balance — skip; keep checking later (cheaper) items
   });
-  return { spent, paidIds: paidIds.filter(Boolean), unpaidIds: unpaidIds.filter(Boolean) };
+  return { spent, paidIds: paidIds.filter(Boolean) };
 }
 
 // Draw `amount` of credit from per-GO surplus, largest-credit-first, capped per source.
@@ -4386,16 +4391,15 @@ function accountBalance(u) { return joinerGoCredit(u).reduce((a, g) => a + g.cre
 // balance = surplus from the joiner's OTHER GOs; spent = whole owed items of goId that fit;
 // sources = which GOs the spent is drawn from; paid/unpaidIds = target marking.
 function computeBalanceApply(u, goId) {
-  const s = myGoSummary(u, goId);
   const perGo = joinerGoCredit(u).filter(g => g.go_id !== goId);
   const balance = perGo.reduce((a, g) => a + g.credit, 0);
   const siMeta = {}; Object.values(allGOs).forEach(go => (go.subItems || []).forEach(si => { siMeta[si.id] = si; }));
   const units = isAdmin
     ? paymentOwedUnits(u, goId)
     : ownedUnitsFromClaims((myLookupClaims || []).filter(c => sameUser(c.username, u) && c.go_id === goId), siMeta);
-  const { spent, paidIds, unpaidIds } = applyStoreCredit(units, s.paid, balance);
+  const { spent, paidIds } = applyStoreCredit(units, balance);   // only the newly-covered items
   const sources = drawSources(perGo, spent);
-  return { balance, spent, paidIds, unpaidIds, sources };
+  return { balance, spent, paidIds, unpaidIds: [], sources };
 }
 
 function setUnitPaid(u, paid) {
