@@ -2099,6 +2099,7 @@ async function payWithBalance(u, goId) {
   const rows = ba.sources.map(src => ({ go_id: src.go_id, go_name: goDisplayName(src.go_id), amount: -src.amount, note: 'Credit applied to ' + goDisplayName(goId) }));
   rows.push({ go_id: goId, go_name: goDisplayName(goId), amount: ba.spent, note: 'From credit on ' + ba.sources.map(s2 => goDisplayName(s2.go_id)).join(', ') });
   creditApplyInFlight = true;
+  showLoadingOverlay(true, 'Applying $' + ba.spent.toFixed(2) + ' from balance…');
   try {
     const res = await apiPost('applyCredit', { username: u, transaction_id: link, rows, target_go_id: goId, paid_claim_ids: ba.paidIds, unpaid_claim_ids: ba.unpaidIds });
     if (!res || res.ok === false || res.error) { toast('Couldn’t apply balance — try again.'); return; }
@@ -2111,7 +2112,7 @@ async function payWithBalance(u, goId) {
     toast('Applied $' + ba.spent.toFixed(2) + ' from your balance.');
     doLookupRender(u);
   } catch (e) { toast('Couldn’t apply balance — check your connection.'); }
-  finally { creditApplyInFlight = false; }
+  finally { creditApplyInFlight = false; showLoadingOverlay(false); }
 }
 
 function resetLookup() {
