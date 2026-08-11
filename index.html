@@ -3146,7 +3146,10 @@ function openEditGO() {
   const minSecureRow = document.getElementById('edit-min-secure-row');
   minSecureRow.style.display = go.type === 'merch' ? 'none' : 'block';
   if (go.type !== 'merch') {
-    const firstSetSi = go.subItems.find(si => si.minSecure);
+    // Use the first SET-BASED POB's threshold (positive min_secure). A batch POB stores a
+    // negative min_secure (-batchsize) which must NOT populate the GO-level field, or saving
+    // would stamp that negative value onto every set POB and flip them all to batch.
+    const firstSetSi = go.subItems.find(si => parseInt(si.minSecure) > 0);
     document.getElementById('edit-go-min-secure').value = firstSetSi ? firstSetSi.minSecure : 7;
   }
   const label = document.getElementById('edit-sub-items-label');
@@ -3446,7 +3449,9 @@ async function saveGOEdits() {
       }
     }
     if (go.type === 'photocard' || (si.kind === 'member' && si.sets) || (si.kind === 'member-set' && si.sets)) {
-      si.minSecure = minSecure || si.minSecure;
+      // Only apply a valid POSITIVE GO-level threshold; never let a stray negative (a batch
+      // POB's -batchsize leaking into the GO-level field) flip a set POB to batch on save.
+      if (minSecure > 0) si.minSecure = minSecure;
       const membersEl = document.getElementById('edit-si-members-' + si.id);
       if (membersEl) {
         const newMembers = membersEl.value.split('\n').map(m => m.trim()).filter(Boolean);
