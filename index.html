@@ -4933,6 +4933,7 @@ function buildSetsFromClaims(claims, siId, members) {
   // taken, move to the next set where it's free — creating a new set if needed. This keeps every
   // claimant visible so nobody silently disappears when two people booked the same slot.
   const setsByNum = {};
+  const otSetNums = {};   // set numbers owned by an OT full-set order — individuals never enter/split these
   const getSet = (n) => {
     if (!setsByNum[n]) {
       const slots = {}; members.forEach(m => slots[m] = null);
@@ -4940,21 +4941,37 @@ function buildSetsFromClaims(claims, siId, members) {
     }
     return setsByNum[n];
   };
-  const smallestUnusedNum = () => { let n = 1; while (setsByNum[n]) n++; return n; };
+  const mkSlot = (c) => ({ user: c.username, payment: c.payment_status, fulfillment: c.fulfillment, claim_status: c.claim_status, claim_id: c.claim_id, ot: c.assigned_vers === 'OT' });
+  // Pass 1: OT full-set claims → ATOMIC sets, grouped by (user + declared set). Each group takes its
+  // own set number (its declared one, or the next free) and reserves it, so no individual claim can
+  // ever enter or split a full-set order. This keeps every OT8 together as one complete set.
+  const otGroups = {};
   ordered.forEach(c => {
+    if (c.assigned_vers !== 'OT') return;
+    const key = c.username + '|' + (parseInt(c.set_num) || 1);
+    (otGroups[key] = otGroups[key] || []).push(c);
+  });
+  Object.keys(otGroups).forEach(key => {
+    const group = otGroups[key];
+    let n = parseInt(group[0].set_num) || 1;
+    while (setsByNum[n]) n++;                 // never reuse a number already owned by another set
+    const s = getSet(n); otSetNums[n] = true;
+    group.forEach(c => { s.slots[c.member_or_version] = mkSlot(c); });
+  });
+  // Pass 2: individual claims → spill among NON-OT sets only (skip reserved OT sets); earliest wins.
+  const smallestNonOT = () => { let n = 1; while (setsByNum[n] || otSetNums[n]) n++; return n; };
+  ordered.forEach(c => {
+    if (c.assigned_vers === 'OT') return;
     const member = c.member_or_version;
     const declared = parseInt(c.set_num) || 1;
-    const slot = { user: c.username, payment: c.payment_status, fulfillment: c.fulfillment, claim_status: c.claim_status, claim_id: c.claim_id, ot: c.assigned_vers === 'OT' };
-    const existingHigher = Object.keys(setsByNum).map(Number).filter(x => x > declared).sort((a,b) => a - b);
+    const existingHigher = Object.keys(setsByNum).map(Number).filter(x => x > declared && !otSetNums[x]).sort((a,b) => a - b);
     let placed = false;
     for (const n of [declared, ...existingHigher]) {
+      if (otSetNums[n]) continue;             // never spill into an OT set
       const s = getSet(n);
-      if (!s.slots[member]) { s.slots[member] = slot; placed = true; break; }
+      if (!s.slots[member]) { s.slots[member] = mkSlot(c); placed = true; break; }
     }
-    if (!placed) {
-      const s = getSet(smallestUnusedNum());
-      s.slots[member] = slot;
-    }
+    if (!placed) { const s = getSet(smallestNonOT()); s.slots[member] = mkSlot(c); }
   });
   const sets = Object.values(setsByNum).sort((a, b) => a.num - b.num);
   // A set is "secured" iff explicitly flagged or full (see deriveSetStatus) — supports per-claim securing.
