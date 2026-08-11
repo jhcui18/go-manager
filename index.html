@@ -2098,8 +2098,23 @@ async function payWithBalance(u, goId) {
   const link = 'cr_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
   const rows = ba.sources.map(src => ({ go_id: src.go_id, go_name: goDisplayName(src.go_id), amount: -src.amount, note: 'Credit applied to ' + goDisplayName(goId) }));
   rows.push({ go_id: goId, go_name: goDisplayName(goId), amount: ba.spent, note: 'From credit on ' + ba.sources.map(s2 => goDisplayName(s2.go_id)).join(', ') });
-  // Optimistic: update the UI INSTANTLY (matches the app's other writes — no blocking wait).
-  // Push the credit rows so balance/owed recompute now; mark the covered items paid.
+  // WAIT for the save so it's durable — the joiner can't close mid-write and silently lose it.
+  // One round-trip (~1s). Apps Script's POST redirect can make the response throw even when the
+  // write LANDED, so a throw is treated as applied (the write reliably completes server-side);
+  // only a PARSED rejection (e.g. lock busy) is a real failure.
+  if (API_URL) {
+    creditApplyInFlight = true;
+    showLoadingOverlay(true, 'Applying $' + ba.spent.toFixed(2) + ' from balance…');
+    let rejected = false;
+    try {
+      const res = await apiPost('applyCredit', { username: u, transaction_id: link, rows, target_go_id: goId, paid_claim_ids: ba.paidIds, unpaid_claim_ids: ba.unpaidIds });
+      if (res && (res.ok === false || res.error)) rejected = true;
+    } catch (e) {}
+    creditApplyInFlight = false;
+    showLoadingOverlay(false);
+    if (rejected) { toast('Couldn’t apply balance — please try again.'); return; }
+  }
+  // Saved — reflect it locally (wrapped so a hiccup here can't look like a failure).
   rows.forEach((r, i) => paymentProofs.push({ payment_id: 'cr_' + Date.now() + '_' + i + '_' + Math.random().toString(36).slice(2, 4), username: u, go_id: r.go_id, go_name: r.go_name, amount: r.amount, method: 'credit', transaction_id: link, status: 'confirmed', created_at: new Date().toISOString(), note: r.note }));
   try {
     (myLookupClaims || []).forEach(c => { if (ba.paidIds.includes(c.claim_id)) c.payment_status = 'paid'; else if (ba.unpaidIds.includes(c.claim_id)) c.payment_status = 'unpaid'; });
@@ -2107,14 +2122,6 @@ async function payWithBalance(u, goId) {
   } catch (e) {}
   doLookupRender(u);
   toast('Applied $' + ba.spent.toFixed(2) + ' from your balance.');
-  // Persist in the background. A parsed rejection (e.g. lock busy) → tell them to refresh; a
-  // redirect-quirk/network throw is ignored (the write lands; the next sync reconciles).
-  if (!API_URL) return;
-  creditApplyInFlight = true;
-  apiPost('applyCredit', { username: u, transaction_id: link, rows, target_go_id: goId, paid_claim_ids: ba.paidIds, unpaid_claim_ids: ba.unpaidIds })
-    .then(res => { if (res && (res.ok === false || res.error)) toast('That balance apply didn’t go through — please refresh.'); })
-    .catch(() => {})
-    .finally(() => { creditApplyInFlight = false; });
 }
 
 function resetLookup() {
