@@ -507,10 +507,11 @@ let currentClaimGoId = null;
 // ── UTILITIES ────────────────────────────────────────────────────────────────
 function countFilled(set, members) { return members.filter(m => set.slots[m]).length; }
 // How many of a POB's sets/batches are READY to secure but not yet secured (hit the threshold).
-function securableCount(si) {
+function securableCount(si, threshold) {
   if (isBatch(si)) return goBatches(si).filter(b => b.full && !b.ordered).length;
+  const thr = parseInt(threshold) > 0 ? parseInt(threshold) : (parseInt(si.minSecure) > 0 ? parseInt(si.minSecure) : 7);
   if (si.sets) return si.sets.filter(s =>
-    s.status !== 'secured' && Object.values(s.slots).some(v => v) && countFilled(s, si.members || []) >= si.minSecure
+    s.status !== 'secured' && Object.values(s.slots).some(v => v) && countFilled(s, si.members || []) >= thr
   ).length;
   return 0;
 }
@@ -1069,7 +1070,8 @@ function renderSetSubItemPublic(si, goId) {
     const isEmpty = filled === 0;
     if (isEmpty) return;
     pubSetNo++;
-    const barColor = isSecured ? 'var(--teal-400)' : filled >= si.minSecure ? 'var(--teal-400)' : 'var(--accent)';
+    const pubThr = parseInt(allGOs[goId] && allGOs[goId].minSecure) > 0 ? parseInt(allGOs[goId].minSecure) : 7;
+    const barColor = isSecured ? 'var(--teal-400)' : filled >= pubThr ? 'var(--teal-400)' : 'var(--accent)';
     html += `<div style="margin-bottom:12px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
         <span style="font-size:12px;font-weight:500;">Set ${pubSetNo}</span>
@@ -2308,7 +2310,7 @@ function renderDetailContent() {
     } else {
       html += ` <span style="font-size:12px;color:var(--text3);">$${(si.price||0).toFixed(2)}</span>`;
     }
-    const nSecurable = securableCount(si);
+    const nSecurable = securableCount(si, go.minSecure);
     if (nSecurable) html += ` <span class="badge" style="background:var(--accent-light);color:var(--accent-dark);font-size:10px;margin-left:auto;">${nSecurable} securable</span>`;
     html += ` <span style="font-size:12px;color:var(--text3);font-weight:400;${nSecurable ? '' : 'margin-left:auto;'}">${setsSummary(si)}</span>`;
     if (si.closed) html += ` <span class="badge badge-waitlist" style="font-size:10px;">Closed</span>`;
@@ -2387,7 +2389,8 @@ function renderDetailContent() {
         const total = si.members.length;
         const pct = Math.round(filled/total*100);
         const isSecured = set.status === 'secured';
-        const reachedMin = filled >= si.minSecure; // hit the 7/8-style rule threshold
+        const admThr = parseInt(go.minSecure) > 0 ? parseInt(go.minSecure) : 7;   // GO-level threshold
+        const reachedMin = filled >= admThr; // hit the 7/8-style rule threshold
         const isEmpty = filled === 0;
         if (isEmpty && setIdx === si.sets.length - 1) {
           admSetNo++;
@@ -2402,7 +2405,7 @@ function renderDetailContent() {
             <div style="font-size:13px;font-weight:500;">Set ${admSetNo} — ${filled}/${total}</div>
             <div style="display:flex;gap:6px;align-items:center;">
               ${isSecured ? `<span class="badge badge-secured" style="cursor:pointer;" title="Click to unsecure" onclick="unsecureSet('${go.id}','${si.id}',${setIdx})">Secured ✕</span>` : ''}
-              ${!isSecured ? `<button class="btn btn-sm" style="color:${reachedMin?'var(--teal-600)':'var(--text3)'};border-color:var(--border2);" title="${reachedMin?'Secure this set':'Below '+si.minSecure+' — secure early'}" onclick="secureSet('${go.id}','${si.id}',${setIdx})">${reachedMin?'Secure':'Secure early'}</button>` : ''}
+              ${!isSecured ? `<button class="btn btn-sm" style="color:${reachedMin?'var(--teal-600)':'var(--text3)'};border-color:var(--border2);" title="${reachedMin?'Secure this set':'Below '+admThr+' — secure early'}" onclick="secureSet('${go.id}','${si.id}',${setIdx})">${reachedMin?'Secure':'Secure early'}</button>` : ''}
             </div>
           </div>
           <div style="background:var(--gray-100);border-radius:4px;height:4px;margin-bottom:12px;"><div style="background:${barColor};width:${pct}%;height:4px;border-radius:4px;"></div></div>
@@ -3033,8 +3036,8 @@ function createGO() {
   });
   if (!subItems.length) { toast('Add at least one item.'); return; }
   subItems.forEach(si => { const el = document.getElementById('si-img-' + si.id); si.imageUrl = el ? el.value.trim() : ''; });
-  allGOs[id] = { id, name, type, deadline, paymentDeadline, status: 'open', subItems };
-  if (API_URL) apiPost('createGO', { ...allGOs[id], payment_deadline: paymentDeadline, min_secure: subItems[0]?.minSecure || 7 });
+  allGOs[id] = { id, name, type, deadline, paymentDeadline, status: 'open', minSecure: minSecure, subItems };
+  if (API_URL) apiPost('createGO', { ...allGOs[id], payment_deadline: paymentDeadline, min_secure: minSecure });
   renderAdminGOList();
   renderOrdersList();
   toast('GO created: ' + name);
@@ -3146,11 +3149,9 @@ function openEditGO() {
   const minSecureRow = document.getElementById('edit-min-secure-row');
   minSecureRow.style.display = go.type === 'merch' ? 'none' : 'block';
   if (go.type !== 'merch') {
-    // Use the first SET-BASED POB's threshold (positive min_secure). A batch POB stores a
-    // negative min_secure (-batchsize) which must NOT populate the GO-level field, or saving
-    // would stamp that negative value onto every set POB and flip them all to batch.
-    const firstSetSi = go.subItems.find(si => parseInt(si.minSecure) > 0);
-    document.getElementById('edit-go-min-secure').value = firstSetSi ? firstSetSi.minSecure : 7;
+    // ONE universal secure threshold lives on the GO itself (go.minSecure). Read it directly —
+    // never scrape it off a sub-item (a batch POB's negative -batchsize could leak in).
+    document.getElementById('edit-go-min-secure').value = (parseInt(go.minSecure) > 0) ? go.minSecure : 7;
   }
   const label = document.getElementById('edit-sub-items-label');
   label.textContent = go.type === 'photocard' ? 'Card sets' : go.type === 'album' ? 'Versions' : 'Items';
@@ -3420,6 +3421,7 @@ async function saveGOEdits() {
   const prevStatus = go.status;
   go.status = document.getElementById('edit-go-status').value;
   const minSecure = parseInt(document.getElementById('edit-go-min-secure').value);
+  if (minSecure > 0) go.minSecure = minSecure;   // the ONE GO-level threshold (persisted below)
   // Update each sub-item
   go.subItems.forEach(si => {
     const nameEl = document.getElementById('edit-si-name-' + si.id);
@@ -3449,9 +3451,8 @@ async function saveGOEdits() {
       }
     }
     if (go.type === 'photocard' || (si.kind === 'member' && si.sets) || (si.kind === 'member-set' && si.sets)) {
-      // Only apply a valid POSITIVE GO-level threshold; never let a stray negative (a batch
-      // POB's -batchsize leaking into the GO-level field) flip a set POB to batch on save.
-      if (minSecure > 0) si.minSecure = minSecure;
+      // Threshold is GO-level now (go.minSecure) — don't copy it onto the set POB. Keep si.minSecure
+      // only as the set/batch marker (it stays >= 0 for a set POB, < 0 for batch).
       const membersEl = document.getElementById('edit-si-members-' + si.id);
       if (membersEl) {
         const newMembers = membersEl.value.split('\n').map(m => m.trim()).filter(Boolean);
@@ -3553,7 +3554,7 @@ async function saveGOEdits() {
   // sub-item list and make the GO's items look deleted. Awaiting closes that race.
   if (API_URL) {
     try {
-      const res = await apiPost('updateGO', { go_id: go.id, name: go.name, deadline: go.deadline, payment_deadline: go.paymentDeadline, status: go.status, subItems: go.subItems });
+      const res = await apiPost('updateGO', { go_id: go.id, name: go.name, deadline: go.deadline, payment_deadline: go.paymentDeadline, status: go.status, min_secure: go.minSecure, subItems: go.subItems });
       if (res && res.ok === false) { toast(res.message || 'Save didn’t go through — please try again.'); return; }
     }
     catch (e) { toast('Save may not have gone through — check your connection and try again.'); return; }
@@ -4756,6 +4757,7 @@ async function syncFromBackend(silent) {
         const rebuilt = {
           id: go.go_id, name: go.name || '', type: go.type || 'photocard',
           deadline: fmtDate(go.deadline), paymentDeadline: fmtDate(go.payment_deadline), status: go.status || 'open',
+          minSecure: parseInt(go.min_secure) || 7,   // the ONE GO-level secure threshold for its set POBs
           subItems: []
         };
         // Remap orphaned claims to the correct current sub-item (handles re-created sub-item IDs)

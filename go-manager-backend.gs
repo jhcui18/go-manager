@@ -219,6 +219,8 @@ function updateGO(data) {
         if (data.status)   goSheet.getRange(i+1, headers.indexOf('status')+1).setValue(data.status);
         const pdCol = headers.indexOf('payment_deadline');
         if (pdCol !== -1 && data.payment_deadline !== undefined) goSheet.getRange(i+1, pdCol+1).setValue(data.payment_deadline);
+        const msCol = headers.indexOf('min_secure');   // GO-level secure threshold (single source for set POBs)
+        if (msCol !== -1 && data.min_secure !== undefined) goSheet.getRange(i+1, msCol+1).setValue(data.min_secure);
         break;
       }
     }
