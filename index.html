@@ -2214,36 +2214,13 @@ function renderAdminGOList() {
   el.innerHTML = Object.values(allGOs).map(go => {
     const typeLabel = go.type==='photocard'?'Photocard':go.type==='album'?'Album':'Merch';
     const badgeClass = go.type==='photocard'?'badge-set':go.type==='album'?'badge-fcfs':'badge-waitlist';
-    let meta = '';
-    if (go.type === 'photocard') {
-      const total = go.subItems.reduce((a,si) => a + (isBatch(si) ? (si.claims||[]).length : (si.sets ? si.sets.reduce((b,s) => b + countFilled(s,si.members), 0) : 0)), 0);
-      const secured = go.subItems.reduce((a,si) => a + (isBatch(si) ? goBatches(si).filter(b=>b.ordered).length : (si.sets ? si.sets.filter(s=>s.status==='secured').length : 0)), 0);
-      meta = total + ' claims · ' + secured + ' set' + (secured!==1?'s':'') + ' secured';
-    } else if (go.type === 'album') {
-      const total = go.subItems.reduce((a,si) => {
-        if (isBatch(si)) return a + (si.claims||[]).length;
-        if (si.kind==='member' && si.sets) return a + si.sets.reduce((b,s)=>b+countFilled(s,si.members),0);
-        return a + (si.claims||[]).reduce((b,c)=>b+(c.qty||1),0);
-      },0);
-      meta = total + ' total claims';
-    } else {
-      const total = go.subItems.reduce((a,si) => {
-        if (isBatch(si)) return a + (si.claims||[]).length;
-        if (si.sets) return a + si.sets.reduce((b,s)=>b+countFilled(s,si.members),0);  // member-set sub-item
-        return a + (si.claims||[]).reduce((b,c)=>b+(c.qty||1),0);
-      },0);
-      meta = total + ' items claimed';
-    }
     const collected = (paymentProofs || []).filter(p => p.go_id === go.id && p.status === 'confirmed').reduce((a, p) => a + (parseFloat(p.amount) || 0), 0);
-    const expected = goExpected(go);
-    const collectedHtml = expected > 0
-      ? ` · <span style="color:var(--teal-600);font-weight:500;">$${collected.toFixed(2)}</span> collected of $${expected.toFixed(2)}`
-      : (collected > 0 ? ` · <span style="color:var(--teal-600);font-weight:500;">$${collected.toFixed(2)} collected</span>` : '');
+    const collectedHtml = collected > 0 ? ` · <span style="color:var(--teal-600);font-weight:500;">$${collected.toFixed(2)} collected</span>` : '';
     return `<div class="card-sm" style="margin-bottom:8px;">
       <div style="display:flex;align-items:center;justify-content:space-between;">
         <div>
           <div style="font-weight:500;font-size:13px;">${go.name}</div>
-          <div style="font-size:11px;color:var(--text3);margin-top:2px;"><span class="badge ${badgeClass}" style="font-size:10px;padding:2px 7px;margin-right:6px;">${typeLabel}</span>${go.status==='closed'?'<span class="badge badge-waitlist" style="font-size:10px;padding:2px 7px;margin-right:6px;">Closed</span>':''}${meta}${collectedHtml}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px;"><span class="badge ${badgeClass}" style="font-size:10px;padding:2px 7px;margin-right:6px;">${typeLabel}</span>${go.status==='closed'?'<span class="badge badge-waitlist" style="font-size:10px;padding:2px 7px;margin-right:6px;">Closed</span>':''}${collectedHtml}</div>
         </div>
         <button class="btn btn-sm" onclick="openGODetail('${go.id}')">Manage</button>
       </div>
@@ -2251,7 +2228,13 @@ function renderAdminGOList() {
   }).join('');
 }
 
-function openGODetail(goId) {
+async function openGODetail(goId) {
+  if (!claimsLoaded[goId] && API_URL) {
+    showLoadingOverlay(true, 'Loading group order…');
+    try { await loadGOClaims(goId); }
+    catch (e) { showLoadingOverlay(false); toast('Couldn’t load this group order — please try again.'); return; }
+    showLoadingOverlay(false);
+  }
   currentGO = allGOs[goId];
   document.getElementById('detail-breadcrumb').textContent = currentGO.name;
   document.getElementById('detail-go-title').textContent = currentGO.name;
@@ -2260,18 +2243,21 @@ function openGODetail(goId) {
   document.getElementById('detail-badges').innerHTML = `<span class="badge ${badgeClass}">${typeLabel}</span>`;
   showAdminPanel('go-detail');
   renderDetailContent();
-  // No auto-sync on open: opening a GO renders local state only. Syncing while a GO detail /
-  // Edit form is open could swap currentGO mid-edit and let stale/duplicated sheet data get
-  // re-saved. Use the ↺ button (refreshCurrentGO) or reload the page to pull fresh claims.
+  // No auto-sync on open beyond the on-demand claims load above: opening a GO renders local
+  // state only otherwise. Syncing while a GO detail / Edit form is open could swap currentGO
+  // mid-edit and let stale/duplicated sheet data get re-saved. Use the ↺ button
+  // (refreshCurrentGO) or reload the page to pull fresh claims.
 }
 
 async function refreshCurrentGO(silent) {
   if (!currentGO) return;
-  await syncFromBackend(silent);
-  if (currentGO && allGOs[currentGO.id]) {
-    currentGO = allGOs[currentGO.id];
-    renderDetailContent();
-  }
+  const goId = currentGO.id;
+  claimsLoaded[goId] = false;               // force a fresh getGOBoard (its cache is busted by writes)
+  if (!silent) showLoadingOverlay(true, 'Refreshing…');
+  try { await loadGOClaims(goId); } catch (e) {}
+  if (!silent) showLoadingOverlay(false);
+  currentGO = allGOs[goId] || currentGO;
+  renderDetailContent();
 }
 
 let gcOpen = {}; // go_id -> bool; Joiners section open state (default collapsed)
@@ -2332,6 +2318,10 @@ function renderDetailContent() {
   const el = document.getElementById('detail-content');
   if (!el) return;
   let html = '';
+  // Money summary for this GO (claims are loaded here, so goExpected is valid).
+  const _exp = goExpected(go);
+  const _col = (paymentProofs || []).filter(p => p.go_id === go.id && p.status === 'confirmed').reduce((a, p) => a + (parseFloat(p.amount) || 0), 0);
+  html += `<div style="font-size:12px;color:var(--text3);margin-bottom:10px;">$${_col.toFixed(2)} collected of $${_exp.toFixed(2)} expected</div>`;
   html += gcJoinersSectionHtml(go);
   if ((go.subItems || []).length > 1) {
     html += `<div style="display:flex;gap:8px;margin-bottom:14px;">
@@ -4509,9 +4499,19 @@ function setUnitPaid(u, paid) {
 }
 
 let pendingConfirm = null;
-function confirmPayment(id) {
+async function confirmPayment(id) {
   const p = findProof(id);
   if (!p) return;
+  if (p.go_id !== 'shop' && !claimsLoaded[p.go_id] && API_URL) {
+    showLoadingOverlay(true, 'Loading order…');
+    try { await loadGOClaims(p.go_id); }
+    catch (e) { showLoadingOverlay(false); toast('Couldn’t load this order — please try again.'); return; }
+    showLoadingOverlay(false);
+  } else if (p.go_id === 'shop' && !adminShopLoaded && API_URL) {
+    showLoadingOverlay(true, 'Loading orders…');
+    try { await loadAdminShop(); } catch (e) {}
+    showLoadingOverlay(false);
+  }
   const units = paymentOwedUnits(p.username, p.go_id);
   const securedTotal = units.reduce((a, u) => a + u.value, 0);
   // Total the buyer has paid for THIS GO (already-confirmed payments + this one).
