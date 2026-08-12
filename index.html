@@ -4662,7 +4662,11 @@ const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbyNkei3xGy6AEzv
 let API_URL = localStorage.getItem('go_api_url') || DEFAULT_API_URL;
 let useBackend = !!API_URL;
 
-async function apiGet(action, params = {}, attempts = 3) {
+// Retry backoff: longer + jittered so many clients don't retry in lockstep and hammer a
+// throttled server. attempt i (0-based) waits 1..2s, 2..3s, ...
+function retryDelay(i) { return 1000 * (i + 1) + Math.floor(Math.random() * 1000); }
+
+async function apiGet(action, params = {}, attempts = 2) {
   if (!API_URL) return null;
   const qs = new URLSearchParams({ action, ...params }).toString();
   // Apps Script intermittently 404/500s a request when many fire at once. GET is
@@ -4675,7 +4679,7 @@ async function apiGet(action, params = {}, attempts = 3) {
       return await res.json();
     } catch (e) {
       lastErr = e;
-      if (i < attempts - 1) await new Promise(r => setTimeout(r, 400 * (i + 1)));
+      if (i < attempts - 1) await new Promise(r => setTimeout(r, retryDelay(i)));
     }
   }
   throw lastErr;
@@ -4688,7 +4692,7 @@ async function apiPost(action, data = {}, attempts = 3) {
     // 404/429 = Apps Script throttled / didn't route the request (it never ran), so a retry is
     // safe even for appends. Retry with backoff; other statuses fall through to res.json() below.
     if (!r.ok && (r.status === 404 || r.status === 429) && i < attempts - 1) {
-      await new Promise(res => setTimeout(res, 400 * (i + 1)));
+      await new Promise(res => setTimeout(res, retryDelay(i)));
       continue;
     }
     return r.json();
