@@ -941,11 +941,23 @@ function renderGoPreview(goId) {
 async function loadGOClaims(goId) {
   const go = allGOs[goId];
   if (!go) return;
-  const settled = await Promise.allSettled([
-    apiGet('getGOClaims', { go_id: goId }), apiGet('getSecuredSets'), apiGet('getClosedSubItems'),
-    apiGet('getSubItemDeadlines'), apiGet('getSubItemPayDue')
-  ]);
-  const [claimsRes, sec, closed, deads, pdue] = settled.map(s => s.status === 'fulfilled' ? s.value : undefined);
+  // One combined call (fewer executions). Fall back to the 5 separate calls pre-redeploy.
+  let claimsRes, sec, closed, deads, pdue;
+  let bd = null;
+  try { bd = await apiGet('getGOBoard', { go_id: goId }); } catch (e) { bd = null; }
+  if (bd && bd.claims !== undefined) {
+    claimsRes = { claims: bd.claims };
+    sec = { secured_sets: bd.secured_sets };
+    closed = { closed_subitems: bd.closed_subitems };
+    deads = { subitem_deadlines: bd.subitem_deadlines };
+    pdue = { subitem_payment_due: bd.subitem_payment_due };
+  } else {
+    const settled = await Promise.allSettled([
+      apiGet('getGOClaims', { go_id: goId }), apiGet('getSecuredSets'), apiGet('getClosedSubItems'),
+      apiGet('getSubItemDeadlines'), apiGet('getSubItemPayDue')
+    ]);
+    [claimsRes, sec, closed, deads, pdue] = settled.map(s => s.status === 'fulfilled' ? s.value : undefined);
+  }
   if (!claimsRes || !claimsRes.claims) throw new Error('claims load failed');  // openClaimPage catches -> toast, no empty board
   const claims = claimsRes.claims;
   // Refresh the flag maps (same parse as syncFromBackend).
