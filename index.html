@@ -83,6 +83,9 @@
   .upload-area input[type=file] { display:none; }
   .admin-section { margin-bottom:24px; }
   .admin-section-title { font-size:13px;font-weight:500;margin-bottom:12px;display:flex;align-items:center;gap:8px; }
+  .admin-tabs { display:flex; gap:4px; overflow-x:auto; border-bottom:1.5px solid var(--border); margin:8px 0 16px; }
+  .admin-tab { flex:0 0 auto; background:none; border:none; padding:8px 12px; font-size:13px; font-weight:500; color:var(--text3); cursor:pointer; border-bottom:2px solid transparent; }
+  .admin-tab.active { color:var(--text); border-bottom-color:var(--accent); }
   #toast { position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--gray-900);color:white;font-size:13px;padding:10px 20px;border-radius:20px;opacity:0;transition:opacity .2s;pointer-events:none;white-space:nowrap;z-index:999; }
   #toast.show { opacity:1; }
   .sub-item-row { display:grid;gap:8px;margin-bottom:8px;align-items:start; }
@@ -326,58 +329,68 @@
       <button class="btn btn-sm btn-primary" onclick="showAdminPanel('new-go')">+ New GO</button>
     </div>
     <p class="page-sub">Manage claims, payments, and fulfillment.</p>
-    <div class="admin-section">
-      <div class="section-label">Active group orders</div>
-      <div id="admin-go-list"></div>
+    <div class="admin-tabs">
+      <button class="admin-tab" id="admin-tab-gos" onclick="showAdminTab('gos')">GOs</button>
+      <button class="admin-tab" id="admin-tab-shop" onclick="showAdminTab('shop')">Shop</button>
+      <button class="admin-tab" id="admin-tab-store" onclick="showAdminTab('store')">Store</button>
+      <button class="admin-tab" id="admin-tab-payments" onclick="showAdminTab('payments')">Payments</button>
+      <button class="admin-tab" id="admin-tab-shipping" onclick="showAdminTab('shipping')">Shipping</button>
     </div>
-    <div class="admin-section">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-        <div class="section-label" style="margin:0;">Shop listings</div>
-        <button class="btn btn-sm btn-primary" onclick="openListingModal()">+ New listing</button>
+
+    <div class="admin-tabpanel" id="admin-tabpanel-gos">
+      <div class="admin-section">
+        <div class="section-label">Active group orders</div>
+        <div id="admin-go-list"></div>
       </div>
-      <div id="admin-listings-list"></div>
     </div>
-    <div class="admin-section">
-      <div class="admin-section-title">Shop orders</div>
-      <div class="card"><div class="table-wrap"><table>
-        <thead><tr><th>Buyer</th><th>Item</th><th>Qty</th><th>Amount</th><th>Payment</th><th>Fulfillment</th></tr></thead>
-        <tbody id="shop-orders-tbody"><tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px;">No shop orders.</td></tr></tbody>
-      </table></div></div>
-    </div>
-    <div class="admin-section">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-        <div class="section-label" style="margin:0;">My store orders</div>
-        <button class="btn btn-sm btn-primary" onclick="openStoreOrderModal()">+ Add store order</button>
-      </div>
-      <div id="store-orders-list"></div>
-    </div>
-    <div class="admin-section">
-      <div class="admin-section-title">Pending payment proofs</div>
-      <div class="card">
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Username</th><th>GO</th><th>Amount</th><th>Method</th><th>Ref</th><th>Submitted</th><th>Action</th></tr></thead>
-            <tbody id="payment-proofs-tbody">
-              <tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px;">No pending proofs.</td></tr>
-            </tbody>
-          </table>
+
+    <div class="admin-tabpanel" id="admin-tabpanel-shop" style="display:none;">
+      <div class="admin-section">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <div class="section-label" style="margin:0;">Shop listings</div>
+          <button class="btn btn-sm btn-primary" onclick="openListingModal()">+ New listing</button>
         </div>
+        <div id="admin-listings-list"></div>
+      </div>
+      <div class="admin-section">
+        <div class="admin-section-title">Shop orders</div>
+        <div class="card"><div class="table-wrap"><table>
+          <thead><tr><th>Buyer</th><th>Item</th><th>Qty</th><th>Amount</th><th>Payment</th><th>Fulfillment</th></tr></thead>
+          <tbody id="shop-orders-tbody"><tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px;">No shop orders.</td></tr></tbody>
+        </table></div></div>
       </div>
     </div>
-    <div class="admin-section">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-        <div class="admin-section-title" style="margin:0;">Shipping queue</div>
-        <button class="btn btn-sm" onclick="refreshShippingQueue()">↺ Refresh</button>
-      </div>
-      <div class="card">
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Username</th><th>Items ready</th><th>Cards</th><th>EMS fee</th><th>Dom. fee</th><th>Total</th><th>Address</th><th></th></tr></thead>
-            <tbody id="shipping-queue-tbody">
-              <tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px;">No shipping requests yet.</td></tr>
-            </tbody>
-          </table>
+
+    <div class="admin-tabpanel" id="admin-tabpanel-store" style="display:none;">
+      <div class="admin-section">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <div class="section-label" style="margin:0;">My store orders</div>
+          <button class="btn btn-sm btn-primary" onclick="openStoreOrderModal()">+ Add store order</button>
         </div>
+        <div id="store-orders-list"></div>
+      </div>
+    </div>
+
+    <div class="admin-tabpanel" id="admin-tabpanel-payments" style="display:none;">
+      <div class="admin-section">
+        <div class="admin-section-title">Pending payment proofs</div>
+        <div class="card"><div class="table-wrap"><table>
+          <thead><tr><th>Username</th><th>GO</th><th>Amount</th><th>Method</th><th>Ref</th><th>Submitted</th><th>Action</th></tr></thead>
+          <tbody id="payment-proofs-tbody"><tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px;">No pending proofs.</td></tr></tbody>
+        </table></div></div>
+      </div>
+    </div>
+
+    <div class="admin-tabpanel" id="admin-tabpanel-shipping" style="display:none;">
+      <div class="admin-section">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <div class="admin-section-title" style="margin:0;">Shipping queue</div>
+          <button class="btn btn-sm" onclick="refreshShippingQueue()">↺ Refresh</button>
+        </div>
+        <div class="card"><div class="table-wrap"><table>
+          <thead><tr><th>Username</th><th>Items ready</th><th>Cards</th><th>EMS fee</th><th>Dom. fee</th><th>Total</th><th>Address</th><th></th></tr></thead>
+          <tbody id="shipping-queue-tbody"><tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px;">No shipping requests yet.</td></tr></tbody>
+        </table></div></div>
       </div>
     </div>
   </div>
@@ -3077,12 +3090,60 @@ function createGO() {
 }
 
 // ── ADMIN PANEL NAV ───────────────────────────────────────────────────────────
+let adminActiveTab = 'gos';
+let adminShopLoaded = false, adminStoreLoaded = false, adminShippingLoaded = false;
+
+function showAdminTab(name) {
+  adminActiveTab = name;
+  ['gos','shop','store','payments','shipping'].forEach(t => {
+    const panel = document.getElementById('admin-tabpanel-' + t);
+    if (panel) panel.style.display = t === name ? 'block' : 'none';
+    const tab = document.getElementById('admin-tab-' + t);
+    if (tab) tab.classList.toggle('active', t === name);
+  });
+  if (name === 'shop') loadAdminShop();
+  else if (name === 'store') loadAdminStore();
+  else if (name === 'shipping') loadAdminShipping();
+  else if (name === 'payments') renderPaymentProofs(); // data arrives via background getPayments (Task 3)
+  else if (name === 'gos') renderAdminGOList();
+}
+
+async function loadAdminShop() {
+  renderAdminListings(); renderShopOrders();
+  if (adminShopLoaded || !API_URL) return;
+  try {
+    const [lr, or] = await Promise.all([apiGet('getListings'), apiGet('getShopOrders')]);
+    if (lr && Array.isArray(lr.listings)) listings = lr.listings.filter(l => l && l.listing_id).map(l => ({ ...l, variants: tryParse(l.variants, []) }));
+    if (or && Array.isArray(or.shop_orders)) shopOrders = or.shop_orders.filter(o => o && o.order_id);
+    adminShopLoaded = true;
+    renderAdminListings(); renderShopOrders();
+  } catch (e) { /* reopening the tab retries */ }
+}
+
+async function loadAdminStore() {
+  renderStoreOrders();
+  if (adminStoreLoaded || !API_URL) return;
+  try {
+    const sr = await apiGet('getStoreOrders');
+    if (sr && Array.isArray(sr.store_orders)) { storeOrders = sr.store_orders.filter(o => o && o.order_id); adminStoreLoaded = true; renderStoreOrders(); }
+  } catch (e) {}
+}
+
+async function loadAdminShipping() {
+  renderShippingQueue();
+  if (adminShippingLoaded || !API_URL) return;
+  try {
+    const sr = await apiGet('getShipping');
+    if (sr && Array.isArray(sr.requests)) { shippingRequests = sr.requests.filter(r => r && r.request_id).map(r => ({ ...r, items: tryParse(r.items, []), shipped: r.shipped === true || r.shipped === 'true' })); adminShippingLoaded = true; renderShippingQueue(); }
+  } catch (e) {}
+}
+
 function showAdminPanel(panel) {
   ['home','new-go','go-detail','edit-go'].forEach(p => {
     const el = document.getElementById(p === 'home' ? 'admin-home' : 'admin-panel-' + p);
     if (el) el.style.display = p === panel ? 'block' : 'none';
   });
-  if (panel === 'home') { renderAdminGOList(); renderAdminListings(); renderShopOrders(); renderStoreOrders(); }
+  if (panel === 'home') showAdminTab(adminActiveTab);
   if (panel === 'new-go') { newGoSubItems = []; document.getElementById('sub-items-list').innerHTML = ''; addSubItem(); }
 }
 
