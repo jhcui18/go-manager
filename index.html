@@ -753,6 +753,21 @@ function parseVariantLines(text) {
     return { name, qty };
   }).filter(Boolean);
 }
+// Joiners don't load shop listings at landing (see syncFromBackend) — fetch them the first
+// time the Shop tab is opened. Admin already has them from the full initial sync.
+let shopListingsLoaded = false;
+async function loadShopListings() {
+  renderShopPage(); // render instantly from whatever's already loaded (empty on first open)
+  if (isAdmin || shopListingsLoaded || !API_URL) return;
+  try {
+    const res = await apiGet('getListings');
+    if (res && Array.isArray(res.listings)) {
+      listings = res.listings.filter(l => l && l.listing_id).map(l => ({ ...l, variants: tryParse(l.variants, []) }));
+      shopListingsLoaded = true;
+      renderShopPage();
+    }
+  } catch (e) { /* leave empty; reopening the tab retries */ }
+}
 function renderShopPage() {
   const el = document.getElementById('page-shop');
   if (!el) return;
@@ -3143,7 +3158,7 @@ function showPage(id) {
     const idx = pageMap[id];
     if (idx !== undefined) document.querySelectorAll('.nav-tab')[idx].classList.add('active');
     if (id === 'orders') renderOrdersList();
-    if (id === 'shop') renderShopPage();
+    if (id === 'shop') loadShopListings();
     // My orders no longer auto-syncs on open (the site already syncs once on load).
     // Buyers use the ↻ Refresh button in the result header to pull the latest status.
     if (id === 'admin') { if (!isAdmin) { promptAdmin(); page.classList.remove('active'); return; } showAdminPanel('home'); }
@@ -4742,10 +4757,20 @@ async function syncFromBackend(silent) {
     // Fetch everything in parallel. Use allSettled so one throttled call (Apps Script
     // intermittently 404s under a burst) degrades that one slice instead of aborting the
     // whole sync — each slice below already guards for a missing/undefined result.
-    const settled = await Promise.allSettled([
-      (isAdmin ? apiGet('getAllGOs') : apiGet('getGOsList')), apiGet('getPayments'), apiGet('getListings'), apiGet('getShopOrders'), apiGet('getShipping'), apiGet('getStoreOrders'), apiGet('getGcAdded'), apiGet('getSecuredSets'), apiGet('getClosedSubItems'), apiGet('getSubItemDeadlines'), apiGet('getSubItemPayDue')
-    ]);
-    const [result, payResult, listResult, orderResult, shipResult, storeResult, gcResult, securedResult, closedResult, deadlineResult, payDueResult] = settled.map(s => s.status === 'fulfilled' ? s.value : undefined);
+    let result, payResult, listResult, orderResult, shipResult, storeResult, gcResult, securedResult, closedResult, deadlineResult, payDueResult;
+    if (isAdmin) {
+      // Admin needs the full picture up front: all claims + payment/shop/store/flag stores.
+      const settled = await Promise.allSettled([
+        apiGet('getAllGOs'), apiGet('getPayments'), apiGet('getListings'), apiGet('getShopOrders'), apiGet('getShipping'), apiGet('getStoreOrders'), apiGet('getGcAdded'), apiGet('getSecuredSets'), apiGet('getClosedSubItems'), apiGet('getSubItemDeadlines'), apiGet('getSubItemPayDue')
+      ]);
+      [result, payResult, listResult, orderResult, shipResult, storeResult, gcResult, securedResult, closedResult, deadlineResult, payDueResult] = settled.map(s => s.status === 'fulfilled' ? s.value : undefined);
+    } else {
+      // Joiner landing needs ONLY the cached GO metadata (getGOsList). Everything else is
+      // fetched on demand: getMyOrders (My Orders lookup), getGOBoard (opening a GO — brings
+      // that GO's secured/closed/deadline/pay-due flags), getListings (opening the Shop tab).
+      // This drops the landing from 11 parallel execution slots to 1 — the main throttling win.
+      try { result = await apiGet('getGOsList'); } catch (e) { result = undefined; }
+    }
     let gosData = result;
     if (!isAdmin && (!gosData || !gosData.gos)) {
       try { gosData = await apiGet('getAllGOs'); } catch (e) {}
