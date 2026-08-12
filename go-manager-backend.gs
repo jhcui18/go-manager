@@ -162,6 +162,15 @@ function getAllGOs() {
 const GOS_LIST_CACHE_KEY = 'gos_list_v1';
 function invalidateGOsListCache() { try { CacheService.getScriptCache().remove(GOS_LIST_CACHE_KEY); } catch (e) {} }
 
+// Per-GO board cache: getGOBoard reads the whole 3k-row joiners sheet (plus 4 flag sheets)
+// to serve one GO's claims. During a claim rush many joiners open the SAME hot GO at once,
+// so cache the built board briefly and let them share one read instead of each triggering a
+// full-sheet scan (which is what fills Apps Script's execution slots and causes the stalls).
+// Only affects the BUYER path — admins use the uncached getAllGOs, so they always see fresh
+// data. A short TTL bounds staleness; writes below bust the affected GO's cache immediately.
+function goBoardCacheKey(goId) { return 'go_board_' + goId; }
+function invalidateGOBoardCache(goId) { try { if (goId) CacheService.getScriptCache().remove(goBoardCacheKey(goId)); } catch (e) {} }
+
 // Buyer landing payload (GO + sub-item metadata, no claims). Reading each GO's sub-item
 // sheet is the slow part (16 sheet reads), so cache the built JSON for a few minutes and
 // invalidate it whenever a GO changes (create/update/deleteGO). First visitor pays the
@@ -203,15 +212,23 @@ function getMyOrders(username) {
 }
 
 function getGOBoard(goId) {
+  const cache = CacheService.getScriptCache();
+  const key = goBoardCacheKey(goId);
+  const cached = cache.get(key);
+  if (cached) { try { return JSON.parse(cached); } catch (e) {} }
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const rd = (name) => { const sh = ss.getSheetByName(name); return sh ? sheetToObjects(sh) : []; };
-  return {
+  const result = {
     claims: rd(SHEET_JOINERS).filter(c => c.go_id === goId),
     secured_sets: rd(SHEET_SECURED_SETS),
     closed_subitems: rd(SHEET_CLOSED_SUBITEMS),
     subitem_deadlines: rd(SHEET_SUBITEM_DEADLINES),
     subitem_payment_due: rd(SHEET_SUBITEM_PAYDUE)
   };
+  // 30s TTL. CacheService caps values at 100KB — skip caching an oversized board (it just
+  // reads through, same as today) rather than throw.
+  try { const s = JSON.stringify(result); if (s.length < 95000) cache.put(key, s, 30); } catch (e) {}
+  return result;
 }
 
 function createGO(data) {
@@ -274,6 +291,7 @@ function updateGO(data) {
       if (oldLast > grid.length) siSheet.deleteRows(grid.length + 1, oldLast - grid.length);
     }
     invalidateGOsListCache();
+    invalidateGOBoardCache(data.go_id);
     return { ok: true };
   } finally {
     lock.releaseLock();
@@ -295,6 +313,7 @@ function deleteGO(goId) {
   const siSheet = ss.getSheetByName('go_' + goId);
   if (siSheet) ss.deleteSheet(siSheet);
   invalidateGOsListCache();
+  invalidateGOBoardCache(goId);
   return { ok: true };
 }
 
@@ -395,6 +414,11 @@ function submitClaim(data) {
         c.qty || 1, c.assigned_vers || '', 'pending', 'unpaid', 'Pending', now, now
       ]);
     });
+    // Bust the board cache for every GO this submission touched so the buyer sees their own
+    // just-placed claim immediately (not up to the TTL later).
+    const bustGoIds = {};
+    (data.claims || []).forEach(c => { if (c.go_id) bustGoIds[c.go_id] = true; });
+    Object.keys(bustGoIds).forEach(invalidateGOBoardCache);
     return { ok: true, claim_ids: claimIds, set_nums: assignedSetNums };
   } finally {
     lock.releaseLock();
@@ -406,6 +430,7 @@ function updateClaim(data) {
   const rows = sheet.getDataRange().getValues();
   const headers = rows[0];
   const idCol = headers.indexOf('claim_id');
+  let bustGoId = '';
   for (let i = 1; i < rows.length; i++) {
     if (rows[i][idCol] === data.claim_id) {
       if (data.claim_status)   sheet.getRange(i+1, headers.indexOf('claim_status')+1).setValue(data.claim_status);
@@ -413,13 +438,23 @@ function updateClaim(data) {
       if (data.fulfillment)    sheet.getRange(i+1, headers.indexOf('fulfillment')+1).setValue(data.fulfillment);
       if (data.set_num)        sheet.getRange(i+1, headers.indexOf('set_num')+1).setValue(data.set_num);
       sheet.getRange(i+1, headers.indexOf('updated_at')+1).setValue(new Date().toISOString());
+      bustGoId = rows[i][headers.indexOf('go_id')];
     }
   }
+  invalidateGOBoardCache(bustGoId);
   return { ok: true };
 }
 
 function deleteClaim(claimId) {
-  deleteRowWhere(SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_JOINERS), 'claim_id', claimId);
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_JOINERS);
+  let goId = '';
+  try {
+    const rows = sheet.getDataRange().getValues();
+    const h = rows[0], idc = h.indexOf('claim_id'), gc = h.indexOf('go_id');
+    for (let i = 1; i < rows.length; i++) { if (rows[i][idc] === claimId) { goId = rows[i][gc]; break; } }
+  } catch (e) {}
+  deleteRowWhere(sheet, 'claim_id', claimId);
+  invalidateGOBoardCache(goId);
   return { ok: true };
 }
 
@@ -436,6 +471,7 @@ function secureSet(data) {
       sheet.getRange(i+1, headers.indexOf('updated_at')+1).setValue(new Date().toISOString());
     }
   }
+  invalidateGOBoardCache(data.go_id);
   return { ok: true };
 }
 
@@ -452,6 +488,7 @@ function unsecureSet(data) {
       sheet.getRange(i+1, headers.indexOf('updated_at')+1).setValue(new Date().toISOString());
     }
   }
+  invalidateGOBoardCache(data.go_id);
   return { ok: true };
 }
 
@@ -651,6 +688,7 @@ function setSecuredSet(data) {
   } else if (foundRow !== -1) {
     sheet.deleteRow(foundRow + 1);
   }
+  invalidateGOBoardCache(data.go_id);
   return { ok: true };
 }
 
@@ -674,6 +712,7 @@ function setClosedSubItem(data) {
   } else if (foundRow !== -1) {
     sheet.deleteRow(foundRow + 1);
   }
+  invalidateGOBoardCache(data.go_id);
   return { ok: true };
 }
 
@@ -699,6 +738,7 @@ function setSubItemDeadline(data) {
   } else if (foundRow !== -1) {
     sheet.deleteRow(foundRow + 1);
   }
+  invalidateGOBoardCache(data.go_id);
   return { ok: true };
 }
 
@@ -724,6 +764,7 @@ function setSubItemPayDue(data) {
   } else if (foundRow !== -1) {
     sheet.deleteRow(foundRow + 1);
   }
+  invalidateGOBoardCache(data.go_id);
   return { ok: true };
 }
 
