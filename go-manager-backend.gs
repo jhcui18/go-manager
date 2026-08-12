@@ -79,6 +79,8 @@ function doGet(e) {
     else if (action === 'getClosedSubItems') result = getClosedSubItems();
     else if (action === 'getSubItemDeadlines') result = getSubItemDeadlines();
     else if (action === 'getSubItemPayDue')   result = getSubItemPayDue();
+    else if (action === 'getMyOrders')     result = getMyOrders(e.parameter.username);
+    else if (action === 'getGOBoard')      result = getGOBoard(e.parameter.go_id);
     else if (action === 'ping')            result = { ok: true };
     else result = { error: 'Unknown action: ' + action };
     return jsonResponse(result);
@@ -183,6 +185,33 @@ function getGOClaims(goId) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_JOINERS);
   if (!sheet) return { claims: [] };
   return { claims: sheetToObjects(sheet).filter(c => c.go_id === goId) };
+}
+
+// One-execution reads that replace the joiner's multi-call fan-out (fewer Apps Script
+// execution slots = less concurrency throttling). Read-only; existing endpoints unchanged.
+function getMyOrders(username) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const target = String(username || '').trim().toLowerCase().replace(/^@/, '');
+  const rd = (name) => { const sh = ss.getSheetByName(name); return sh ? sheetToObjects(sh) : []; };
+  const mine = (rows) => target ? rows.filter(r => String(r.username || '').trim().toLowerCase().replace(/^@/, '') === target) : rows;
+  return {
+    claims: mine(rd(SHEET_JOINERS)),
+    payments: mine(rd(SHEET_PAYMENTS)),
+    shop_orders: mine(rd(SHEET_SHOP_ORDERS)),
+    shipping: mine(rd(SHEET_SHIPPING))
+  };
+}
+
+function getGOBoard(goId) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const rd = (name) => { const sh = ss.getSheetByName(name); return sh ? sheetToObjects(sh) : []; };
+  return {
+    claims: rd(SHEET_JOINERS).filter(c => c.go_id === goId),
+    secured_sets: rd(SHEET_SECURED_SETS),
+    closed_subitems: rd(SHEET_CLOSED_SUBITEMS),
+    subitem_deadlines: rd(SHEET_SUBITEM_DEADLINES),
+    subitem_payment_due: rd(SHEET_SUBITEM_PAYDUE)
+  };
 }
 
 function createGO(data) {
