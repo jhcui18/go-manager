@@ -1706,10 +1706,19 @@ async function doLookup() {
     showLoadingOverlay(true, 'Looking up your orders…');
     let jr, pr, so, sh;
     try {
-      [jr, pr, so, sh] = await Promise.all([
-        apiGet('getJoiners', { username: raw.trim() }), apiGet('getPayments'),
-        apiGet('getShopOrders'), apiGet('getShipping')
-      ]);
+      // One combined call (fewer Apps Script executions). Falls back to the 4 separate calls
+      // if the endpoint isn't deployed yet (pre-redeploy 404 → apiGet throws → catch below).
+      let mo = null;
+      try { mo = await apiGet('getMyOrders', { username: raw.trim() }); } catch (e) { mo = null; }
+      if (mo && mo.claims !== undefined) {
+        jr = { claims: mo.claims }; pr = { payments: mo.payments };
+        so = { shop_orders: mo.shop_orders }; sh = { requests: mo.shipping };
+      } else {
+        [jr, pr, so, sh] = await Promise.all([
+          apiGet('getJoiners', { username: raw.trim() }), apiGet('getPayments'),
+          apiGet('getShopOrders'), apiGet('getShipping')
+        ]);
+      }
     } catch (e) {
       showLoadingOverlay(false);
       toast('Couldn’t load your orders — check your connection and try again.');
