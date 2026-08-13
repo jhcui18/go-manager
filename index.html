@@ -69,6 +69,14 @@
   .go-stats { display:flex;gap:16px;margin-top:10px;padding-top:10px;border-top:0.5px solid var(--border); }
   .go-stat { font-size:12px;color:var(--text2); }
   .go-stat span { font-weight:500;color:var(--text); }
+  /* Orders page: artist filter chips (horizontal scroll on phone) + group headers */
+  .artist-chips { display:flex;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:4px;margin-bottom:14px; }
+  .artist-chips::-webkit-scrollbar { display:none; }
+  .artist-chip { flex:none;padding:8px 16px;border:1.5px solid var(--border2);border-radius:999px;font-size:13px;font-weight:500;color:var(--text2);background:var(--surface);cursor:pointer;transition:border-color .15s,background .15s,color .15s; }
+  .artist-chip.active { border-color:var(--text);background:var(--text);color:var(--surface); }
+  .artist-header { position:sticky;top:0;z-index:5;background:var(--bg);font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text2);padding:10px 0 8px; }
+  .closed-toggle { font-size:12px;font-weight:500;color:var(--text3);padding:6px 2px;margin-bottom:12px;cursor:pointer;user-select:none; }
+  .closed-toggle:hover { color:var(--text); }
   .table-wrap { overflow-x:auto; }
   table { width:100%;border-collapse:collapse;font-size:13px; }
   th { text-align:left;font-size:11px;font-weight:500;color:var(--text3);padding:8px 12px;border-bottom:0.5px solid var(--border);letter-spacing:.05em;text-transform:uppercase; }
@@ -711,38 +719,93 @@ function goCreatedTs(go) {
   return m ? parseInt(m[1], 10) : 0;
 }
 
+// Artist grouping (name-prefix convention): the part of the GO name before the first
+// "—"/"–" (spaces optional), " - " (spaces required, so hyphenated names survive), or ":".
+// No separator -> "Other".
+function goArtist(go) {
+  const name = (go && go.name || '').trim();
+  const m = /^(.+?)(?:\s*[—–]\s*|\s+-\s+|\s*[:：]\s*)/.exec(name);
+  const artist = m ? m[1].trim() : '';
+  return artist || 'Other';
+}
+
+let ordersArtistFilter = 'all';   // lowercased artist key, or 'all'
+let closedGroupsOpen = {};        // artistKey -> true when that artist's closed GOs are expanded
+
+function goCardHtml(go) {
+  const typeLabel = go.type === 'photocard' ? 'Photocard' : go.type === 'album' ? 'Album' : 'Merch';
+  // Photocard uses amber here (not the pink badge-set) so it doesn't clash with the red Closed badge.
+  const typeBadge = go.type === 'photocard'
+    ? '<span class="badge" style="background:var(--amber-50);color:var(--amber-800);">Photocard</span>'
+    : `<span class="badge ${go.type === 'album' ? 'badge-fcfs' : 'badge-waitlist'}">${typeLabel}</span>`;
+  const isClosed = go.status === 'closed';
+  const statusBadge = isClosed
+    ? '<span class="badge" style="background:var(--red-50);color:var(--red-800);">● Closed</span>'
+    : '<span class="badge" style="background:var(--teal-50);color:var(--teal-800);">● Open</span>';
+  return `<div class="go-card" onclick="openClaimPage('${go.id}')">
+    <div class="go-card-header">
+      <div><div class="go-name">${go.name}</div><div class="go-meta">Deadline: ${fmtDate(go.deadline)} &nbsp;·&nbsp; ${go.subItems.length} ${go.type === 'merch' ? 'items' : go.type === 'album' ? 'versions' : 'sets'}</div></div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+        ${typeBadge}
+        ${statusBadge}
+      </div>
+    </div>
+    <div id="go-preview-${go.id}"></div>
+  </div>`;
+}
+
 function renderOrdersList() {
   saveLocal();
   const container = document.getElementById('page-orders');
   if (!container) return;
   let html = '<p class="page-title">Active group orders</p><p class="page-sub">Claim a spot or browse available items.</p>';
-  // Newest GO first (by creation time).
-  const orderedGOs = Object.values(allGOs).sort((a, b) => goCreatedTs(b) - goCreatedTs(a));
-  orderedGOs.forEach(go => {
-    const typeLabel = go.type === 'photocard' ? 'Photocard' : go.type === 'album' ? 'Album' : 'Merch';
-    // Photocard uses amber here (not the pink badge-set) so it doesn't clash with the red Closed badge.
-    const typeBadge = go.type === 'photocard'
-      ? '<span class="badge" style="background:var(--amber-50);color:var(--amber-800);">Photocard</span>'
-      : `<span class="badge ${go.type === 'album' ? 'badge-fcfs' : 'badge-waitlist'}">${typeLabel}</span>`;
-    const isClosed = go.status === 'closed';
-    const statusBadge = isClosed
-      ? '<span class="badge" style="background:var(--red-50);color:var(--red-800);">● Closed</span>'
-      : '<span class="badge" style="background:var(--teal-50);color:var(--teal-800);">● Open</span>';
-    html += `<div class="go-card" onclick="openClaimPage('${go.id}')">
-      <div class="go-card-header">
-        <div><div class="go-name">${go.name}</div><div class="go-meta">Deadline: ${fmtDate(go.deadline)} &nbsp;·&nbsp; ${go.subItems.length} ${go.type === 'merch' ? 'items' : go.type === 'album' ? 'versions' : 'sets'}</div></div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
-          ${typeBadge}
-          ${statusBadge}
-        </div>
-      </div>
-      <div id="go-preview-${go.id}"></div>
-    </div>`;
+  // Group by artist. Key is lowercased for matching; label keeps the first-seen spelling.
+  const groups = {};
+  Object.values(allGOs).forEach(go => {
+    const label = goArtist(go);
+    const key = label.toLowerCase();
+    if (!groups[key]) groups[key] = { label, open: [], closed: [] };
+    groups[key][go.status === 'closed' ? 'closed' : 'open'].push(go);
+  });
+  // Alphabetical, "Other" last.
+  const keys = Object.keys(groups).sort((a, b) => (a === 'other') - (b === 'other') || a.localeCompare(b));
+  if (!keys.length) {
+    container.innerHTML = html + '<p style="font-size:13px;color:var(--text3);">No group orders yet.</p>';
+    renderPaymentGoSelect();
+    return;
+  }
+  if (ordersArtistFilter !== 'all' && !groups[ordersArtistFilter]) ordersArtistFilter = 'all';
+  // Filter chips — only useful once there's more than one artist.
+  if (keys.length > 1) {
+    html += '<div class="artist-chips">';
+    [['all', 'All']].concat(keys.map(k => [k, groups[k].label])).forEach(([k, label]) => {
+      html += `<div class="artist-chip${ordersArtistFilter === k ? ' active' : ''}" onclick="setOrdersArtistFilter('${encodeURIComponent(k)}')">${label}</div>`;
+    });
+    html += '</div>';
+  }
+  const visibleGOs = [];
+  (ordersArtistFilter === 'all' ? keys : [ordersArtistFilter]).forEach(key => {
+    const g = groups[key];
+    html += `<div class="artist-header">${g.label}</div>`;
+    // Open GOs: soonest deadline first (joiners decide what to claim next).
+    g.open.sort((a, b) => new Date(a.deadline || '9999-12-31') - new Date(b.deadline || '9999-12-31'));
+    g.open.forEach(go => { html += goCardHtml(go); visibleGOs.push(go); });
+    // Closed GOs tucked under a per-artist toggle, newest first when expanded.
+    if (g.closed.length) {
+      const expanded = !!closedGroupsOpen[key];
+      html += `<div class="closed-toggle" onclick="toggleClosedGroup('${encodeURIComponent(key)}')">${expanded ? '▾' : '▸'} Closed (${g.closed.length})</div>`;
+      if (expanded) {
+        g.closed.sort((a, b) => goCreatedTs(b) - goCreatedTs(a));
+        g.closed.forEach(go => { html += goCardHtml(go); visibleGOs.push(go); });
+      }
+    }
   });
   container.innerHTML = html;
-  if (isAdmin) orderedGOs.forEach(go => renderGoPreview(go.id));
+  if (isAdmin) visibleGOs.forEach(go => renderGoPreview(go.id));
   renderPaymentGoSelect();
 }
+function setOrdersArtistFilter(k) { ordersArtistFilter = decodeURIComponent(k); renderOrdersList(); }
+function toggleClosedGroup(k) { k = decodeURIComponent(k); closedGroupsOpen[k] = !closedGroupsOpen[k]; renderOrdersList(); }
 
 // Total remaining stock for a listing: per-variant sum, or the single qty.
 function listingStock(l) {
