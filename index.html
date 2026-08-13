@@ -4509,8 +4509,11 @@ async function confirmPayment(id) {
     showLoadingOverlay(false);
   } else if (p.go_id === 'shop' && !adminShopLoaded && API_URL) {
     showLoadingOverlay(true, 'Loading orders…');
-    try { await loadAdminShop(); } catch (e) {}
+    await loadAdminShop();
     showLoadingOverlay(false);
+    // Abort if the shop data didn't load — otherwise we'd confirm against an empty
+    // shopOrders and mark nothing paid ("0 of 0 items") while the admin thinks it worked.
+    if (!adminShopLoaded) { toast('Couldn’t load shop orders — please try again.'); return; }
   }
   const units = paymentOwedUnits(p.username, p.go_id);
   const securedTotal = units.reduce((a, u) => a + u.value, 0);
