@@ -3113,13 +3113,25 @@ function showAdminTab(name) {
   else if (name === 'gos') renderAdminGOList();
 }
 
+// While a tab is fetching, show "Loading…" in its containers — an un-loaded tab and an
+// empty one look identical otherwise, which read as "my data is gone".
+function loadingDiv(id, msg) {
+  const el = document.getElementById(id);
+  if (el) el.innerHTML = `<div style="font-size:12px;color:var(--text3);padding:8px 0;">${msg}</div>`;
+}
+function loadingRow(id, msg, cols) {
+  const el = document.getElementById(id);
+  if (el) el.innerHTML = `<tr><td colspan="${cols}" style="text-align:center;color:var(--text3);padding:20px;">${msg}</td></tr>`;
+}
+
 // Each tab loader: allSettled so ONE throttled call can't discard the other's data, and a
 // failure TOASTS instead of silently rendering an empty table (an empty shop/queue is
 // indistinguishable from a failed load otherwise). The …Loaded flag is only set on real
 // data, so reopening the tab retries.
 async function loadAdminShop() {
-  renderAdminListings(); renderShopOrders();
-  if (adminShopLoaded || !API_URL) return;
+  if (adminShopLoaded || !API_URL) { renderAdminListings(); renderShopOrders(); return; }
+  loadingDiv('admin-listings-list', 'Loading listings…');
+  loadingRow('shop-orders-tbody', 'Loading shop orders…', 6);
   const [lrs, ors] = await Promise.allSettled([apiGet('getListings'), apiGet('getShopOrders')]);
   const lr = lrs.status === 'fulfilled' ? lrs.value : null;
   const or = ors.status === 'fulfilled' ? ors.value : null;
@@ -3137,6 +3149,8 @@ async function loadAdminShop() {
 // failed — otherwise a throttled load left the tab reading "No pending proofs" forever.
 async function loadAdminPayments() {
   if (adminPaymentsLoaded || !API_URL || !isAdmin) return;
+  loadingRow('payment-proofs-tbody', 'Loading payments…', 7);
+  let failed = false;
   try {
     const pr = await apiGet('getPayments');
     if (pr && Array.isArray(pr.payments)) {
@@ -3146,30 +3160,37 @@ async function loadAdminPayments() {
         proof_url: p.proof_url, status: p.status || 'pending', created_at: p.created_at, note: p.note || ''
       }));
       adminPaymentsLoaded = true;
-      renderAdminGOList();
-      renderPaymentProofs();
-    } else toast('Payments didn’t load — reopen the Payments tab to retry.');
-  } catch (e) { toast('Payments didn’t load — reopen the Payments tab to retry.'); }
+    } else failed = true;
+  } catch (e) { failed = true; }
+  renderAdminGOList();
+  renderPaymentProofs();   // always render, or the "Loading…" placeholder would stick forever
+  if (failed) toast('Payments didn’t load — reopen the Payments tab to retry.');
 }
 
 async function loadAdminStore() {
-  renderStoreOrders();
-  if (adminStoreLoaded || !API_URL) return;
+  if (adminStoreLoaded || !API_URL) { renderStoreOrders(); return; }
+  loadingDiv('store-orders-list', 'Loading store orders…');
+  let failed = false;
   try {
     const sr = await apiGet('getStoreOrders');
-    if (sr && Array.isArray(sr.store_orders)) { storeOrders = sr.store_orders.filter(o => o && o.order_id); adminStoreLoaded = true; renderStoreOrders(); }
-    else toast('Store orders didn’t load — reopen the Store tab to retry.');
-  } catch (e) { toast('Store orders didn’t load — reopen the Store tab to retry.'); }
+    if (sr && Array.isArray(sr.store_orders)) { storeOrders = sr.store_orders.filter(o => o && o.order_id); adminStoreLoaded = true; }
+    else failed = true;
+  } catch (e) { failed = true; }
+  renderStoreOrders();   // always render, or the "Loading…" placeholder would stick forever
+  if (failed) toast('Store orders didn’t load — reopen the Store tab to retry.');
 }
 
 async function loadAdminShipping() {
-  renderShippingQueue();
-  if (adminShippingLoaded || !API_URL) return;
+  if (adminShippingLoaded || !API_URL) { renderShippingQueue(); return; }
+  loadingRow('shipping-queue-tbody', 'Loading shipping requests…', 8);
+  let failed = false;
   try {
     const sr = await apiGet('getShipping');
-    if (sr && Array.isArray(sr.requests)) { shippingRequests = sr.requests.filter(r => r && r.request_id).map(r => ({ ...r, items: tryParse(r.items, []), shipped: r.shipped === true || r.shipped === 'true' })); adminShippingLoaded = true; renderShippingQueue(); }
-    else toast('Shipping queue didn’t load — reopen the Shipping tab to retry.');
-  } catch (e) { toast('Shipping queue didn’t load — reopen the Shipping tab to retry.'); }
+    if (sr && Array.isArray(sr.requests)) { shippingRequests = sr.requests.filter(r => r && r.request_id).map(r => ({ ...r, items: tryParse(r.items, []), shipped: r.shipped === true || r.shipped === 'true' })); adminShippingLoaded = true; }
+    else failed = true;
+  } catch (e) { failed = true; }
+  renderShippingQueue();   // always render, or the "Loading…" placeholder would stick forever
+  if (failed) toast('Shipping queue didn’t load — reopen the Shipping tab to retry.');
 }
 
 function showAdminPanel(panel) {
