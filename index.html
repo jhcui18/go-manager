@@ -1763,9 +1763,23 @@ async function doLookup() {
     }
     showLoadingOverlay(false);
     myLookupClaims = (jr && jr.claims) || [];
-    if (pr && Array.isArray(pr.payments)) paymentProofs = pr.payments.filter(p => p && p.payment_id).map(p => ({ payment_id:p.payment_id, username:p.username, go_id:p.go_id, go_name:p.go_name, amount:p.amount, method:p.method, transaction_id:p.transaction_id, proof_url:p.proof_url, status:p.status||'pending', created_at:p.created_at, note:p.note||'' }));
-    if (so && Array.isArray(so.shop_orders)) shopOrders = so.shop_orders;
-    if (sh && Array.isArray(sh.requests)) shippingRequests = sh.requests;
+    // These responses are scoped to ONE user. For an admin they must be MERGED into the
+    // global stores, never assigned over them — the admin's Payments tab, Shop orders and
+    // Shipping queue read the same globals, and replacing them with one user's rows made
+    // the Payments tab show "no pending proofs" and emptied the shop tables.
+    const mergeById = (existing, fetched, idKey) => {
+      if (!isAdmin) return fetched;
+      const by = {};
+      (existing || []).forEach(r => { if (r && r[idKey]) by[r[idKey]] = r; });
+      fetched.forEach(r => { if (r && r[idKey]) by[r[idKey]] = r; });
+      return Object.values(by);
+    };
+    if (pr && Array.isArray(pr.payments)) {
+      const fetched = pr.payments.filter(p => p && p.payment_id).map(p => ({ payment_id:p.payment_id, username:p.username, go_id:p.go_id, go_name:p.go_name, amount:p.amount, method:p.method, transaction_id:p.transaction_id, proof_url:p.proof_url, status:p.status||'pending', created_at:p.created_at, note:p.note||'' }));
+      paymentProofs = mergeById(paymentProofs, fetched, 'payment_id');
+    }
+    if (so && Array.isArray(so.shop_orders)) shopOrders = mergeById(shopOrders, so.shop_orders, 'order_id');
+    if (sh && Array.isArray(sh.requests)) shippingRequests = mergeById(shippingRequests, sh.requests, 'request_id');
   }
   doLookupRender(u);
 }
@@ -3082,7 +3096,7 @@ function createGO() {
 
 // ── ADMIN PANEL NAV ───────────────────────────────────────────────────────────
 let adminActiveTab = 'gos';
-let adminShopLoaded = false, adminStoreLoaded = false, adminShippingLoaded = false;
+let adminShopLoaded = false, adminStoreLoaded = false, adminShippingLoaded = false, adminPaymentsLoaded = false;
 
 function showAdminTab(name) {
   adminActiveTab = name;
@@ -3095,22 +3109,47 @@ function showAdminTab(name) {
   if (name === 'shop') loadAdminShop();
   else if (name === 'store') loadAdminStore();
   else if (name === 'shipping') loadAdminShipping();
-  else if (name === 'payments') renderPaymentProofs(); // data arrives via background getPayments (Task 3)
+  else if (name === 'payments') { renderPaymentProofs(); loadAdminPayments(); } // retries if the background load failed
   else if (name === 'gos') renderAdminGOList();
 }
 
+// Each tab loader: allSettled so ONE throttled call can't discard the other's data, and a
+// failure TOASTS instead of silently rendering an empty table (an empty shop/queue is
+// indistinguishable from a failed load otherwise). The …Loaded flag is only set on real
+// data, so reopening the tab retries.
 async function loadAdminShop() {
   renderAdminListings(); renderShopOrders();
   if (adminShopLoaded || !API_URL) return;
+  const [lrs, ors] = await Promise.allSettled([apiGet('getListings'), apiGet('getShopOrders')]);
+  const lr = lrs.status === 'fulfilled' ? lrs.value : null;
+  const or = ors.status === 'fulfilled' ? ors.value : null;
+  if (lr && Array.isArray(lr.listings)) listings = lr.listings.filter(l => l && l.listing_id).map(l => ({ ...l, variants: tryParse(l.variants, []) }));
+  if (or && Array.isArray(or.shop_orders)) {
+    shopOrders = or.shop_orders.filter(o => o && o.order_id);
+    adminShopLoaded = true;
+  }
+  renderAdminListings(); renderShopOrders();
+  if (!lr || !or) toast('Shop data didn’t fully load — reopen the Shop tab to retry.');
+}
+
+// Payments load in the BACKGROUND at admin login (they drive the "$X collected" card line
+// as well as the Payments tab). Opening the Payments tab retries if that background fetch
+// failed — otherwise a throttled load left the tab reading "No pending proofs" forever.
+async function loadAdminPayments() {
+  if (adminPaymentsLoaded || !API_URL || !isAdmin) return;
   try {
-    const [lr, or] = await Promise.all([apiGet('getListings'), apiGet('getShopOrders')]);
-    if (lr && Array.isArray(lr.listings)) listings = lr.listings.filter(l => l && l.listing_id).map(l => ({ ...l, variants: tryParse(l.variants, []) }));
-    if (or && Array.isArray(or.shop_orders)) {
-      shopOrders = or.shop_orders.filter(o => o && o.order_id);
-      adminShopLoaded = true;
-    }
-    renderAdminListings(); renderShopOrders();
-  } catch (e) { /* reopening the tab retries */ }
+    const pr = await apiGet('getPayments');
+    if (pr && Array.isArray(pr.payments)) {
+      paymentProofs = pr.payments.filter(p => p && p.payment_id).map(p => ({
+        payment_id: p.payment_id, username: p.username, go_id: p.go_id, go_name: p.go_name,
+        amount: p.amount, method: p.method, transaction_id: p.transaction_id,
+        proof_url: p.proof_url, status: p.status || 'pending', created_at: p.created_at, note: p.note || ''
+      }));
+      adminPaymentsLoaded = true;
+      renderAdminGOList();
+      renderPaymentProofs();
+    } else toast('Payments didn’t load — reopen the Payments tab to retry.');
+  } catch (e) { toast('Payments didn’t load — reopen the Payments tab to retry.'); }
 }
 
 async function loadAdminStore() {
@@ -3119,7 +3158,8 @@ async function loadAdminStore() {
   try {
     const sr = await apiGet('getStoreOrders');
     if (sr && Array.isArray(sr.store_orders)) { storeOrders = sr.store_orders.filter(o => o && o.order_id); adminStoreLoaded = true; renderStoreOrders(); }
-  } catch (e) {}
+    else toast('Store orders didn’t load — reopen the Store tab to retry.');
+  } catch (e) { toast('Store orders didn’t load — reopen the Store tab to retry.'); }
 }
 
 async function loadAdminShipping() {
@@ -3128,7 +3168,8 @@ async function loadAdminShipping() {
   try {
     const sr = await apiGet('getShipping');
     if (sr && Array.isArray(sr.requests)) { shippingRequests = sr.requests.filter(r => r && r.request_id).map(r => ({ ...r, items: tryParse(r.items, []), shipped: r.shipped === true || r.shipped === 'true' })); adminShippingLoaded = true; renderShippingQueue(); }
-  } catch (e) {}
+    else toast('Shipping queue didn’t load — reopen the Shipping tab to retry.');
+  } catch (e) { toast('Shipping queue didn’t load — reopen the Shipping tab to retry.'); }
 }
 
 function showAdminPanel(panel) {
@@ -4971,17 +5012,7 @@ async function syncFromBackend(silent) {
       renderAdminGOList();
       if (isAdmin && API_URL) {
         // Background: payments drive the "$X collected" card line + the Payments tab.
-        apiGet('getPayments').then(pr => {
-          if (pr && Array.isArray(pr.payments)) {
-            paymentProofs = pr.payments.filter(p => p && p.payment_id).map(p => ({
-              payment_id: p.payment_id, username: p.username, go_id: p.go_id, go_name: p.go_name,
-              amount: p.amount, method: p.method, transaction_id: p.transaction_id,
-              proof_url: p.proof_url, status: p.status || 'pending', created_at: p.created_at, note: p.note || ''
-            }));
-            renderAdminGOList();
-            renderPaymentProofs();
-          }
-        }).catch(()=>{});
+        loadAdminPayments();
         // Background: GC "added to group chat" state, read by isGcAdded() in the Manage Joiners section.
         apiGet('getGcAdded').then(gc => {
           if (gc && Array.isArray(gc.gc_added)) {
