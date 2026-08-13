@@ -1737,8 +1737,9 @@ async function doLookup() {
   const raw = (document.getElementById('lookup-input') || {}).value || '';
   const u = raw.trim().startsWith('@') ? raw.trim() : '@' + raw.trim();
   if (!raw.trim()) { toast('Enter your username.'); return; }
-  if (!isAdmin && API_URL) {
+  if (API_URL) {
     // Buyer lazy path: pull just this user's claims + payments/shop/shipping.
+    // Also used for admin — admin no longer has allGOs claims loaded at login (Finding 2).
     showLoadingOverlay(true, 'Looking up your orders…');
     let jr, pr, so, sh;
     try {
@@ -1773,7 +1774,7 @@ function doLookupRender(u) {
   document.getElementById('result-avatar').textContent = u.replace('@','').slice(0,2).toUpperCase();
   document.getElementById('result-username').textContent = u;
   const rows = [];
-  const buyerMode = !isAdmin; // My Orders lazy path: build from flat claims, not allGOs
+  const buyerMode = true; // My Orders lazy path: build from flat claims, not allGOs (admin routed through this too — Finding 2)
   // sub_item_id -> metadata (price/otPrice/kind/minSecure/name), from allGOs (present even
   // in the buyer's metadata-only landing state — see getGOsList/loadAllGOs).
   const siMeta = {};
@@ -3104,8 +3105,10 @@ async function loadAdminShop() {
   try {
     const [lr, or] = await Promise.all([apiGet('getListings'), apiGet('getShopOrders')]);
     if (lr && Array.isArray(lr.listings)) listings = lr.listings.filter(l => l && l.listing_id).map(l => ({ ...l, variants: tryParse(l.variants, []) }));
-    if (or && Array.isArray(or.shop_orders)) shopOrders = or.shop_orders.filter(o => o && o.order_id);
-    adminShopLoaded = true;
+    if (or && Array.isArray(or.shop_orders)) {
+      shopOrders = or.shop_orders.filter(o => o && o.order_id);
+      adminShopLoaded = true;
+    }
     renderAdminListings(); renderShopOrders();
   } catch (e) { /* reopening the tab retries */ }
 }
@@ -4454,19 +4457,13 @@ function buyerGoSummary(u, goId) {
   return { paid, securedValue, owed: Math.max(0, securedValue - paid), credit: Math.max(0, paid - securedValue), pendingSubmitted };
 }
 
-function myGoSummary(u, goId) { return isAdmin ? goPaymentSummary(u, goId) : buyerGoSummary(u, goId); }
+function myGoSummary(u, goId) { return buyerGoSummary(u, goId); }
 
-// GO ids (incl. 'shop') the joiner has claims/orders in — mode-aware.
+// GO ids (incl. 'shop') the joiner has claims/orders in. Always built from myLookupClaims
+// (per-user lazy path) — admin no longer has allGOs claims loaded at login (Finding 2).
 function joinerGoIds(u) {
   const ids = new Set();
-  if (isAdmin) {
-    Object.values(allGOs).forEach(go => (go.subItems || []).forEach(si => {
-      if (si.sets) si.sets.forEach(s => Object.values(s.slots).forEach(sl => { if (sl && sameUser(sl.user, u)) ids.add(go.id); }));
-      if (si.claims) si.claims.forEach(c => { if (sameUser(c.user, u)) ids.add(go.id); });
-    }));
-  } else {
-    (myLookupClaims || []).forEach(c => { if (sameUser(c.username, u)) ids.add(c.go_id); });
-  }
+  (myLookupClaims || []).forEach(c => { if (sameUser(c.username, u)) ids.add(c.go_id); });
   if (shopOrders.some(o => sameUser(o.username, u))) ids.add('shop');
   return [...ids];
 }
@@ -4488,9 +4485,7 @@ function computeBalanceApply(u, goId) {
   const perGo = joinerGoCredit(u).filter(g => g.go_id !== goId);
   const balance = perGo.reduce((a, g) => a + g.credit, 0);
   const siMeta = {}; Object.values(allGOs).forEach(go => (go.subItems || []).forEach(si => { siMeta[si.id] = si; }));
-  const units = isAdmin
-    ? paymentOwedUnits(u, goId)
-    : ownedUnitsFromClaims((myLookupClaims || []).filter(c => sameUser(c.username, u) && c.go_id === goId), siMeta);
+  const units = ownedUnitsFromClaims((myLookupClaims || []).filter(c => sameUser(c.username, u) && c.go_id === goId), siMeta);
   const { spent, paidIds } = applyStoreCredit(units, balance);   // only the newly-covered items
   const sources = drawSources(perGo, spent);
   return { balance, spent, paidIds, unpaidIds: [], sources };
@@ -4520,6 +4515,10 @@ async function confirmPayment(id) {
     // shopOrders and mark nothing paid ("0 of 0 items") while the admin thinks it worked.
     if (!adminShopLoaded) { toast('Couldn’t load shop orders — please try again.'); return; }
   }
+  // Guard against loadGOClaims() having returned early (e.g. the GO is missing from
+  // allGOs metadata) without throwing — claimsLoaded[p.go_id] would still be false,
+  // and paymentOwedUnits would silently confirm against an empty [] ("0 of 0").
+  if (p.go_id !== 'shop' && API_URL && !claimsLoaded[p.go_id]) { toast('Couldn’t load this order — please try again.'); return; }
   const units = paymentOwedUnits(p.username, p.go_id);
   const securedTotal = units.reduce((a, u) => a + u.value, 0);
   // Total the buyer has paid for THIS GO (already-confirmed payments + this one).
@@ -4969,6 +4968,15 @@ async function syncFromBackend(silent) {
             }));
             renderAdminGOList();
             renderPaymentProofs();
+          }
+        }).catch(()=>{});
+        // Background: GC "added to group chat" state, read by isGcAdded() in the Manage Joiners section.
+        apiGet('getGcAdded').then(gc => {
+          if (gc && Array.isArray(gc.gc_added)) {
+            gcAdded = {};
+            gc.gc_added.forEach(r => { if (r && r.go_id && r.username) (gcAdded[r.go_id] = gcAdded[r.go_id] || {})[gcNorm(r.username)] = true; });
+            const dp = document.getElementById('admin-panel-go-detail');
+            if (currentGO && dp && dp.style.display !== 'none') renderDetailContent();
           }
         }).catch(()=>{});
       }
