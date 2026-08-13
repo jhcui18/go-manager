@@ -3645,7 +3645,12 @@ async function saveGOEdits() {
   saveLocal();
   renderAdminGOList();
   renderOrdersList();
-  openGODetail(go.id);
+  // AWAIT: login is lazy now, so claimsLoaded[go.id] may be false here (e.g. a background
+  // sync reset it mid-edit) and openGODetail's internal loadGOClaims fetch would then run.
+  // collectUnsecured() below reads go.subItems' claim/slot data, so it must run after that
+  // load finishes, not race it — an unawaited call here could open the drop-review modal
+  // against stale/empty claims, or double-render if loadGOClaims's rebuild lands later.
+  await openGODetail(go.id);
   toast('Changes saved.');
   if (prevStatus !== 'closed' && go.status === 'closed') {
     const { droppable, paid } = collectUnsecured(go);
@@ -4814,25 +4819,18 @@ async function syncFromBackend(silent) {
   lastSyncAt = Date.now();
   if (!silent) showLoadingOverlay(true);
   try {
-    // Fetch everything in parallel. Use allSettled so one throttled call (Apps Script
-    // intermittently 404s under a burst) degrades that one slice instead of aborting the
-    // whole sync — each slice below already guards for a missing/undefined result.
+    // payResult/listResult/orderResult/... stay declared but are never populated here —
+    // admin's per-area data (payments, listings, shop/store orders, shipping, secured/
+    // closed/deadline/pay-due flags) now loads lazily via the sub-tabs and Manage view,
+    // each with its own apiGet call, not through this function. The guarded blocks below
+    // (`if (payResult && …)`) are therefore harmless no-ops for admin from here on.
     let result, payResult, listResult, orderResult, shipResult, storeResult, gcResult, securedResult, closedResult, deadlineResult, payDueResult;
-    if (isAdmin) {
-      // Admin needs the full picture up front: all claims + payment/shop/store/flag stores.
-      const settled = await Promise.allSettled([
-        apiGet('getAllGOs'), apiGet('getPayments'), apiGet('getListings'), apiGet('getShopOrders'), apiGet('getShipping'), apiGet('getStoreOrders'), apiGet('getGcAdded'), apiGet('getSecuredSets'), apiGet('getClosedSubItems'), apiGet('getSubItemDeadlines'), apiGet('getSubItemPayDue')
-      ]);
-      [result, payResult, listResult, orderResult, shipResult, storeResult, gcResult, securedResult, closedResult, deadlineResult, payDueResult] = settled.map(s => s.status === 'fulfilled' ? s.value : undefined);
-    } else {
-      // Joiner landing needs ONLY the cached GO metadata (getGOsList). Everything else is
-      // fetched on demand: getMyOrders (My Orders lookup), getGOBoard (opening a GO — brings
-      // that GO's secured/closed/deadline/pay-due flags), getListings (opening the Shop tab).
-      // This drops the landing from 11 parallel execution slots to 1 — the main throttling win.
-      try { result = await apiGet('getGOsList'); } catch (e) { result = undefined; }
-    }
+    // Admin and joiner both land on the light metadata call now. Admin's per-area data
+    // (payments, shop, store, shipping, per-GO claims) loads lazily via the sub-tabs and
+    // Manage view. Payments loads in the background just below (for the "collected" sums).
+    try { result = await apiGet('getGOsList'); } catch (e) { result = undefined; }
     let gosData = result;
-    if (!isAdmin && (!gosData || !gosData.gos)) {
+    if ((!gosData || !gosData.gos)) {
       try { gosData = await apiGet('getAllGOs'); } catch (e) {}
     }
     if (!gosData || !gosData.gos) toast('Some data could not be refreshed — showing the latest that loaded.');
@@ -4950,12 +4948,30 @@ async function syncFromBackend(silent) {
         allGOs[go.go_id] = rebuilt;
       });
       // A getAllGOs load already has every GO's claims; a getGOsList load has none.
-      const fullLoad = isAdmin || (gosData && gosData.gos && gosData.gos.some(g => g.claims));
+      // isAdmin no longer implies claims are present — admin's landing fetch is getGOsList
+      // now too. fullLoad is true only when the batch that actually loaded carried claims
+      // (i.e. the getAllGOs fallback above kicked in), so openGODetail still lazily loads
+      // per-GO claims on Manage open instead of treating the empty getGOsList batch as loaded.
+      const fullLoad = gosData && gosData.gos && gosData.gos.some(g => g.claims);
       claimsLoaded = {};
       if (fullLoad) Object.keys(allGOs).forEach(id => { claimsLoaded[id] = true; });
       saveLocal();
       renderOrdersList();
       renderAdminGOList();
+      if (isAdmin && API_URL) {
+        // Background: payments drive the "$X collected" card line + the Payments tab.
+        apiGet('getPayments').then(pr => {
+          if (pr && Array.isArray(pr.payments)) {
+            paymentProofs = pr.payments.filter(p => p && p.payment_id).map(p => ({
+              payment_id: p.payment_id, username: p.username, go_id: p.go_id, go_name: p.go_name,
+              amount: p.amount, method: p.method, transaction_id: p.transaction_id,
+              proof_url: p.proof_url, status: p.status || 'pending', created_at: p.created_at, note: p.note || ''
+            }));
+            renderAdminGOList();
+            renderPaymentProofs();
+          }
+        }).catch(()=>{});
+      }
       renderPaymentGoSelect();
       // If admin has a GO detail open, update currentGO to the fresh synced object
       if (currentGO && allGOs[currentGO.id]) {
