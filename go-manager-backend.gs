@@ -169,7 +169,62 @@ function invalidateGOsListCache() { try { CacheService.getScriptCache().remove(G
 // Only affects the BUYER path — admins use the uncached getAllGOs, so they always see fresh
 // data. A short TTL bounds staleness; writes below bust the affected GO's cache immediately.
 function goBoardCacheKey(goId) { return 'go_board_' + goId; }
-function invalidateGOBoardCache(goId) { try { if (goId) CacheService.getScriptCache().remove(goBoardCacheKey(goId)); } catch (e) {} }
+
+// CacheService caps ONE value at 100KB, so the previous `if (s.length < 95000)` guard
+// silently skipped exactly the biggest GOs — the ones whose board is slowest to build.
+// Split large values across numbered chunk keys instead so every board can cache.
+const CACHE_CHUNK = 90000, CACHE_MAX_CHUNKS = 20;
+function cachePutLarge(cache, key, str, ttl) {
+  const n = Math.ceil(str.length / CACHE_CHUNK);
+  if (n > CACHE_MAX_CHUNKS) return;               // absurdly large: skip rather than thrash
+  const obj = {};
+  for (let i = 0; i < n; i++) obj[key + '_' + i] = str.substring(i * CACHE_CHUNK, (i + 1) * CACHE_CHUNK);
+  obj[key + '_n'] = String(n);
+  cache.putAll(obj, ttl);
+}
+function cacheGetLarge(cache, key) {
+  const meta = cache.get(key + '_n');
+  const n = parseInt(meta, 10);
+  if (!n) return null;
+  const keys = [];
+  for (let i = 0; i < n; i++) keys.push(key + '_' + i);
+  const all = cache.getAll(keys);
+  let out = '';
+  for (let i = 0; i < n; i++) {
+    const part = all[key + '_' + i];
+    if (part === undefined || part === null) return null;   // a chunk expired → treat as a miss
+    out += part;
+  }
+  return out;
+}
+function cacheRemoveLarge(cache, key) {
+  const keys = [key, key + '_n'];
+  for (let i = 0; i < CACHE_MAX_CHUNKS; i++) keys.push(key + '_' + i);
+  cache.removeAll(keys);
+}
+function invalidateGOBoardCache(goId) { try { if (goId) cacheRemoveLarge(CacheService.getScriptCache(), goBoardCacheKey(goId)); } catch (e) {} }
+
+// The four flag stores are IDENTICAL for every GO and change rarely, but getGOBoard was
+// re-reading all four sheets on EVERY GO open — 5 sheet reads per open, which is the bulk
+// of the 10-20s an admin waits. Cache them once, shared across GOs, so opening a GO costs
+// one joiners scan plus a cache hit. Busted by the flag writers below.
+const FLAG_STORES_CACHE_KEY = 'flag_stores_v1';
+function invalidateFlagStoresCache() { try { cacheRemoveLarge(CacheService.getScriptCache(), FLAG_STORES_CACHE_KEY); } catch (e) {} }
+function getFlagStores() {
+  const cache = CacheService.getScriptCache();
+  const hit = cacheGetLarge(cache, FLAG_STORES_CACHE_KEY);
+  if (hit) { try { return JSON.parse(hit); } catch (e) {} }
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const rd = (name) => { const sh = ss.getSheetByName(name); return sh ? sheetToObjects(sh) : []; };
+  const flags = {
+    secured_sets: rd(SHEET_SECURED_SETS),
+    closed_subitems: rd(SHEET_CLOSED_SUBITEMS),
+    subitem_deadlines: rd(SHEET_SUBITEM_DEADLINES),
+    subitem_payment_due: rd(SHEET_SUBITEM_PAYDUE)
+  };
+  try { cachePutLarge(cache, FLAG_STORES_CACHE_KEY, JSON.stringify(flags), 120); } catch (e) {}
+  return flags;
+}
 
 // Buyer landing payload (GO + sub-item metadata, no claims). Reading each GO's sub-item
 // sheet is the slow part (16 sheet reads), so cache the built JSON for a few minutes and
@@ -214,20 +269,20 @@ function getMyOrders(username) {
 function getGOBoard(goId) {
   const cache = CacheService.getScriptCache();
   const key = goBoardCacheKey(goId);
-  const cached = cache.get(key);
-  if (cached) { try { return JSON.parse(cached); } catch (e) {} }
+  const hit = cacheGetLarge(cache, key);
+  if (hit) { try { return JSON.parse(hit); } catch (e) {} }
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const rd = (name) => { const sh = ss.getSheetByName(name); return sh ? sheetToObjects(sh) : []; };
+  const jo = ss.getSheetByName(SHEET_JOINERS);
+  const flags = getFlagStores();          // cached + shared across GOs (4 sheet reads saved)
   const result = {
-    claims: rd(SHEET_JOINERS).filter(c => c.go_id === goId),
-    secured_sets: rd(SHEET_SECURED_SETS),
-    closed_subitems: rd(SHEET_CLOSED_SUBITEMS),
-    subitem_deadlines: rd(SHEET_SUBITEM_DEADLINES),
-    subitem_payment_due: rd(SHEET_SUBITEM_PAYDUE)
+    claims: jo ? sheetToObjects(jo).filter(c => c.go_id === goId) : [],
+    secured_sets: flags.secured_sets,
+    closed_subitems: flags.closed_subitems,
+    subitem_deadlines: flags.subitem_deadlines,
+    subitem_payment_due: flags.subitem_payment_due
   };
-  // 30s TTL. CacheService caps values at 100KB — skip caching an oversized board (it just
-  // reads through, same as today) rather than throw.
-  try { const s = JSON.stringify(result); if (s.length < 95000) cache.put(key, s, 30); } catch (e) {}
+  // 30s TTL, chunked so even the biggest boards cache (they used to be skipped entirely).
+  try { cachePutLarge(cache, key, JSON.stringify(result), 30); } catch (e) {}
   return result;
 }
 
@@ -313,6 +368,7 @@ function deleteGO(goId) {
   const siSheet = ss.getSheetByName('go_' + goId);
   if (siSheet) ss.deleteSheet(siSheet);
   invalidateGOsListCache();
+  invalidateFlagStoresCache();
   invalidateGOBoardCache(goId);
   return { ok: true };
 }
@@ -688,6 +744,7 @@ function setSecuredSet(data) {
   } else if (foundRow !== -1) {
     sheet.deleteRow(foundRow + 1);
   }
+  invalidateFlagStoresCache();
   invalidateGOBoardCache(data.go_id);
   return { ok: true };
 }
@@ -712,6 +769,7 @@ function setClosedSubItem(data) {
   } else if (foundRow !== -1) {
     sheet.deleteRow(foundRow + 1);
   }
+  invalidateFlagStoresCache();
   invalidateGOBoardCache(data.go_id);
   return { ok: true };
 }
@@ -738,6 +796,7 @@ function setSubItemDeadline(data) {
   } else if (foundRow !== -1) {
     sheet.deleteRow(foundRow + 1);
   }
+  invalidateFlagStoresCache();
   invalidateGOBoardCache(data.go_id);
   return { ok: true };
 }
@@ -764,6 +823,7 @@ function setSubItemPayDue(data) {
   } else if (foundRow !== -1) {
     sheet.deleteRow(foundRow + 1);
   }
+  invalidateFlagStoresCache();
   invalidateGOBoardCache(data.go_id);
   return { ok: true };
 }
