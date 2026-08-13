@@ -1705,7 +1705,7 @@ function submitClaim(goId) {
         toast('Claim submitted' + skippedNote + '! Check "My orders" to track status.');
       } else {
         toast((res && res.message) || 'Your claim could not be saved — please try again.');
-        syncFromBackend();  // drop the un-saved optimistic claim so it doesn't linger till refresh
+        syncFromBackend(true);  // silent: drop the un-saved optimistic claim (the toast already explains)
       }
     });
   } else {
@@ -4739,7 +4739,11 @@ const _submitPaymentForm = () => {
 let shippingRequests = [];
 
 function refreshShippingQueue() {
-  if (API_URL) syncFromBackend(); else renderShippingQueue();
+  // Reload just the shipping requests (inline "Loading…"), not a whole-app sync with a
+  // full-screen overlay — the queue is one endpoint and lives in its own tab now.
+  if (!API_URL) { renderShippingQueue(); return; }
+  adminShippingLoaded = false;
+  loadAdminShipping();
 }
 
 function renderShippingQueue() {
@@ -4882,7 +4886,10 @@ function persistWrite(promise, label) {
     .then(res => { if (!res || res.ok === false || res.error) throw new Error('not ok'); })
     .catch(() => {
       toast((label || 'Change') + " didn't save — syncing from the sheet.");
-      syncFromBackend();
+      // SILENT: these are background writes fired by small toggles. A failure can land
+      // seconds later, so a full-screen "Syncing…" overlay would appear out of nowhere
+      // while the admin is doing something else. The toast already explains it.
+      syncFromBackend(true);
     });
 }
 
