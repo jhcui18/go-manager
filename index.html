@@ -4766,6 +4766,18 @@ let useBackend = !!API_URL;
 // throttled server. attempt i (0-based) waits 1..2s, 2..3s, ...
 function retryDelay(i) { return 1000 * (i + 1) + Math.floor(Math.random() * 1000); }
 
+// fetch() has NO default timeout: a throttled Apps Script can hold the connection open
+// indefinitely, so an awaited call never settles and any loading overlay in front of it
+// stays up forever with no way out. Bound every request so a hung call FAILS instead of
+// hanging — callers already handle a rejection (hide overlay + toast + retry).
+const API_TIMEOUT_MS = 20000;
+function fetchWithTimeout(url, options = {}, ms = API_TIMEOUT_MS) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), ms);
+  return fetch(url, { ...options, signal: ctl.signal })
+    .finally(() => clearTimeout(timer));
+}
+
 async function apiGet(action, params = {}, attempts = 2) {
   if (!API_URL) return null;
   const qs = new URLSearchParams({ action, ...params }).toString();
@@ -4774,7 +4786,7 @@ async function apiGet(action, params = {}, attempts = 2) {
   let lastErr;
   for (let i = 0; i < attempts; i++) {
     try {
-      const res = await fetch(API_URL + '?' + qs);
+      const res = await fetchWithTimeout(API_URL + '?' + qs);
       if (!res.ok) throw new Error('HTTP ' + res.status);
       return await res.json();
     } catch (e) {
