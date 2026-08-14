@@ -113,7 +113,7 @@ create or replace function save_go(p jsonb)
 returns jsonb language plpgsql security definer set search_path = public as $$
 declare
   v_go_id uuid; si jsonb; v_si_id uuid; v_si_ids uuid[] := '{}';
-  keep_ids uuid[] := '{}'; nm text; pos int; blocked text;
+  keep_ids uuid[] := '{}'; pos int; blocked text;
 begin
   perform assert_admin();
   if coalesce(p->>'go_id','') = '' then
@@ -166,6 +166,9 @@ begin
           image_url  = nullif(si->>'image_url',''),
           position   = pos
         where id = v_si_id and go_id = v_go_id;
+        if not found then
+          raise exception 'sub-item % does not belong to this GO', v_si_id;
+        end if;
       end if;
       -- Sync members/versions by name (insert new, delete removed-without-claims).
       delete from members m where m.sub_item_id = v_si_id
