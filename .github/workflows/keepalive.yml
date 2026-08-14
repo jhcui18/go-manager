@@ -1,0 +1,15 @@
+name: supabase-keepalive
+on:
+  schedule:
+    - cron: '17 9 * * *'   # daily 09:17 UTC
+  workflow_dispatch: {}
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: One trivial query so the free-tier project never pauses
+        run: |
+          curl -sf "https://kkzmvuqfqbonsxebzaii.supabase.co/rest/v1/gos?select=id&limit=1" \
+            -H "apikey: ${ANON_KEY}" -H "Authorization: Bearer ${ANON_KEY}" > /dev/null
+        env:
+          ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtrem12dXFmcWJvbnN4ZWJ6YWlpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2Mjk2MTcsImV4cCI6MjEwMjIwNTYxN30.S4G_w0XkfmxxYBaPQMA2mDUULoZI4zV4OumEBClmKOw
