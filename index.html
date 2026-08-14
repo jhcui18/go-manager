@@ -2225,7 +2225,7 @@ async function payWithBalance(u, goId) {
     showLoadingOverlay(true, 'Applying $' + ba.spent.toFixed(2) + ' from balance…');
     let rejected = false;
     try {
-      const res = await apiPost('applyCredit', { username: u, transaction_id: link, rows, target_go_id: goId, paid_claim_ids: ba.paidIds, unpaid_claim_ids: ba.unpaidIds });
+      const res = await db.applyCredit({ username: u, transaction_id: link, rows, paid_claim_ids: ba.paidIds, unpaid_claim_ids: ba.unpaidIds });
       if (res && (res.ok === false || res.error)) rejected = true;
     } catch (e) {}
     creditApplyInFlight = false;
@@ -2340,7 +2340,7 @@ function toggleGcAdded(goId, username) {
   gcAdded[goId] = gcAdded[goId] || {};
   const added = !gcAdded[goId][k];
   if (added) gcAdded[goId][k] = true; else delete gcAdded[goId][k];
-  if (API_URL) persistWrite(apiPost('setGcAdded', { go_id: goId, username, added }), 'Group-chat mark');
+  if (API_URL) persistWrite(db.setGcAdded(goId, username, added), 'Group-chat mark');
   renderDetailContent();
 }
 function copyHandle(username) {
@@ -2648,7 +2648,7 @@ function toggleSlotPayment(goId, siId, setIdx, member) {
   const slot = si.sets[setIdx].slots[member];
   if (!slot) return;
   slot.payment = slot.payment === 'paid' ? 'unpaid' : 'paid';
-  if (API_URL && slot.claim_id) persistWrite(apiPost('updateClaim', { claim_id: slot.claim_id, payment_status: slot.payment }), 'Payment');
+  if (API_URL && slot.claim_id) persistWrite(db.updateClaim({ claim_id: slot.claim_id, payment_status: slot.payment }), 'Payment');
   renderDetailContent();
   renderOrdersList();
   toast(member + ': ' + (slot.payment === 'paid' ? 'Paid' : 'Unpaid'));
@@ -2662,7 +2662,7 @@ function toggleSlotSecure(goId, siId, setIdx, member) {
   if (!slot) return;
   slot.claim_status = slot.claim_status === 'secured' ? 'pending' : 'secured';
   set.status = deriveSetStatus(si.id, set, si.members);
-  if (API_URL && slot.claim_id) persistWrite(apiPost('updateClaim', { claim_id: slot.claim_id, claim_status: slot.claim_status }), 'Secure');
+  if (API_URL && slot.claim_id) persistWrite(db.updateClaim({ claim_id: slot.claim_id, claim_status: slot.claim_status }), 'Secure');
   renderDetailContent();
   renderAdminGOList();
   renderOrdersList();
@@ -2677,7 +2677,7 @@ function toggleClaimSecure(claimId, goId, siId) {
   // A claim is "secured" when its status is secured OR unset (merch/versioned default
   // to secured). Toggle: pending -> secured, anything-else (incl. unset) -> pending.
   c.claim_status = c.claim_status === 'pending' ? 'secured' : 'pending';
-  if (API_URL) persistWrite(apiPost('updateClaim', { claim_id: claimId, claim_status: c.claim_status }), 'Secure');
+  if (API_URL) persistWrite(db.updateClaim({ claim_id: claimId, claim_status: c.claim_status }), 'Secure');
   renderDetailContent(); renderAdminGOList(); renderOrdersList();
   toast(c.member + ': ' + (c.claim_status === 'secured' ? 'Secured' : 'Not secured'));
 }
@@ -2686,7 +2686,7 @@ function toggleClaimPayment(claimId, goId, siId) {
   const c = (si.claims || []).find(x => x.claim_id === claimId);
   if (!c) return;
   c.payment = c.payment === 'paid' ? 'unpaid' : 'paid';
-  if (API_URL) persistWrite(apiPost('updateClaim', { claim_id: claimId, payment_status: c.payment }), 'Payment');
+  if (API_URL) persistWrite(db.updateClaim({ claim_id: claimId, payment_status: c.payment }), 'Payment');
   renderDetailContent(); renderOrdersList();
   toast(c.member + ': ' + (c.payment === 'paid' ? 'Paid' : 'Unpaid'));
 }
@@ -2697,7 +2697,7 @@ function secureBatch(goId, siId, batchNum) {
   const makeSecured = !b.ordered;
   b.items.forEach(c => {
     c.claim_status = makeSecured ? 'secured' : 'pending';
-    if (API_URL && c.claim_id) persistWrite(apiPost('updateClaim', { claim_id: c.claim_id, claim_status: c.claim_status }), 'Secure batch');
+    if (API_URL && c.claim_id) persistWrite(db.updateClaim({ claim_id: c.claim_id, claim_status: c.claim_status }), 'Secure batch');
   });
   renderDetailContent(); renderAdminGOList(); renderOrdersList();
   toast('Batch ' + batchNum + (makeSecured ? ' secured' : ' unsecured'));
@@ -2709,7 +2709,7 @@ function setSubItemDeadline(goId, siId, value) {
   si.deadline = value || '';
   const key = goId + '|' + siId;
   if (si.deadline) subItemDeadlines[key] = si.deadline; else delete subItemDeadlines[key];
-  if (API_URL) persistWrite(apiPost('setSubItemDeadline', { go_id: goId, sub_item_id: siId, deadline: si.deadline }), 'Deadline');
+  if (API_URL) persistWrite(db.setSubItemFlag(siId, { deadline: si.deadline || null }), 'Deadline');
   renderDetailContent();
   toast(si.deadline ? ('Deadline set: ' + fmtDate(si.deadline)) : 'Deadline cleared.');
 }
@@ -2719,7 +2719,7 @@ function setSubItemPayDue(goId, siId, value) {
   si.payDue = value || '';
   const key = goId + '|' + siId;
   if (si.payDue) subItemPayDue[key] = si.payDue; else delete subItemPayDue[key];
-  if (API_URL) persistWrite(apiPost('setSubItemPayDue', { go_id: goId, sub_item_id: siId, due_date: si.payDue }), 'Payment due');
+  if (API_URL) persistWrite(db.setSubItemFlag(siId, { pay_due: si.payDue || null }), 'Payment due');
   renderDetailContent();
   toast(si.payDue ? ('Payment due: ' + fmtDate(si.payDue)) : 'Payment due cleared.');
 }
@@ -2729,7 +2729,7 @@ function toggleSubItemClosed(goId, siId) {
   si.closed = !si.closed;
   closedSubItems[goId + '|' + siId] = si.closed ? true : undefined;
   if (!si.closed) delete closedSubItems[goId + '|' + siId];
-  if (API_URL) persistWrite(apiPost('setClosedSubItem', { go_id: goId, sub_item_id: siId, closed: si.closed }), si.closed ? 'Close POB' : 'Reopen POB');
+  if (API_URL) persistWrite(db.setSubItemFlag(siId, { closed: !!si.closed }), si.closed ? 'Close POB' : 'Reopen POB');
   renderDetailContent();
   toast(si.closed ? 'POB closed — no new claims (except leftover secured spots).' : 'POB reopened.');
 }
@@ -2739,9 +2739,8 @@ function secureSet(goId, siId, setIdx) {
   si.sets[setIdx].status = 'secured';
   Object.values(si.sets[setIdx].slots).forEach(v => { if (v) v.claim_status = 'secured'; });
   const setNum = si.sets[setIdx].num || (setIdx + 1);
-  if (API_URL) persistWrite(apiPost('secureSet', { go_id: goId, sub_item_id: siId, set_num: setNum }), 'Secure set');
+  if (API_URL) persistWrite(db.secureSet(siId, setNum, true), 'Secure set');
   securedSets[siId + '|' + setNum] = true;
-  if (API_URL) persistWrite(apiPost('setSecuredSet', { go_id: goId, sub_item_id: siId, set_num: setNum, secured: true }), 'Secure set');
   renderDetailContent();
   renderAdminGOList();
   renderOrdersList();
@@ -2755,8 +2754,7 @@ function unsecureSet(goId, siId, setIdx) {
   delete securedSets[siId + '|' + setNum];
   si.sets[setIdx].status = deriveSetStatus(siId, si.sets[setIdx], si.members);
   if (API_URL) {
-    persistWrite(apiPost('unsecureSet', { go_id: goId, sub_item_id: siId, set_num: setNum }), 'Unsecure set');
-    persistWrite(apiPost('setSecuredSet', { go_id: goId, sub_item_id: siId, set_num: setNum, secured: false }), 'Unsecure set');
+    persistWrite(db.secureSet(siId, setNum, false), 'Unsecure set');
   }
   renderDetailContent();
   renderAdminGOList();
@@ -2820,7 +2818,7 @@ async function restoreClaim(goId, kind, siId, setIdx, member, claimId) {
     cid = slot && slot.claim_id;
   }
   applyClaimStatusRef(go, ref, 'pending');
-  if (API_URL && cid) { try { await apiPost('updateClaim', { claim_id: cid, claim_status: 'pending' }); } catch (e) {} }
+  if (API_URL && cid) { try { await db.updateClaim({ claim_id: cid, claim_status: 'pending' }); } catch (e) {} }
   saveLocal();
   renderDetailContent(); renderAdminGOList(); renderOrdersList();
   toast('Claim restored.');
@@ -2875,7 +2873,7 @@ function openDropReviewModal(goId) {
 async function secureFromReview(goId, kind, siId, setIdx, member, claimId) {
   const go = allGOs[goId];
   applyClaimStatusRef(go, { kind, siId, setIdx, member, claimId }, 'secured');
-  if (API_URL && claimId) { try { await apiPost('updateClaim', { claim_id: claimId, claim_status: 'secured' }); } catch (e) {} }
+  if (API_URL && claimId) { try { await db.updateClaim({ claim_id: claimId, claim_status: 'secured' }); } catch (e) {} }
   saveLocal();
   renderDetailContent(); renderAdminGOList(); renderOrdersList();
   openDropReviewModal(goId);
@@ -2887,7 +2885,7 @@ async function confirmDropUnsecured(goId) {
   const { droppable } = collectUnsecured(go);
   for (const ref of droppable) {
     applyClaimStatusRef(go, ref, 'dropped');
-    if (API_URL && ref.claimId) { try { await apiPost('updateClaim', { claim_id: ref.claimId, claim_status: 'dropped' }); } catch (e) {} }
+    if (API_URL && ref.claimId) { try { await db.updateClaim({ claim_id: ref.claimId, claim_status: 'dropped' }); } catch (e) {} }
   }
   saveLocal();
   closeModal();
@@ -2902,7 +2900,7 @@ function advanceSetFulfill(goId, siId, setIdx, member, dir) {
   const nf = dir === 'prev' ? prevFulfillment(slot.fulfillment) : nextFulfillment(slot.fulfillment);
   if (nf) {
     slot.fulfillment = nf;
-    if (API_URL && slot.claim_id) apiPost('updateClaim', { claim_id: slot.claim_id, fulfillment: nf });
+    if (API_URL && slot.claim_id) db.updateClaim({ claim_id: slot.claim_id, fulfillment: nf });
     renderDetailContent();
     toast('Updated: ' + member + ' → ' + nf);
   }
@@ -2914,7 +2912,7 @@ function advanceFCFSFulfill(goId, siId, claimIdx, dir) {
   const nf = dir === 'prev' ? prevFulfillment(claim.fulfillment) : nextFulfillment(claim.fulfillment);
   if (nf) {
     claim.fulfillment = nf;
-    if (API_URL && claim.claim_id) apiPost('updateClaim', { claim_id: claim.claim_id, fulfillment: nf });
+    if (API_URL && claim.claim_id) db.updateClaim({ claim_id: claim.claim_id, fulfillment: nf });
     renderDetailContent();
     toast('Fulfillment updated: ' + nf);
   }
@@ -2927,7 +2925,7 @@ function advanceBatchFulfill(goId, siId, claimId, dir) {
   const nf = dir === 'prev' ? prevFulfillment(claim.fulfillment) : nextFulfillment(claim.fulfillment);
   if (nf) {
     claim.fulfillment = nf;
-    if (API_URL && claim.claim_id) apiPost('updateClaim', { claim_id: claim.claim_id, fulfillment: nf });
+    if (API_URL && claim.claim_id) db.updateClaim({ claim_id: claim.claim_id, fulfillment: nf });
     renderDetailContent();
     toast('Fulfillment updated: ' + nf);
   }
@@ -2937,7 +2935,7 @@ async function removeFCFSClaim(goId, siId, claimIdx) {
   const si = allGOs[goId].subItems.find(s => s.id === siId);
   const claim = si.claims[claimIdx];
   if (API_URL && claim?.claim_id) {
-    try { await apiPost('deleteClaim', { claim_id: claim.claim_id }); } catch(e) {}
+    try { await db.deleteClaim(claim.claim_id); } catch(e) {}
   }
   si.claims.splice(claimIdx, 1);
   saveLocal();
@@ -3139,7 +3137,14 @@ function createGO() {
   if (!subItems.length) { toast('Add at least one item.'); return; }
   subItems.forEach(si => { const el = document.getElementById('si-img-' + si.id); si.imageUrl = el ? el.value.trim() : ''; });
   allGOs[id] = { id, name, type, deadline, paymentDeadline, status: 'open', minSecure: minSecure, subItems };
-  if (API_URL) apiPost('createGO', { ...allGOs[id], payment_deadline: paymentDeadline, min_secure: minSecure });
+  if (API_URL) {
+    db.saveGO(allGOs[id]).then(async () => {
+      delete allGOs[id];
+      await syncFromBackend(true);
+    }).catch(() => {
+      toast('GO may not have saved — check your connection and try again.');
+    });
+  }
   renderAdminGOList();
   renderOrdersList();
   toast('GO created: ' + name);
@@ -3754,8 +3759,9 @@ async function saveGOEdits() {
   // sub-item list and make the GO's items look deleted. Awaiting closes that race.
   if (API_URL) {
     try {
-      const res = await apiPost('updateGO', { go_id: go.id, name: go.name, deadline: go.deadline, payment_deadline: go.paymentDeadline, status: go.status, min_secure: go.minSecure, subItems: go.subItems });
+      const res = await db.saveGO({ go_id: go.id, name: go.name, artist: go.artist, type: go.type, status: go.status, deadline: go.deadline, paymentDeadline: go.paymentDeadline, minSecure: go.minSecure, subItems: go.subItems });
       if (res && res.ok === false) { toast(res.message || 'Save didn’t go through — please try again.'); return; }
+      await syncFromBackend(true);
     }
     catch (e) { toast('Save may not have gone through — check your connection and try again.'); return; }
   }
@@ -3786,7 +3792,7 @@ async function confirmDeleteGO() {
   const goId = go.id;
   showLoadingOverlay(true);
   if (API_URL) {
-    try { await apiPost('deleteGO', { go_id: goId }); } catch(e) {}
+    try { await db.deleteGOWithClaims(goId); } catch(e) {}
   }
   delete allGOs[goId];
   currentGO = null;
@@ -3847,7 +3853,7 @@ function saveClaimEdit(goId, siId, setIdx, member) {
   slot.payment = document.getElementById('ec-payment').value;
   slot.fulfillment = document.getElementById('ec-fulfillment').value;
   if (slot.claim_id && API_URL) {
-    apiPost('updateClaim', { claim_id: slot.claim_id, payment_status: slot.payment, fulfillment: slot.fulfillment });
+    db.updateClaim({ claim_id: slot.claim_id, payment_status: slot.payment, fulfillment: slot.fulfillment });
   }
   closeModal();
   renderDetailContent();
@@ -3860,7 +3866,7 @@ async function removeSetClaim(goId, siId, setIdx, member) {
   const si = allGOs[goId].subItems.find(s => s.id === siId);
   const slot = si.sets[setIdx].slots[member];
   if (slot?.claim_id && API_URL) {
-    try { await apiPost('deleteClaim', { claim_id: slot.claim_id }); } catch(e) {}
+    try { await db.deleteClaim(slot.claim_id); } catch(e) {}
   }
   si.sets[setIdx].slots[member] = null;
   saveLocal();
@@ -3890,7 +3896,7 @@ async function compactMemberColumn(si, member) {
     const target = avail[i];
     target.slots[member] = d.slot;
     if (target.num !== d.fromNum && API_URL && d.slot.claim_id) {
-      writes.push(apiPost('updateClaim', { claim_id: d.slot.claim_id, set_num: target.num }).catch(() => {}));
+      writes.push(db.updateClaim({ claim_id: d.slot.claim_id, set_num: target.num }).catch(() => {}));
     }
   });
   if (writes.length) await Promise.all(writes);
@@ -3913,13 +3919,13 @@ async function removeSlotClaim(goId, siId, setIdx, member) {
     for (const m of Object.keys(set.slots)) {
       const s2 = set.slots[m];
       if (s2 && s2.ot && sameUser(s2.user, who)) {
-        if (API_URL && s2.claim_id) { try { await apiPost('deleteClaim', { claim_id: s2.claim_id }); } catch (e) {} }
+        if (API_URL && s2.claim_id) { try { await db.deleteClaim(s2.claim_id); } catch (e) {} }
         set.slots[m] = null;
       }
     }
   } else {
     if (!confirm(`Remove ${who}'s claim for ${member}? This can't be undone.`)) return;
-    if (API_URL && slot.claim_id) { try { await apiPost('deleteClaim', { claim_id: slot.claim_id }); } catch (e) {} }
+    if (API_URL && slot.claim_id) { try { await db.deleteClaim(slot.claim_id); } catch (e) {} }
     set.slots[member] = null;
   }
   // Cascade-backfill: pack each affected member's column so freed spots are filled from higher
@@ -3937,7 +3943,7 @@ async function removeBatchClaim(goId, siId, claimId) {
   const c = si && (si.claims || []).find(x => x.claim_id === claimId);
   if (!c) return;
   if (!confirm(`Remove ${c.user}'s claim for ${c.member}? This can't be undone.`)) return;
-  if (API_URL && claimId) { try { await apiPost('deleteClaim', { claim_id: claimId }); } catch (e) {} }
+  if (API_URL && claimId) { try { await db.deleteClaim(claimId); } catch (e) {} }
   si.claims = si.claims.filter(x => x.claim_id !== claimId);
   saveLocal();
   renderDetailContent(); renderAdminGOList(); renderOrdersList();
@@ -3985,7 +3991,7 @@ function saveFCFSClaimEdit(goId, siId, claimIdx) {
   c.payment = document.getElementById('efc-payment').value;
   c.fulfillment = document.getElementById('efc-fulfillment').value;
   if (c.claim_id && API_URL) {
-    apiPost('updateClaim', { claim_id: c.claim_id, payment_status: c.payment, fulfillment: c.fulfillment });
+    db.updateClaim({ claim_id: c.claim_id, payment_status: c.payment, fulfillment: c.fulfillment });
   }
   closeModal();
   renderDetailContent();
@@ -4147,11 +4153,11 @@ function saveListing(listingId) {
     data.listing_id = listingId;
     const local = listings.find(x => x.listing_id === listingId);
     if (local) Object.assign(local, data);
-    if (API_URL) apiPost('updateListing', data).catch(()=>{});
+    if (API_URL) db.saveListing(data).catch(()=>{});
   } else {
     const tempId = 'lst_' + Date.now();
     listings.push({ listing_id: tempId, status: 'active', created_at: new Date().toISOString(), ...data });
-    if (API_URL) apiPost('createListing', data).catch(()=>{});
+    if (API_URL) db.saveListing(data).catch(()=>{});
   }
   closeModal();
   renderAdminListings();
@@ -4163,7 +4169,7 @@ function hideListing(listingId) {
   if (!confirm('Hide this listing from the shop?')) return;
   const local = listings.find(x => x.listing_id === listingId);
   if (local) local.status = 'hidden';
-  if (API_URL) apiPost('deleteListing', { listing_id: listingId }).catch(()=>{});
+  if (API_URL) db.deleteListing(listingId).catch(()=>{});
   renderAdminListings();
   renderShopPage();
   toast('Listing hidden.');
@@ -4327,11 +4333,11 @@ function saveStoreOrder(orderId) {
     data.order_id = orderId;
     const local = storeOrders.find(x => x.order_id === orderId);
     if (local) Object.assign(local, data);
-    if (API_URL) apiPost('updateStoreOrder', data).catch(()=>{});
+    if (API_URL) db.saveStoreOrder(data).catch(()=>{});
   } else {
     const tempId = 'sto_' + Date.now();
     storeOrders.push({ order_id: tempId, created_at: new Date().toISOString(), ...data });
-    if (API_URL) apiPost('createStoreOrder', data).catch(()=>{});
+    if (API_URL) db.saveStoreOrder(data).catch(()=>{});
   }
   closeModal();
   renderStoreOrders();
@@ -4343,7 +4349,11 @@ function advanceStoreStatus(orderId) {
   if (!o) return;
   const i = STORE_STATUS.indexOf(o.status || 'Ordered');
   o.status = STORE_STATUS[(i + 1) % STORE_STATUS.length];
-  if (API_URL) apiPost('updateStoreOrder', { order_id: orderId, status: o.status }).catch(()=>{});
+  // saveStoreOrder replaces the whole row (no partial patch RPC exists for store_orders),
+  // so re-send the full record — not just {order_id, status} — or the other columns get nulled.
+  if (API_URL) db.saveStoreOrder({ order_id: orderId, go_id: o.go_id, sub_item_id: o.sub_item_id,
+    store: o.store, album_version: o.album_version, qty: o.qty, unit_cost: o.unit_cost,
+    status: o.status, notes: o.notes }).catch(()=>{});
   renderStoreOrders();
   if (currentGO) renderDetailContent();
   toast('Status: ' + o.status);
@@ -4351,7 +4361,7 @@ function advanceStoreStatus(orderId) {
 function deleteStoreOrderEntry(orderId) {
   if (!confirm('Delete this store order?')) return;
   storeOrders = storeOrders.filter(x => x.order_id !== orderId);
-  if (API_URL) apiPost('deleteStoreOrder', { order_id: orderId }).catch(()=>{});
+  if (API_URL) db.deleteStoreOrder(orderId).catch(()=>{});
   renderStoreOrders();
   if (currentGO) renderDetailContent();
   toast('Store order deleted.');
@@ -4399,7 +4409,7 @@ function deleteShopOrder(orderId) {
     }
   }
   shopOrders = shopOrders.filter(x => x.order_id !== orderId);
-  if (API_URL) apiPost('deleteShopOrder', { order_id: orderId }).catch(()=>{});
+  if (API_URL) db.deleteShopOrder(orderId).catch(()=>{});
   renderShopOrders();
   renderAdminListings();
   renderShopPage();
@@ -4410,7 +4420,7 @@ function toggleShopOrderPayment(orderId) {
   const o = shopOrders.find(x => x.order_id === orderId);
   if (!o) return;
   o.payment_status = o.payment_status === 'paid' ? 'unpaid' : 'paid';
-  if (API_URL) apiPost('updateShopOrder', { order_id: orderId, payment_status: o.payment_status });
+  if (API_URL) db.updateShopOrder({ order_id: orderId, payment_status: o.payment_status });
   renderShopOrders();
   toast(o.listing_name + ': ' + (o.payment_status==='paid'?'Paid':'Unpaid'));
 }
@@ -4421,7 +4431,7 @@ function advanceShopFulfill(orderId, dir) {
   const nf = dir === 'prev' ? shopPrevFulfillment(o.fulfillment) : shopNextFulfillment(o.fulfillment);
   if (!nf) return;
   o.fulfillment = nf;
-  if (API_URL) apiPost('updateShopOrder', { order_id: orderId, fulfillment: nf });
+  if (API_URL) db.updateShopOrder({ order_id: orderId, fulfillment: nf });
   renderShopOrders();
   toast('Fulfillment: ' + nf);
 }
@@ -4682,7 +4692,7 @@ function applyConfirmPayment() {
     const payload = { payment_id: p.payment_id, status: 'confirmed', username: pc.username, go_id: pc.goId };
     if (pc.goId === 'shop') { payload.paid_order_ids = paidIds; payload.unpaid_order_ids = unpaidIds; }
     else { payload.paid_claim_ids = paidIds; payload.unpaid_claim_ids = unpaidIds; }
-    apiPost('updatePayment', payload).catch(()=>{});
+    db.updatePayment(payload).catch(()=>{});
   }
   pendingConfirm = null;
   closeModal();
@@ -4695,7 +4705,7 @@ function applyConfirmPayment() {
 function deletePaymentProof(id) {
   if (!confirm('Delete this payment record? This cannot be undone.')) return;
   paymentProofs = paymentProofs.filter(p => p.payment_id !== id);
-  if (API_URL) apiPost('deletePayment', { payment_id: id }).catch(()=>{});
+  if (API_URL) db.deletePayment(id).catch(()=>{});
   renderPaymentProofs();
   toast('Payment record deleted.');
 }
@@ -4707,7 +4717,7 @@ function rejectPayment(id) {
   if (reason === null) return;  // cancelled
   p.status = 'rejected';
   p.note = reason.trim();
-  if (API_URL && p.payment_id) persistWrite(apiPost('updatePayment', { payment_id: p.payment_id, status:'rejected', note: p.note }), 'reject payment');
+  if (API_URL && p.payment_id) persistWrite(db.updatePayment({ payment_id: p.payment_id, status:'rejected', note: p.note }), 'reject payment');
   renderPaymentProofs();
   toast('Payment rejected.');
 }
@@ -4752,7 +4762,7 @@ function saveProofEdit(id) {
   closeModal();
   renderPaymentProofs();
   renderDetailContent();
-  if (API_URL) persistWrite(apiPost('updatePayment', {
+  if (API_URL) persistWrite(db.updatePayment({
     payment_id: p.payment_id, username: p.username, amount: p.amount,
     method: p.method, transaction_id: p.transaction_id, status: p.status
   }), 'update payment');
@@ -4863,7 +4873,7 @@ function markShipped(requestId) {
     if (si.claims) si.claims.forEach(c => { if (c.claim_id && claimIds[c.claim_id]) c.fulfillment = 'Shipped'; });
   }));
   shopOrders.forEach(o => { if (orderIds[o.order_id]) o.fulfillment = 'Shipped'; });
-  if (API_URL) apiPost('updateShipping', { request_id: r.request_id, ems_fee: r.ems_fee || '', dom_fee: r.dom_fee || '', total_fee: r.total_fee || '', shipped: true }).catch(()=>{});
+  if (API_URL) db.updateShipping({ request_id: r.request_id, ems_fee: r.ems_fee || '', dom_fee: r.dom_fee || '', total_fee: r.total_fee || '', shipped: true }).catch(()=>{});
   renderShippingQueue();
   renderDetailContent();
   renderShopOrders();
@@ -5089,6 +5099,180 @@ const db = {
     const { data, error } = await sb.rpc('place_shop_order', { p: payload });
     if (error) throw error;
     return data;
+  },
+  // ── Admin writes (Task 13) ─────────────────────────────────────────────────
+  async updateClaim(d) {
+    if (d.set_num !== undefined && d.set_num !== null && d.set_num !== '') {
+      const r = await sb.rpc('move_claim', { p_claim_id: d.claim_id, p_set_no: parseInt(d.set_num) });
+      if (r.error) throw r.error;
+    }
+    const patch = {};
+    if (d.claim_status)   patch.status = d.claim_status;
+    if (d.payment_status) patch.payment_status = d.payment_status;
+    if (d.fulfillment)    patch.fulfillment = d.fulfillment;
+    if (Object.keys(patch).length) {
+      const r = await sb.from('claims').update(patch).eq('id', d.claim_id);
+      if (r.error) throw r.error;
+    }
+    return { ok: true };
+  },
+  async deleteClaim(claimId) {
+    const r = await sb.from('claims').delete().eq('id', claimId);
+    if (r.error) throw r.error;
+    return { ok: true };
+  },
+  async secureSet(subItemId, setNum, secured) {
+    const { data, error } = await sb.rpc('secure_set',
+      { p_sub_item_id: subItemId, p_set_no: parseInt(setNum), p_secured: !!secured });
+    if (error) throw error;
+    return data;
+  },
+  async saveGO(go) {
+    // go: in-memory GO object (allGOs[id] shape) + optional go_id for updates.
+    const p = {
+      go_id: go.go_id || null, name: go.name, artist: go.artist || null,
+      type: go.type, status: go.status || 'open',
+      deadline: go.deadline || null, payment_deadline: go.paymentDeadline || null,
+      min_secure: parseInt(go.minSecure) || 7,
+      sub_items: (go.subItems || []).map(si => {
+        const ms = parseInt(si.minSecure);
+        return {
+          id: /^[0-9a-f-]{36}$/.test(si.id || '') ? si.id : null,   // temp client ids -> insert
+          name: si.name, kind: si.kind || 'random',
+          order_mode: ms < 0 ? 'batch' : 'set',
+          batch_size: ms < 0 ? Math.abs(ms) : null,
+          price: parseFloat(si.price) || 0, ot_price: parseFloat(si.otPrice) || 0,
+          min_secure: ms >= 0 ? ms : null,
+          image_url: si.imageUrl || null,
+          members: si.members || [], versions: si.versions || []
+        };
+      })
+    };
+    const { data, error } = await sb.rpc('save_go', { p });
+    if (error) throw error;
+    return data;   // {ok, go_id, sub_item_ids}
+  },
+  // sub_items -> gos is ON DELETE CASCADE but claims -> sub_items is RESTRICT, so deleting a
+  // GO with claims errors unless its claims are removed first — mirror the legacy delete-claims-
+  // first behavior here.
+  async deleteGOWithClaims(goId) {
+    const ids = dbThrow(await sb.from('sub_items').select('id').eq('go_id', goId)).map(x => x.id);
+    if (ids.length) {
+      const r1 = await sb.from('claims').delete().in('sub_item_id', ids);
+      if (r1.error) throw r1.error;
+    }
+    const r = await sb.from('gos').delete().eq('id', goId);
+    if (r.error) throw r.error;
+    return { ok: true };
+  },
+  async setGcAdded(goId, username, added) {
+    const u = String(username || '').trim().replace(/^@/, '');
+    const r = added
+      ? await sb.from('gc_members').upsert({ go_id: goId, username: u })
+      : await sb.from('gc_members').delete().match({ go_id: goId, username: u });
+    if (r.error) throw r.error;
+    return { ok: true };
+  },
+  async setSubItemFlag(siId, patch) {    // {closed} | {deadline} | {pay_due}
+    const r = await sb.from('sub_items').update(patch).eq('id', siId);
+    if (r.error) throw r.error;
+    return { ok: true };
+  },
+  async updatePayment(d) {
+    const { data, error } = await sb.rpc('confirm_payment', { p: {
+      payment_id: d.payment_id, status: d.status, note: d.note,
+      amount: d.amount, username: d.username, method: d.method,
+      transaction_id: d.transaction_id,
+      is_shop: d.go_id === 'shop',
+      paid_ids: d.paid_claim_ids || d.paid_order_ids || [],
+      unpaid_ids: d.unpaid_claim_ids || d.unpaid_order_ids || []
+    } });
+    if (error) throw error;
+    return data;
+  },
+  async deletePayment(id) {
+    const r = await sb.from('payments').delete().eq('id', id);
+    if (r.error) throw r.error;
+    return { ok: true };
+  },
+  async applyCredit(d) {
+    const { data, error } = await sb.rpc('apply_credit', { p: d });
+    if (error) throw error;
+    return data;
+  },
+  async reverseCredit(d) {
+    const { data, error } = await sb.rpc('reverse_credit', { p: d });
+    if (error) throw error;
+    return data;
+  },
+  async saveListing(d) {           // create or update; d in legacy listing shape
+    const row = { name: d.name, category: d.category, price: d.price,
+      image_url: d.image_url || null, note: d.note || null, status: d.status || 'active',
+      qty: d.variants ? null : (parseInt(d.qty) || 0) };
+    let listingId = d.listing_id;
+    if (listingId) {
+      const r = await sb.from('listings').update(row).eq('id', listingId);
+      if (r.error) throw r.error;
+    } else {
+      const r = await sb.from('listings').insert(row).select('id').single();
+      if (r.error) throw r.error;
+      listingId = r.data.id;
+    }
+    const variants = typeof d.variants === 'string' ? tryParse(d.variants, []) : (d.variants || []);
+    const del = await sb.from('listing_variants').delete().eq('listing_id', listingId);
+    if (del.error) throw del.error;
+    if (variants.length) {
+      const ins = await sb.from('listing_variants')
+        .insert(variants.map(v => ({ listing_id: listingId, name: v.name, qty: parseInt(v.qty) || 0 })));
+      if (ins.error) throw ins.error;
+    }
+    return { ok: true, listing_id: listingId };
+  },
+  async deleteListing(listingId) {
+    const r = await sb.from('listings').delete().eq('id', listingId);
+    if (r.error) throw r.error;
+    return { ok: true };
+  },
+  async saveStoreOrder(d) {
+    const row = { go_id: d.go_id || null, sub_item_id: d.sub_item_id || null,
+      store: d.store, album_version: d.album_version || null,
+      qty: parseInt(d.qty) || 1, unit_cost: d.unit_cost, status: d.status, notes: d.notes || null };
+    if (d.order_id) {
+      const r = await sb.from('store_orders').update(row).eq('id', d.order_id);
+      if (r.error) throw r.error;
+      return { ok: true, order_id: d.order_id };
+    }
+    const r = await sb.from('store_orders').insert(row).select('id').single();
+    if (r.error) throw r.error;
+    return { ok: true, order_id: r.data.id };
+  },
+  async deleteStoreOrder(orderId) {
+    const r = await sb.from('store_orders').delete().eq('id', orderId);
+    if (r.error) throw r.error;
+    return { ok: true };
+  },
+  async updateShopOrder(d) {
+    const patch = {};
+    if (d.payment_status) patch.payment_status = d.payment_status;
+    if (d.fulfillment)    patch.fulfillment = d.fulfillment;
+    const r = await sb.from('shop_orders').update(patch).eq('id', d.order_id);
+    if (r.error) throw r.error;
+    return { ok: true };
+  },
+  async deleteShopOrder(orderId) {
+    const r = await sb.from('shop_orders').delete().eq('id', orderId);
+    if (r.error) throw r.error;
+    return { ok: true };
+  },
+  async updateShipping(d) {
+    const r = await sb.from('shipping_requests').update({
+      ems_fee: d.ems_fee === '' ? null : d.ems_fee,
+      dom_fee: d.dom_fee === '' ? null : d.dom_fee,
+      total_fee: d.total_fee === '' ? null : d.total_fee,
+      shipped: !!d.shipped
+    }).eq('id', d.request_id);
+    if (r.error) throw r.error;
+    return { ok: true };
   }
 };
 
