@@ -451,7 +451,133 @@ def print_report(ds):
             print(f'    … and {len(items) - 20} more')
 
 def load(ds):
-    raise SystemExit('load arrives in Task 8')
+    import psycopg
+    dsn = os.environ.get('SUPABASE_DB_URL')
+    if not dsn:
+        sys.exit('Set SUPABASE_DB_URL (Supabase dashboard -> Connect -> Session pooler URI).')
+    with psycopg.connect(dsn) as conn, conn.cursor() as cur:
+        cur.execute("""truncate gos, sub_items, members, versions, sets, claims,
+            payments, gc_members, shipping_requests, shipping_request_items,
+            listings, listing_variants, shop_orders, store_orders cascade""")
+
+        go_ids, si_ids, member_ids, version_ids = {}, {}, {}, {}
+        set_ids, listing_ids, variant_ids, ship_ids = {}, {}, {}, {}
+
+        for g in ds['gos']:
+            cur.execute("""insert into gos (legacy_id, name, artist, type, status,
+                deadline, payment_deadline, min_secure, created_at)
+                values (%s,%s,%s,%s,%s,%s,%s,%s,coalesce(%s, now())) returning id""",
+                (g['legacy_id'], g['name'], g['artist'], g['type'], g['status'],
+                 g['deadline'], g['payment_deadline'], g['min_secure'], g['created_at']))
+            go_ids[g['legacy_id']] = cur.fetchone()[0]
+
+        for s in ds['sub_items']:
+            cur.execute("""insert into sub_items (legacy_id, go_id, name, kind,
+                order_mode, batch_size, price, ot_price, min_secure, image_url,
+                position, closed, deadline, pay_due)
+                values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) returning id""",
+                (s['legacy_id'], go_ids[s['go']], s['name'], s['kind'], s['order_mode'],
+                 s['batch_size'], s['price'], s['ot_price'], s['min_secure'],
+                 s['image_url'], s['position'], s['closed'], s['deadline'], s['pay_due']))
+            si_ids[(s['go'], s['legacy_id'])] = cur.fetchone()[0]
+
+        for m in ds['members']:
+            cur.execute("insert into members (sub_item_id, name, position) values (%s,%s,%s) returning id",
+                        (si_ids[m['si']], m['name'], m['position']))
+            member_ids[(m['si'], m['name'])] = cur.fetchone()[0]
+        for v in ds['versions']:
+            cur.execute("insert into versions (sub_item_id, name, position) values (%s,%s,%s) returning id",
+                        (si_ids[v['si']], v['name'], v['position']))
+            version_ids[(v['si'], v['name'])] = cur.fetchone()[0]
+        for s in ds['sets']:
+            cur.execute("insert into sets (sub_item_id, set_no, status) values (%s,%s,%s) returning id",
+                        (si_ids[s['si']], s['set_no'], s['status']))
+            set_ids[(s['si'], s['set_no'])] = cur.fetchone()[0]
+
+        for c in ds['claims']:
+            cur.execute("""insert into claims (legacy_id, sub_item_id, username, email,
+                set_id, member_id, version_id, is_ot, qty, assigned_version,
+                status, payment_status, fulfillment, created_at, updated_at)
+                values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                        coalesce(%s, now()), coalesce(%s, now()))""",
+                (c['legacy_id'], si_ids[c['si']], c['username'], c['email'],
+                 set_ids.get((c['si'], c['set_no'])) if c['set_no'] else None,
+                 member_ids.get((c['si'], c['member'])) if c['member'] else None,
+                 version_ids.get((c['si'], c['version'])) if c['version'] else None,
+                 c['is_ot'], c['qty'], c['assigned_version'], c['status'],
+                 c['payment_status'], c['fulfillment'], c['created_at'], c['updated_at']))
+
+        for p in ds['payments']:
+            cur.execute("""insert into payments (legacy_id, username, go_id, is_shop,
+                amount, method, transaction_id, proof_url, email, status, note, created_at)
+                values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,coalesce(%s, now()))""",
+                (p['legacy_id'], p['username'], go_ids.get(p['go']), p['is_shop'],
+                 p['amount'], p['method'], p['transaction_id'], p['proof_url'],
+                 p['email'], p['status'], p['note'], p['created_at']))
+
+        for r in ds['gc']:
+            cur.execute("insert into gc_members (go_id, username) values (%s,%s) on conflict do nothing",
+                        (go_ids[r['go']], r['username']))
+
+        for s in ds['shipping']:
+            cur.execute("""insert into shipping_requests (legacy_id, username, full_name,
+                address1, address2, city, state, postal, country, notes, email,
+                ems_fee, dom_fee, total_fee, shipped, created_at)
+                values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,coalesce(%s, now()))
+                returning id""",
+                (s['legacy_id'], s['username'], s['full_name'], s['address1'], s['address2'],
+                 s['city'], s['state'], s['postal'], s['country'], s['notes'], s['email'],
+                 s['ems_fee'], s['dom_fee'], s['total_fee'], s['shipped'], s['created_at']))
+            ship_ids[s['legacy_id']] = cur.fetchone()[0]
+        for it in ds['shipping_items']:
+            cur.execute("""insert into shipping_request_items (request_id, go_id, description, qty)
+                values (%s,%s,%s,%s)""",
+                (ship_ids[it['request']], go_ids.get(it['go']), it['description'], it['qty']))
+
+        for l in ds['listings']:
+            cur.execute("""insert into listings (legacy_id, name, category, price,
+                image_url, qty, note, status, created_at)
+                values (%s,%s,%s,%s,%s,%s,%s,%s,coalesce(%s, now())) returning id""",
+                (l['legacy_id'], l['name'], l['category'], l['price'], l['image_url'],
+                 l['qty'], l['note'], l['status'], l['created_at']))
+            listing_ids[l['legacy_id']] = cur.fetchone()[0]
+        for v in ds['variants']:
+            cur.execute("insert into listing_variants (listing_id, name, qty) values (%s,%s,%s) returning id",
+                        (listing_ids[v['listing']], v['name'], v['qty']))
+            variant_ids[(v['listing'], v['name'])] = cur.fetchone()[0]
+
+        for o in ds['shop_orders']:
+            cur.execute("""insert into shop_orders (legacy_id, listing_id, variant_id,
+                username, email, qty, unit_price, payment_status, fulfillment,
+                created_at, updated_at)
+                values (%s,%s,%s,%s,%s,%s,%s,%s,%s,coalesce(%s, now()),coalesce(%s, now()))""",
+                (o['legacy_id'], listing_ids[o['listing']],
+                 variant_ids.get(o['variant']) if o['variant'] else None,
+                 o['username'], o['email'], o['qty'], o['unit_price'],
+                 o['payment_status'], o['fulfillment'], o['created_at'], o['updated_at']))
+
+        for o in ds['store_orders']:
+            cur.execute("""insert into store_orders (legacy_id, go_id, sub_item_id,
+                store, album_version, qty, unit_cost, status, notes, created_at, updated_at)
+                values (%s,%s,%s,%s,%s,%s,%s,%s,%s,coalesce(%s, now()),coalesce(%s, now()))""",
+                (o['legacy_id'], go_ids.get(o['go']),
+                 si_ids.get(o['si']) if o['si'] else None,
+                 o['store'], o['album_version'], o['qty'], o['unit_cost'],
+                 o['status'], o['notes'], o['created_at'], o['updated_at']))
+
+        conn.commit()
+        print('=== loaded counts (db vs intended) ===')
+        for table, key in [('gos','gos'), ('sub_items','sub_items'), ('members','members'),
+                           ('versions','versions'), ('sets','sets'), ('claims','claims'),
+                           ('payments','payments'), ('gc_members','gc'),
+                           ('shipping_requests','shipping'),
+                           ('shipping_request_items','shipping_items'),
+                           ('listings','listings'), ('listing_variants','variants'),
+                           ('shop_orders','shop_orders'), ('store_orders','store_orders')]:
+            cur.execute(f'select count(*) from {table}')
+            n = cur.fetchone()[0]
+            flag = '' if n == len(ds[key]) else '  <-- MISMATCH'
+            print(f'  {table:24s} {n:6d} / {len(ds[key])}{flag}')
 
 def main():
     ap = argparse.ArgumentParser()
