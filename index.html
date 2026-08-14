@@ -152,7 +152,8 @@
 <div id="admin-login-overlay" style="display:none;position:fixed;inset:0;background:rgba(44,44,42,0.45);z-index:600;align-items:center;justify-content:center;">
   <div style="background:var(--surface);border-radius:var(--radius-lg);padding:28px;max-width:360px;width:90%;border:0.5px solid var(--border);">
     <div style="font-size:16px;font-weight:500;margin-bottom:16px;">Admin login</div>
-    <div class="field"><label>Password</label><input type="password" id="admin-pass-input" onkeydown="if(event.key==='Enter')submitAdminPass()" placeholder="Enter password"></div>
+    <div class="field"><label>Email</label><input type="email" id="admin-email-input" autocomplete="username" onkeydown="if(event.key==='Enter')submitAdminPass()" placeholder="Enter email"></div>
+    <div class="field"><label>Password</label><input type="password" id="admin-pass-input" autocomplete="current-password" onkeydown="if(event.key==='Enter')submitAdminPass()" placeholder="Enter password"></div>
     <div style="display:flex;gap:8px;margin-top:8px;">
       <button class="btn btn-primary" onclick="submitAdminPass()" style="flex:1;justify-content:center;">Log in</button>
       <button class="btn btn-ghost" onclick="closeAdminLogin()">Cancel</button>
@@ -3260,8 +3261,7 @@ function renderPaymentGoSelect() {
 }
 
 // ── ADMIN AUTH ────────────────────────────────────────────────────────────────
-const ADMIN_PASS = 'kpop2026';
-let isAdmin = sessionStorage.getItem('go_admin') === '1';
+let isAdmin = false;   // set by the auth listener below (registered once `sb` exists)
 
 function applyAdminState() {
   document.getElementById('admin-nav-tab').style.display = isAdmin ? '' : 'none';
@@ -3272,8 +3272,8 @@ function applyAdminState() {
 }
 
 function logoutAdmin() {
+  sb.auth.signOut();
   isAdmin = false;
-  sessionStorage.removeItem('go_admin');
   applyAdminState();
   showPage('orders');
 }
@@ -3281,27 +3281,28 @@ function logoutAdmin() {
 function promptAdmin() {
   const overlay = document.getElementById('admin-login-overlay');
   overlay.style.display = 'flex';
+  document.getElementById('admin-email-input').value = '';
   document.getElementById('admin-pass-input').value = '';
   document.getElementById('admin-pass-err').textContent = '';
-  setTimeout(() => document.getElementById('admin-pass-input').focus(), 50);
+  setTimeout(() => document.getElementById('admin-email-input').focus(), 50);
 }
 
 function closeAdminLogin() {
   document.getElementById('admin-login-overlay').style.display = 'none';
 }
 
-function submitAdminPass() {
-  const val = document.getElementById('admin-pass-input').value;
-  if (val === ADMIN_PASS) {
-    isAdmin = true;
-    sessionStorage.setItem('go_admin', '1');
-    closeAdminLogin();
-    applyAdminState();
-    if (API_URL) syncFromBackend();  // pull full data (claims) now that we're admin
-    showPage('admin');
-  } else {
-    document.getElementById('admin-pass-err').textContent = 'Incorrect password.';
-  }
+async function submitAdminPass() {
+  const email = document.getElementById('admin-email-input').value.trim();
+  const password = document.getElementById('admin-pass-input').value;
+  const err = document.getElementById('admin-pass-err');
+  err.textContent = '';
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) { err.textContent = 'Login failed — check email and password.'; return; }
+  isAdmin = true;
+  closeAdminLogin();
+  applyAdminState();
+  syncFromBackend();   // pull full data now that we're admin
+  showPage('admin');
 }
 
 function requireAdmin() {
@@ -4878,6 +4879,13 @@ function markShipped(requestId) {
 const SUPABASE_URL = 'https://kkzmvuqfqbonsxebzaii.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtrem12dXFmcWJvbnN4ZWJ6YWlpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2Mjk2MTcsImV4cCI6MjEwMjIwNTYxN30.S4G_w0XkfmxxYBaPQMA2mDUULoZI4zV4OumEBClmKOw';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+sb.auth.onAuthStateChange((_event, session) => {
+  const was = isAdmin;
+  isAdmin = !!session;
+  if (was !== isAdmin) applyAdminState();
+});
+
 let API_URL = 'supabase';   // truthy: legacy guards stay live until Task 14 (settings code below reassigns this)
 let useBackend = !!API_URL;
 
@@ -5556,6 +5564,10 @@ async function testConnection() {
     document.getElementById('settings-status').textContent = '✗ ' + e.message;
   }
 }
+sb.auth.getSession().then(({ data: { session } }) => {
+  isAdmin = !!session;
+  applyAdminState();
+});
 applyAdminState();
 renderOrdersList();
 renderAdminGOList();
