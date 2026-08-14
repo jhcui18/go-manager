@@ -14,10 +14,18 @@ SET_KINDS = {'photocard', 'member', 'member-set'}
 report = defaultdict(list)     # category -> [detail rows]
 
 def parse_int(v):
-    try:
-        return int(float(v))
-    except (TypeError, ValueError):
+    """Mirror of JS parseInt: takes the leading integer prefix of a string
+    ('2abc' -> 2), while still handling numeric cells and float-strings
+    ('2.0' -> 2) the way the sheet actually stores set_num/min_secure."""
+    if v is None:
         return 0
+    if isinstance(v, (int, float)):
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return 0
+    m = re.match(r'\s*[-+]?\d+', str(v))
+    return int(m.group()) if m else 0
 
 def build_sets_from_claims(claims, members):
     """Exact port of index.html buildSetsFromClaims placement logic (lines 5189-5245):
@@ -45,7 +53,8 @@ def build_sets_from_claims(claims, members):
         ot_set_nums.add(n)
         for c in group:
             sets_by_num[n][c.get('member_or_version')] = c['claim_id']
-            assignment[c['claim_id']] = n
+        for cid in sets_by_num[n].values():
+            assignment[cid] = n
 
     def smallest_non_ot():
         n = 1
@@ -178,7 +187,11 @@ def build_dataset(wb):
     payments, gc, shipping, shipping_items, listings, variants, shop_orders,
     store_orders. All FK references are legacy ids resolved to uuids at load."""
     gos = rows_as_dicts(wb['_gos'])
-    joiners = [c for c in rows_as_dicts(wb['joiners']) if c.get('claim_id')]
+    all_joiner_rows = rows_as_dicts(wb['joiners'])
+    joiners = [c for c in all_joiner_rows if c.get('claim_id')]
+    n_dropped_joiners = len(all_joiner_rows) - len(joiners)
+    if n_dropped_joiners:
+        report['dropped_missing_id'].append(f'joiners: {n_dropped_joiners} rows missing claim_id')
     go_sheets = resolve_go_sheets(wb, gos, joiners)
     flags_closed = {(r['go_id'], r['sub_item_id']) for r in rows_as_dicts(wb['closed_subitems'])}
     flags_dead = {(r['go_id'], r['sub_item_id']): r['deadline'] for r in rows_as_dicts(wb['subitem_deadlines'])}
@@ -316,8 +329,9 @@ def build_dataset(wb):
             'updated_at': to_ts(c.get('updated_at'), f"claim {c['claim_id']}"),
         })
 
-    for p in rows_as_dicts(wb['payments']):
+    for idx, p in enumerate(rows_as_dicts(wb['payments'])):
         if not p.get('payment_id'):
+            report['dropped_missing_id'].append(f'payments row {idx}: missing payment_id')
             continue
         ds['payments'].append({
             'legacy_id': p['payment_id'], 'username': norm_user(p.get('username')),
@@ -336,8 +350,9 @@ def build_dataset(wb):
         if r.get('go_id') in known_go_ids and r.get('username'):
             ds['gc'].append({'go': r['go_id'], 'username': norm_user(r['username'])})
 
-    for s in rows_as_dicts(wb['shipping']):
+    for idx, s in enumerate(rows_as_dicts(wb['shipping'])):
         if not s.get('request_id'):
+            report['dropped_missing_id'].append(f'shipping row {idx}: missing request_id')
             continue
         ds['shipping'].append({
             'legacy_id': s['request_id'], 'username': norm_user(s.get('username')),
@@ -360,8 +375,9 @@ def build_dataset(wb):
             ds['shipping_items'].append({'request': s['request_id'], 'go': None,
                                          'description': it.get('label') or '', 'qty': 1})
 
-    for l in rows_as_dicts(wb['listings']):
+    for idx, l in enumerate(rows_as_dicts(wb['listings'])):
         if not l.get('listing_id'):
+            report['dropped_missing_id'].append(f'listings row {idx}: missing listing_id')
             continue
         try:
             variants = json.loads(l.get('variants') or 'null') or []
@@ -382,8 +398,9 @@ def build_dataset(wb):
 
     known_listings = {l['legacy_id'] for l in ds['listings']}
     variant_names = {(v['listing'], v['name']) for v in ds['variants']}
-    for o in rows_as_dicts(wb['shop_orders']):
+    for idx, o in enumerate(rows_as_dicts(wb['shop_orders'])):
         if not o.get('order_id'):
+            report['dropped_missing_id'].append(f'shop_orders row {idx}: missing order_id')
             continue
         if o.get('listing_id') not in known_listings:
             report['shop_orders_unknown_listing'].append(o['order_id'])
@@ -401,8 +418,9 @@ def build_dataset(wb):
             'updated_at': to_ts(o.get('updated_at'), f"shop {o['order_id']}"),
         })
 
-    for o in rows_as_dicts(wb['store_orders']):
+    for idx, o in enumerate(rows_as_dicts(wb['store_orders'])):
         if not o.get('order_id'):
+            report['dropped_missing_id'].append(f'store_orders row {idx}: missing order_id')
             continue
         si_key = (o.get('go_id'), o.get('sub_item_id'))
         ds['store_orders'].append({

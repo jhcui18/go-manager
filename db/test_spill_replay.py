@@ -38,3 +38,13 @@ def test_tiebreak_by_claim_id_when_same_timestamp():
     a = build_sets_from_claims(
         [c('b', 'u2', 'A', 1, 't1'), c('a', 'u1', 'A', 1, 't1')], MEMBERS)
     assert a == {'a': 1, 'b': 2}
+
+def test_ot_slot_collision_later_claim_wins_earlier_vanishes():
+    # Two OT claims, same user + same declared set + same member slot: JS is
+    # slot-based (index.html:5224-5230) so the later claim (by created_at,
+    # then claim_id) overwrites the slot and the earlier claim is simply never
+    # placed — it must NOT appear in the assignment at all.
+    a = build_sets_from_claims(
+        [c('c1', 'u1', 'A', 2, 't1', ot=True), c('c10', 'u1', 'A', 2, 't1', ot=True)], MEMBERS)
+    assert a == {'c10': 2}
+    assert 'c1' not in a
