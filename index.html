@@ -961,8 +961,11 @@ function submitShopOrder(listingId) {
   const qty = shopOrderQty;
   if (!API_URL) { toast('Shop needs the backend configured.'); return; }
   const payload = { listing_id: listingId, username: u, qty };
-  if (hasVariants) payload.variant = shopOrderVariant;
-  apiPost('placeShopOrder', payload).then(res => {
+  if (hasVariants) {
+    const v = l.variants.find(x => x.name === shopOrderVariant);
+    payload.variant_id = v ? v.id : null;
+  }
+  db.placeShopOrder(payload).then(res => {
     if (res && res.ok) {
       // Reflect stock locally so the grid updates without a full sync.
       if (hasVariants) {
@@ -1777,7 +1780,7 @@ function submitClaim(goId) {
 async function submitClaimWithRetry(claims, attempts = 3) {
   for (let i = 0; i < attempts; i++) {
     let res;
-    try { res = await apiPost('submitClaim', { claims }); }
+    try { res = await db.submitClaim({ claims }); }
     catch (e) { return { ok: false, message: 'Network error — your claim may not have been saved. Please check My orders, then retry if it is missing.' }; }
     if (res && res.ok) return res;
     if (res && res.ok === false && res.error === 'busy' && i < attempts - 1) {
@@ -2165,7 +2168,7 @@ function submitShippingRequest(username) {
     items, shipped: false, ems_fee: '', dom_fee: '', total_fee: '', card_count: items.length
   };
   shippingRequests.push(req);
-  if (API_URL) apiPost('submitShipping', req).catch(()=>{});
+  if (API_URL) db.submitShipping(req).catch(()=>{});
   renderShipPanel(username);
   renderShippingQueue();
   toast('Shipping request submitted!');
@@ -2197,7 +2200,7 @@ function submitGoPayment(goId, lookedUpUser) {
     created_at: new Date().toISOString()
   };
   addPaymentProof(proof);
-  if (API_URL) apiPost('submitPayment', proof).catch(()=>{});
+  if (API_URL) db.submitPayment(proof).catch(()=>{});
   toast('Payment submitted — the manager will confirm it.');
   // Disable the button to prevent double-submit until next lookup refresh
   const btn = document.querySelector(`#lookup-go-blocks button[onclick^="submitGoPayment('${goId}'"]`);
@@ -4779,7 +4782,7 @@ const _submitPaymentForm = () => {
     created_at: new Date().toISOString()
   };
   addPaymentProof(proof);
-  if (API_URL) apiPost('submitPayment', proof);
+  if (API_URL) db.submitPayment(proof);
   toast('Payment submitted! We\'ll confirm within 24 hours.');
 };
 
@@ -5008,7 +5011,7 @@ const db = {
       image_url: l.image_url || '', qty: l.qty, note: l.note || '', status: l.status,
       created_at: l.created_at,
       variants: (l.listing_variants || []).length
-        ? JSON.stringify(l.listing_variants.map(v => ({ name: v.name, qty: v.qty }))) : ''
+        ? JSON.stringify(l.listing_variants.map(v => ({ id: v.id, name: v.name, qty: v.qty }))) : ''
     })) };
   },
   async getShopOrders() {
@@ -5044,6 +5047,40 @@ const db = {
       items: JSON.stringify((r.shipping_request_items || [])
         .map(i => ({ type: 'item', id: i.id, label: i.description })))
     })) };
+  },
+  async submitClaim(payload) {
+    // payload.claims come in legacy shape from claimsToWrite (go_id, sub_item_id,
+    // member_or_version, qty, assigned_vers, username, email).
+    const meta = {};   // sub_item_id -> kind, to route member vs version
+    Object.values(allGOs).forEach(go => (go.subItems || []).forEach(si => { meta[si.id] = si.kind; }));
+    const p_claims = payload.claims.map(c => ({
+      sub_item_id: c.sub_item_id,
+      username: c.username, email: c.email || null,
+      member: (meta[c.sub_item_id] === 'versioned') ? null : (c.member_or_version || null),
+      version: (meta[c.sub_item_id] === 'versioned') ? (c.member_or_version || null) : null,
+      qty: c.qty || 1,
+      is_ot: c.assigned_vers === 'OT',
+      assigned_version: (c.assigned_vers && c.assigned_vers !== 'OT') ? c.assigned_vers : null
+    }));
+    const { data, error } = await sb.rpc('submit_claim', { p_claims });
+    if (error) throw error;
+    return data;    // {ok, claim_ids, set_nums} — same keys the legacy backend returned
+  },
+  async submitPayment(proof) {
+    const { data, error } = await sb.rpc('submit_payment', { p: proof });
+    if (error) throw error;
+    return data;
+  },
+  async submitShipping(req) {
+    const items = (req.items || []).map(it => ({ go_id: null, description: it.label || '', qty: 1 }));
+    const { data, error } = await sb.rpc('submit_shipping', { p: { ...req, items } });
+    if (error) throw error;
+    return data;
+  },
+  async placeShopOrder(payload) {
+    const { data, error } = await sb.rpc('place_shop_order', { p: payload });
+    if (error) throw error;
+    return data;
   }
 };
 
