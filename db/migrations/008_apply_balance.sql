@@ -31,7 +31,8 @@ begin
 
   select name into v_go_name from gos where id = p_go_id;
   if not found then
-    return jsonb_build_object('ok', false, 'error', 'no_go');
+    return jsonb_build_object('ok', false, 'error', 'no_go', 'spent', 0, 'balance', 0,
+      'paid_claim_ids', '[]'::jsonb, 'transaction_id', null, 'sources', '[]'::jsonb);
   end if;
 
   -- Balance = sum of credit across all of this user's OTHER source scopes (their
@@ -101,31 +102,58 @@ begin
   from all_scopes
   where go_id is distinct from p_go_id;
 
-  -- Greedy spend: cover whole UNPAID units of the target GO, in display order
-  -- (min claim created_at, then min claim id::text). A too-big unit is skipped,
-  -- not a hard stop — later cheaper units are still checked.
+  -- Greedy spend: cover whole UNPAID units of the target GO, in the SAME order
+  -- ownedUnitsFromClaims (index.html ~4457-4484) actually produces — which is
+  -- NOT a flat chronological merge. That function does a single pass over
+  -- claims in (created_at, id) order: claims-based units (set_id null) are
+  -- pushed to the output array IMMEDIATELY as they're encountered, while
+  -- set-based claims are only buffered into per-set groups (keyed by set_id,
+  -- first-encounter order); the buffered groups are flushed to the output only
+  -- AFTER the whole pass, each group emitting its OT unit (if any) first, then
+  -- its normal slot units in claim order. Net effect: ALL claims-based units
+  -- come first (in claim order), THEN all set-based units (grouped by the
+  -- group's earliest claim, OT-before-normal within a group). A too-big unit
+  -- is skipped, not a hard stop — later units are still checked.
   for v_unit in
-    select value, ids, is_paid, min_created, min_idtext from (
-      select si.price as value, array[c.id] as ids, (c.payment_status = 'paid') as is_paid,
-             c.created_at as min_created, c.id::text as min_idtext
+    with set_groups as (
+      select c.set_id, min(c.created_at) as grp_created, min(c.id::text) as grp_idtext
         from claims c join sub_items si on si.id = c.sub_item_id
        where c.username = v_username and si.go_id = p_go_id
-         and c.set_id is not null and c.is_ot = false and c.status = 'secured'
-      union all
-      select si.ot_price, array_agg(c.id order by c.id), bool_and(c.payment_status = 'paid'),
-             min(c.created_at), min(c.id::text)
-        from claims c join sub_items si on si.id = c.sub_item_id
-       where c.username = v_username and si.go_id = p_go_id
-         and c.set_id is not null and c.is_ot = true and c.status = 'secured'
-       group by c.set_id, si.ot_price
-      union all
-      select si.price * c.qty, array[c.id], (c.payment_status = 'paid'),
-             c.created_at, c.id::text
+         and c.set_id is not null and c.status = 'secured'
+       group by c.set_id
+    )
+    select value, ids, is_paid from (
+      -- kind_rank 0: claims-based units, pushed in claim (created_at, id) order.
+      select si.price * c.qty as value, array[c.id] as ids, (c.payment_status = 'paid') as is_paid,
+             0 as kind_rank, c.created_at as grp_created, c.id::text as grp_idtext,
+             0 as sub_order, c.created_at as own_created, c.id::text as own_idtext
         from claims c join sub_items si on si.id = c.sub_item_id
        where c.username = v_username and si.go_id = p_go_id
          and c.set_id is null and c.status = 'secured'
+      union all
+      -- kind_rank 1, sub_order 0: OT unit per set group (group ordered by the
+      -- group's earliest claim across BOTH its OT and normal claims).
+      select si.ot_price as value, array_agg(c.id order by c.created_at, c.id) as ids,
+             bool_and(c.payment_status = 'paid') as is_paid,
+             1 as kind_rank, sg.grp_created, sg.grp_idtext,
+             0 as sub_order, sg.grp_created as own_created, sg.grp_idtext as own_idtext
+        from claims c join sub_items si on si.id = c.sub_item_id
+        join set_groups sg on sg.set_id = c.set_id
+       where c.username = v_username and si.go_id = p_go_id
+         and c.set_id is not null and c.is_ot = true and c.status = 'secured'
+       group by c.set_id, si.ot_price, sg.grp_created, sg.grp_idtext
+      union all
+      -- kind_rank 1, sub_order 1: normal slot units, same group ordering, then
+      -- by the individual claim's own (created_at, id) within the group.
+      select si.price as value, array[c.id] as ids, (c.payment_status = 'paid') as is_paid,
+             1 as kind_rank, sg.grp_created, sg.grp_idtext,
+             1 as sub_order, c.created_at as own_created, c.id::text as own_idtext
+        from claims c join sub_items si on si.id = c.sub_item_id
+        join set_groups sg on sg.set_id = c.set_id
+       where c.username = v_username and si.go_id = p_go_id
+         and c.set_id is not null and c.is_ot = false and c.status = 'secured'
     ) u
-    order by min_created, min_idtext
+    order by kind_rank, grp_created, grp_idtext, sub_order, own_created, own_idtext
   loop
     if v_unit.is_paid then
       continue;
@@ -137,7 +165,8 @@ begin
   end loop;
 
   if v_spent <= 0.001 then
-    return jsonb_build_object('ok', true, 'spent', 0, 'balance', v_balance);
+    return jsonb_build_object('ok', true, 'spent', 0, 'balance', v_balance,
+      'paid_claim_ids', '[]'::jsonb, 'transaction_id', null, 'sources', '[]'::jsonb);
   end if;
 
   v_tx := 'bal_' || floor(extract(epoch from clock_timestamp()))::bigint
