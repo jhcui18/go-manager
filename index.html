@@ -492,6 +492,7 @@
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
 const FULFILLMENT = ['Pending','Ordered','On the way','Ready','Shipped'];
 // Single source of truth for the manager's payment handles (mirrors the Rules page).
@@ -4887,9 +4888,168 @@ function markShipped(requestId) {
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 // ── API LAYER ─────────────────────────────────────────────────────────────────
-const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbyNkei3xGy6AEzvBlLIximpLF0XBj2iXnu4DoBgcgyCZtzooniBZ6_NAyE44QY2kYik/exec';
-let API_URL = localStorage.getItem('go_api_url') || DEFAULT_API_URL;
+const SUPABASE_URL = 'https://kkzmvuqfqbonsxebzaii.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtrem12dXFmcWJvbnN4ZWJ6YWlpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2Mjk2MTcsImV4cCI6MjEwMjIwNTYxN30.S4G_w0XkfmxxYBaPQMA2mDUULoZI4zV4OumEBClmKOw';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+let API_URL = 'supabase';   // truthy: legacy guards stay live until Task 14 (settings code below reassigns this)
 let useBackend = !!API_URL;
+
+// ── Supabase data layer ────────────────────────────────────────────────────
+// Maps normalized rows into the EXACT legacy shapes the render code consumes.
+const CLAIM_SELECT = 'id, sub_item_id, username, email, qty, is_ot, assigned_version,' +
+  ' status, payment_status, fulfillment, created_at, updated_at,' +
+  ' members(name), versions(name), sets(set_no), sub_items!inner(go_id)';
+
+function claimRowToLegacy(c) {
+  return {
+    claim_id: c.id,
+    go_id: c.sub_items.go_id,
+    sub_item_id: c.sub_item_id,
+    username: c.username,
+    email: c.email || '',
+    member_or_version: (c.members && c.members.name) || (c.versions && c.versions.name) || '',
+    set_num: c.sets ? c.sets.set_no : '',
+    qty: c.qty,
+    assigned_vers: c.is_ot ? 'OT' : (c.assigned_version || ''),
+    claim_status: c.status,
+    payment_status: c.payment_status,
+    fulfillment: c.fulfillment || '',
+    created_at: c.created_at,
+    updated_at: c.updated_at
+  };
+}
+function payRowToLegacy(p) {
+  return {
+    payment_id: p.id, username: p.username,
+    go_id: p.is_shop ? 'shop' : p.go_id,
+    go_name: p.is_shop ? 'Shop' : ((p.gos && p.gos.name) || ''),
+    amount: p.amount, method: p.method, transaction_id: p.transaction_id,
+    proof_url: p.proof_url, email: p.email, status: p.status,
+    created_at: p.created_at, note: p.note || ''
+  };
+}
+function shopOrderToLegacy(o) {
+  return {
+    order_id: o.id, listing_id: o.listing_id,
+    listing_name: (o.listings && o.listings.name) || '',
+    variant: (o.listing_variants && o.listing_variants.name) || '',
+    username: o.username, email: o.email || '', qty: o.qty,
+    unit_price: o.unit_price, payment_status: o.payment_status,
+    fulfillment: o.fulfillment || '', created_at: o.created_at, updated_at: o.updated_at
+  };
+}
+function goRowToLegacy(g) {
+  return {
+    go_id: g.id, name: g.name, artist: g.artist || '', type: g.type, status: g.status,
+    deadline: g.deadline, payment_deadline: g.payment_deadline, min_secure: g.min_secure,
+    subItems: (g.sub_items || [])
+      .slice().sort((a, b) => a.position - b.position)
+      .map(si => ({
+        sub_item_id: si.id, name: si.name, kind: si.kind,
+        members: (si.members || []).slice().sort((a, b) => a.position - b.position).map(m => m.name),
+        versions: (si.versions || []).slice().sort((a, b) => a.position - b.position).map(v => v.name),
+        price: si.price, ot_price: si.ot_price,
+        // Batch mode round-trips through the legacy negative-min_secure sentinel
+        // so isBatch() and every render branch stay untouched.
+        min_secure: si.order_mode === 'batch' ? -(si.batch_size || 0)
+                    : (si.min_secure != null ? si.min_secure : g.min_secure),
+        image_url: si.image_url || '',
+        closed: si.closed, deadline: si.deadline, pay_due: si.pay_due
+      }))
+  };
+}
+function dbThrow(res) { if (res.error) throw res.error; return res.data; }
+
+const db = {
+  async getGOsList() {
+    const data = dbThrow(await sb.from('gos')
+      .select('id, name, artist, type, status, deadline, payment_deadline, min_secure, created_at,' +
+        ' sub_items(id, name, kind, order_mode, batch_size, price, ot_price, min_secure,' +
+        ' image_url, position, closed, deadline, pay_due, members(name, position), versions(name, position))')
+      .order('created_at'));
+    return { gos: data.map(goRowToLegacy) };
+  },
+  async getGOBoard(goId) {
+    const [cl, st, si] = await Promise.all([
+      sb.from('claims').select(CLAIM_SELECT).eq('sub_items.go_id', goId),
+      sb.from('sets').select('set_no, status, sub_items!inner(id, go_id)')
+        .eq('sub_items.go_id', goId).eq('status', 'secured'),
+      sb.from('sub_items').select('id, closed, deadline, pay_due').eq('go_id', goId)
+    ]);
+    return {
+      claims: dbThrow(cl).map(claimRowToLegacy),
+      secured_sets: dbThrow(st).map(s => ({ go_id: goId, sub_item_id: s.sub_items.id, set_num: s.set_no })),
+      closed_subitems: si.data.filter(x => x.closed).map(x => ({ go_id: goId, sub_item_id: x.id })),
+      subitem_deadlines: si.data.filter(x => x.deadline).map(x => ({ go_id: goId, sub_item_id: x.id, deadline: x.deadline })),
+      subitem_payment_due: si.data.filter(x => x.pay_due).map(x => ({ go_id: goId, sub_item_id: x.id, due_date: x.pay_due }))
+    };
+  },
+  async getMyOrders(username) {
+    const u = String(username || '').trim().replace(/^@/, '');
+    const [cl, pay, so, sh] = await Promise.all([
+      sb.from('claims').select(CLAIM_SELECT).eq('username', u),
+      sb.from('payments').select('*, gos(name)').eq('username', u),
+      sb.from('shop_orders').select('*, listings(name), listing_variants(name)').eq('username', u),
+      sb.from('shipping_status').select('*').eq('username', u)
+    ]);
+    return {
+      claims: dbThrow(cl).map(claimRowToLegacy),
+      payments: dbThrow(pay).map(payRowToLegacy),
+      shop_orders: dbThrow(so).map(shopOrderToLegacy),
+      shipping: dbThrow(sh).map(r => ({ request_id: r.id, username: r.username,
+        ems_fee: r.ems_fee, dom_fee: r.dom_fee, total_fee: r.total_fee,
+        shipped: r.shipped, created_at: r.created_at }))
+    };
+  },
+  async getPayments() {
+    const data = dbThrow(await sb.from('payments').select('*, gos(name)').order('created_at'));
+    return { payments: data.map(payRowToLegacy) };
+  },
+  async getListings() {
+    const data = dbThrow(await sb.from('listings').select('*, listing_variants(id, name, qty)').order('created_at'));
+    return { listings: data.map(l => ({
+      listing_id: l.id, name: l.name, category: l.category, price: l.price,
+      image_url: l.image_url || '', qty: l.qty, note: l.note || '', status: l.status,
+      created_at: l.created_at,
+      variants: (l.listing_variants || []).length
+        ? JSON.stringify(l.listing_variants.map(v => ({ name: v.name, qty: v.qty }))) : ''
+    })) };
+  },
+  async getShopOrders() {
+    const data = dbThrow(await sb.from('shop_orders')
+      .select('*, listings(name), listing_variants(name)').order('created_at'));
+    return { shop_orders: data.map(shopOrderToLegacy) };
+  },
+  async getStoreOrders() {
+    const data = dbThrow(await sb.from('store_orders')
+      .select('*, gos(name), sub_items(name)').order('created_at'));
+    return { store_orders: data.map(o => ({
+      order_id: o.id, go_id: o.go_id, go_name: (o.gos && o.gos.name) || '',
+      sub_item_id: o.sub_item_id, sub_item_name: (o.sub_items && o.sub_items.name) || '',
+      store: o.store, album_version: o.album_version || '', qty: o.qty,
+      unit_cost: o.unit_cost, status: o.status, notes: o.notes || '',
+      created_at: o.created_at, updated_at: o.updated_at
+    })) };
+  },
+  async getGcAdded() {   // admin-only table; anon gets an empty list, which is fine pre-login
+    const data = dbThrow(await sb.from('gc_members').select('go_id, username'));
+    return { gc_added: data };
+  },
+  async getShipping() {  // admin: full requests incl. addresses + items
+    const data = dbThrow(await sb.from('shipping_requests')
+      .select('*, shipping_request_items(id, go_id, description, qty)').order('created_at'));
+    return { requests: data.map(r => ({
+      request_id: r.id, username: r.username, full_name: r.full_name,
+      address1: r.address1, address2: r.address2 || '', city: r.city, state: r.state,
+      postal: r.postal, country: r.country, notes: r.notes || '', email: r.email || '',
+      card_count: (r.shipping_request_items || []).reduce((a, i) => a + (i.qty || 0), 0),
+      ems_fee: r.ems_fee, dom_fee: r.dom_fee, total_fee: r.total_fee,
+      shipped: r.shipped, created_at: r.created_at,
+      items: JSON.stringify((r.shipping_request_items || [])
+        .map(i => ({ type: 'item', id: i.id, label: i.description })))
+    })) };
+  }
+};
 
 // Retry backoff: longer + jittered so many clients don't retry in lockstep and hammer a
 // throttled server. attempt i (0-based) waits 1..2s, 2..3s, ...
@@ -5169,11 +5329,13 @@ async function syncFromBackend(silent) {
 }
 
 function tryParse(val, fallback) {
+  if (Array.isArray(val)) return val;
   try { return JSON.parse(val); } catch(e) { return fallback; }
 }
 
 function parseMembers(val) {
   if (!val) return [];
+  if (Array.isArray(val)) return val;
   const s = String(val).trim();
   if (!s || s === '[]' || s === '""') return [];
   // Try JSON array first
