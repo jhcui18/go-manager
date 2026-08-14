@@ -83,17 +83,36 @@ const snap = JSON.parse(fs.readFileSync(new URL('./fixtures/snapshot.json', impo
 const SET_KINDS = new Set(['photocard', 'member', 'member-set']);
 
 // New-side data, fetched once. gos/sub_items: 18 top-level rows, no paging needed.
-// claims (4524 rows) and secured sets certainly exceed the 1000-row PostgREST cap.
+// claims and secured sets certainly exceed the 1000-row PostgREST cap.
 const dbGos = await rest('/gos?select=id,legacy_id,min_secure,sub_items(id,legacy_id,kind,order_mode,batch_size,min_secure,members(name,position))');
 const dbSecured = await restAll('/sets?select=set_no,sub_items!inner(legacy_id,go_id)&status=eq.secured');
 const dbClaims = await restAll('/claims?select=id,legacy_id,sub_item_id,username,email,qty,is_ot,assigned_version,status,payment_status,fulfillment,created_at,updated_at,members(name),versions(name),sets(set_no),sub_items!inner(go_id,legacy_id)');
 
 console.log(`fetched: gos=${dbGos.length} secured_sets=${dbSecured.length} claims=${dbClaims.length}`);
-if (dbClaims.length !== 4524) {
-  console.error(`EXPECTED 4524 claims fetched, got ${dbClaims.length} — pagination may be incomplete`);
-}
 
 let failures = 0;
+
+// Verify restAll()'s paging actually reached the end, independent of any hardcoded
+// expectation: ask PostgREST for the exact server-side row count (HEAD + Prefer:
+// count=exact) and compare it to what we paged through. Exact and future-proof —
+// no need to update a magic number every time the snapshot/dataset changes.
+async function serverCount(path) {
+  const r = await fetch(BASE + path, { method: 'HEAD', headers: { ...HDRS, Prefer: 'count=exact' } });
+  if (!r.ok) throw new Error(path + ' (HEAD) -> ' + r.status);
+  const range = r.headers.get('content-range') || '';   // e.g. "0-999/4524"
+  const total = range.split('/')[1];
+  return total && total !== '*' ? parseInt(total, 10) : null;
+}
+const claimsServerCount = await serverCount('/claims?select=id');
+if (claimsServerCount == null) {
+  console.error('EXPECTED an exact claims count from the server (Prefer: count=exact), got none');
+  failures++;
+} else if (dbClaims.length !== claimsServerCount) {
+  console.error(`EXPECTED ${claimsServerCount} claims fetched (server count=exact), got ${dbClaims.length} — pagination may be incomplete`);
+  failures++;
+} else {
+  console.log(`claims count verified against server: ${dbClaims.length} === ${claimsServerCount} (count=exact)`);
+}
 for (const g of snap.gos) {
   const dbGo = dbGos.find(x => x.legacy_id === g.go_id);
   if (!dbGo) { console.error(`MISSING GO in db: ${g.go_id}`); failures++; continue; }

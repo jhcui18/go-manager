@@ -2063,10 +2063,12 @@ function renderMyOrderGoBlock(g, goRows, u, summary) {
         </div>
         <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="submitGoPayment('${g.go_id}','${u}')">I paid</button>` : '';
   const ba = computeBalanceApply(u, g.go_id);   // {balance, spent, sources, paidIds, unpaidIds}
+  // Balance self-serve is admin-gated for launch: apply_credit is an admin RPC (joiner
+  // self-serve returns via a server-validated RPC later).
   const balanceControl = (s.owed > 0 && ba.spent > 0.001 && g.go_id !== 'shop') ? `
         <div style="margin-top:10px;font-size:12px;color:var(--teal-700);background:var(--teal-50);border-radius:var(--radius);padding:8px 10px;">
           👛 You have <strong>$${ba.balance.toFixed(2)}</strong> account balance.
-          <button class="btn btn-sm" style="margin-left:6px;" onclick="payWithBalance('${u}','${g.go_id}')">Use $${ba.spent.toFixed(2)} of balance</button>
+          ${isAdmin ? `<button class="btn btn-sm" style="margin-left:6px;" onclick="payWithBalance('${u}','${g.go_id}')">Use $${ba.spent.toFixed(2)} of balance</button>` : ''}
         </div>` : '';
   const creditNote = '';
   const goObj = allGOs[g.go_id];
@@ -2146,7 +2148,7 @@ function renderShipPanel(username) {
     </div>`;
 }
 
-function submitShippingRequest(username) {
+async function submitShippingRequest(username) {
   const eligible = shipEligibleItems(username);
   if (!eligible.length) { toast('No items ready to ship.'); return; }
   const checkedIds = new Set([...document.querySelectorAll('.ship-item-cb:checked')].map(cb => cb.value));
@@ -2164,14 +2166,16 @@ function submitShippingRequest(username) {
     country: g('ship-country').trim(), notes: g('ship-notes').trim(),
     items, shipped: false, ems_fee: '', dom_fee: '', total_fee: '', card_count: items.length
   };
+  let ok = false;
+  try { await db.submitShipping(req); ok = true; } catch (e) {}
+  if (!ok) { toast("Couldn't submit your shipping request — please try again."); return; }
   shippingRequests.push(req);
-  db.submitShipping(req).catch(()=>{});
   renderShipPanel(username);
   renderShippingQueue();
   toast('Shipping request submitted!');
 }
 
-function submitGoPayment(goId, lookedUpUser) {
+async function submitGoPayment(goId, lookedUpUser) {
   // Use the username bound to THIS panel when it was rendered, not the live
   // lookup-input (which may have been edited after the panels rendered) — that
   // mismatch was pairing a panel's transaction_id with the wrong buyer.
@@ -2196,8 +2200,10 @@ function submitGoPayment(goId, lookedUpUser) {
     status: 'pending',
     created_at: new Date().toISOString()
   };
+  let ok = false;
+  try { await db.submitPayment(proof); ok = true; } catch (e) {}
+  if (!ok) { toast("Couldn't submit your payment — please try again."); return; }
   addPaymentProof(proof);
-  db.submitPayment(proof).catch(()=>{});
   toast('Payment submitted — the manager will confirm it.');
   // Disable the button to prevent double-submit until next lookup refresh
   const btn = document.querySelector(`#lookup-go-blocks button[onclick^="submitGoPayment('${goId}'"]`);
@@ -2222,10 +2228,12 @@ async function payWithBalance(u, goId) {
   try {
     const res = await db.applyCredit({ username: u, transaction_id: link, rows, paid_claim_ids: ba.paidIds, unpaid_claim_ids: ba.unpaidIds });
     if (res && (res.ok === false || res.error)) rejected = true;
-  } catch (e) {}
+  } catch (e) {
+    rejected = true;
+  }
   creditApplyInFlight = false;
   showLoadingOverlay(false);
-  if (rejected) { toast('Couldn’t apply balance — please try again.'); return; }
+  if (rejected) { toast("Couldn't apply balance — please try again or contact the admin."); return; }
   // Saved — reflect it locally (wrapped so a hiccup here can't look like a failure).
   rows.forEach((r, i) => paymentProofs.push({ payment_id: 'cr_' + Date.now() + '_' + i + '_' + Math.random().toString(36).slice(2, 4), username: u, go_id: r.go_id, go_name: r.go_name, amount: r.amount, method: 'credit', transaction_id: link, status: 'confirmed', created_at: new Date().toISOString(), note: r.note }));
   try {
@@ -4775,7 +4783,7 @@ function formatRelTime(iso) {
 }
 
 // Patch submitPayment to add to proofs list
-const _submitPaymentForm = () => {
+const _submitPaymentForm = async () => {
   const goName = document.getElementById('payment-go-select')?.value || '';
   const proof = {
     payment_id: 'pay_' + Date.now(),
@@ -4788,8 +4796,10 @@ const _submitPaymentForm = () => {
     status: 'pending',
     created_at: new Date().toISOString()
   };
+  let ok = false;
+  try { await db.submitPayment(proof); ok = true; } catch (e) {}
+  if (!ok) { toast("Couldn't submit your payment — please try again."); return; }
   addPaymentProof(proof);
-  db.submitPayment(proof);
   toast('Payment submitted! We\'ll confirm within 24 hours.');
 };
 
