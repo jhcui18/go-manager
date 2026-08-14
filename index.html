@@ -1800,12 +1800,10 @@ async function doLookup() {
     showLoadingOverlay(true, 'Looking up your orders…');
     let jr, pr, so, sh;
     try {
-      let mo = null;
-      try { mo = await db.getMyOrders(raw.trim()); } catch (e) { mo = null; }
-      if (mo && mo.claims !== undefined) {
-        jr = { claims: mo.claims }; pr = { payments: mo.payments };
-        so = { shop_orders: mo.shop_orders }; sh = { requests: mo.shipping };
-      }
+      const mo = await db.getMyOrders(raw.trim());
+      if (!mo || mo.claims === undefined) throw new Error('orders load failed');
+      jr = { claims: mo.claims }; pr = { payments: mo.payments };
+      so = { shop_orders: mo.shop_orders }; sh = { requests: mo.shipping };
     } catch (e) {
       showLoadingOverlay(false);
       toast('Couldn’t load your orders — check your connection and try again.');
@@ -4946,6 +4944,18 @@ function goRowToLegacy(g) {
 }
 function dbThrow(res) { if (res.error) throw res.error; return res.data; }
 
+// PostgREST caps a single response at 1000 rows; page through so big GOs load fully.
+async function selectAll(makeQuery) {
+  const PAGE = 1000;
+  let all = [];
+  for (let i = 0; ; i++) {
+    const { data, error } = await makeQuery().range(i * PAGE, (i + 1) * PAGE - 1);
+    if (error) throw error;
+    all = all.concat(data);
+    if (data.length < PAGE) return all;
+  }
+}
+
 const db = {
   async getGOsList() {
     const data = dbThrow(await sb.from('gos')
@@ -4957,14 +4967,14 @@ const db = {
   },
   async getGOBoard(goId) {
     const [cl, st, si] = await Promise.all([
-      sb.from('claims').select(CLAIM_SELECT).eq('sub_items.go_id', goId),
-      sb.from('sets').select('set_no, status, sub_items!inner(id, go_id)')
-        .eq('sub_items.go_id', goId).eq('status', 'secured'),
+      selectAll(() => sb.from('claims').select(CLAIM_SELECT).eq('sub_items.go_id', goId).order('created_at').order('id')),
+      selectAll(() => sb.from('sets').select('set_no, status, sub_items!inner(id, go_id)')
+        .eq('sub_items.go_id', goId).eq('status', 'secured').order('created_at').order('id')),
       sb.from('sub_items').select('id, closed, deadline, pay_due').eq('go_id', goId)
     ]);
     return {
-      claims: dbThrow(cl).map(claimRowToLegacy),
-      secured_sets: dbThrow(st).map(s => ({ go_id: goId, sub_item_id: s.sub_items.id, set_num: s.set_no })),
+      claims: cl.map(claimRowToLegacy),
+      secured_sets: st.map(s => ({ go_id: goId, sub_item_id: s.sub_items.id, set_num: s.set_no })),
       closed_subitems: si.data.filter(x => x.closed).map(x => ({ go_id: goId, sub_item_id: x.id })),
       subitem_deadlines: si.data.filter(x => x.deadline).map(x => ({ go_id: goId, sub_item_id: x.id, deadline: x.deadline })),
       subitem_payment_due: si.data.filter(x => x.pay_due).map(x => ({ go_id: goId, sub_item_id: x.id, due_date: x.pay_due }))
@@ -4973,13 +4983,13 @@ const db = {
   async getMyOrders(username) {
     const u = String(username || '').trim().replace(/^@/, '');
     const [cl, pay, so, sh] = await Promise.all([
-      sb.from('claims').select(CLAIM_SELECT).eq('username', u),
+      selectAll(() => sb.from('claims').select(CLAIM_SELECT).eq('username', u).order('created_at').order('id')),
       sb.from('payments').select('*, gos(name)').eq('username', u),
       sb.from('shop_orders').select('*, listings(name), listing_variants(name)').eq('username', u),
       sb.from('shipping_status').select('*').eq('username', u)
     ]);
     return {
-      claims: dbThrow(cl).map(claimRowToLegacy),
+      claims: cl.map(claimRowToLegacy),
       payments: dbThrow(pay).map(payRowToLegacy),
       shop_orders: dbThrow(so).map(shopOrderToLegacy),
       shipping: dbThrow(sh).map(r => ({ request_id: r.id, username: r.username,
@@ -4988,7 +4998,7 @@ const db = {
     };
   },
   async getPayments() {
-    const data = dbThrow(await sb.from('payments').select('*, gos(name)').order('created_at'));
+    const data = await selectAll(() => sb.from('payments').select('*, gos(name)').order('created_at').order('id'));
     return { payments: data.map(payRowToLegacy) };
   },
   async getListings() {
@@ -5002,13 +5012,13 @@ const db = {
     })) };
   },
   async getShopOrders() {
-    const data = dbThrow(await sb.from('shop_orders')
-      .select('*, listings(name), listing_variants(name)').order('created_at'));
+    const data = await selectAll(() => sb.from('shop_orders')
+      .select('*, listings(name), listing_variants(name)').order('created_at').order('id'));
     return { shop_orders: data.map(shopOrderToLegacy) };
   },
   async getStoreOrders() {
-    const data = dbThrow(await sb.from('store_orders')
-      .select('*, gos(name), sub_items(name)').order('created_at'));
+    const data = await selectAll(() => sb.from('store_orders')
+      .select('*, gos(name), sub_items(name)').order('created_at').order('id'));
     return { store_orders: data.map(o => ({
       order_id: o.id, go_id: o.go_id, go_name: (o.gos && o.gos.name) || '',
       sub_item_id: o.sub_item_id, sub_item_name: (o.sub_items && o.sub_items.name) || '',
@@ -5018,12 +5028,12 @@ const db = {
     })) };
   },
   async getGcAdded() {   // admin-only table; anon gets an empty list, which is fine pre-login
-    const data = dbThrow(await sb.from('gc_members').select('go_id, username'));
+    const data = await selectAll(() => sb.from('gc_members').select('go_id, username').order('go_id').order('username'));
     return { gc_added: data };
   },
   async getShipping() {  // admin: full requests incl. addresses + items
-    const data = dbThrow(await sb.from('shipping_requests')
-      .select('*, shipping_request_items(id, go_id, description, qty)').order('created_at'));
+    const data = await selectAll(() => sb.from('shipping_requests')
+      .select('*, shipping_request_items(id, go_id, description, qty)').order('created_at').order('id'));
     return { requests: data.map(r => ({
       request_id: r.id, username: r.username, full_name: r.full_name,
       address1: r.address1, address2: r.address2 || '', city: r.city, state: r.state,
