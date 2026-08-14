@@ -5143,7 +5143,9 @@ const db = {
         const ms = parseInt(si.minSecure);
         return {
           id: /^[0-9a-f-]{36}$/.test(si.id || '') ? si.id : null,   // temp client ids -> insert
-          name: si.name, kind: si.kind || 'random',
+          // The photocard create form omits kind (legacy backend defaulted it to the GO
+          // type); mirror the frontend's own fallback so slot mechanics stay intact.
+          name: si.name, kind: si.kind || (go.type === 'photocard' ? 'photocard' : 'random'),
           order_mode: ms < 0 ? 'batch' : 'set',
           batch_size: ms < 0 ? Math.abs(ms) : null,
           price: parseFloat(si.price) || 0, ot_price: parseFloat(si.otPrice) || 0,
