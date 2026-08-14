@@ -548,7 +548,7 @@ function setDisplayOrder(sets, members) {
 function nextSetNum(sets) { return (sets||[]).reduce((m, s) => Math.max(m, s.num || 0), 0) + 1; }
 // Instagram handles are case-insensitive, so match usernames without regard to case or
 // surrounding whitespace (a buyer who typed "@Sunshine" still matches "@sunshine").
-function sameUser(a, b) { return String(a == null ? '' : a).trim().toLowerCase() === String(b == null ? '' : b).trim().toLowerCase(); }
+function sameUser(a, b) { const n = v => String(v == null ? '' : v).trim().replace(/^@/, '').toLowerCase(); return n(a) === n(b); }
 let securedSets = {}; // 'subItemId|setNum' -> true : sets the admin explicitly secured
 function isSetFlagged(siId, setNum) { return !!securedSets[siId + '|' + setNum]; }
 // A set is 'secured' iff explicitly flagged OR full (every member slot filled and all secured).
@@ -5467,7 +5467,7 @@ async function syncFromBackend(silent) {
         const detailPanel = document.getElementById('admin-panel-go-detail');
         if (detailPanel && detailPanel.style.display !== 'none') renderDetailContent();
       }
-      toast('Synced from Google Sheets.');
+      toast('Synced.');
     }
     // Payment proofs (fetched in parallel above) so the admin sees buyer-submitted payments.
     if (payResult && Array.isArray(payResult.payments)) {
