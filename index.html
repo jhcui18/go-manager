@@ -4895,13 +4895,15 @@ sb.auth.onAuthStateChange((_event, session) => {
 // Maps normalized rows into the EXACT legacy shapes the render code consumes.
 const CLAIM_SELECT = 'id, sub_item_id, username, email, qty, is_ot, assigned_version,' +
   ' status, payment_status, fulfillment, created_at, updated_at,' +
-  ' members(name), versions(name), sets(set_no), sub_items!inner(go_id)';
+  ' members(name), versions(name), sets(set_no), sub_items!inner(go_id, name, gos(name))';
 
 function claimRowToLegacy(c) {
   return {
     claim_id: c.id,
     go_id: c.sub_items.go_id,
+    go_name: (c.sub_items.gos && c.sub_items.gos.name) || '',
     sub_item_id: c.sub_item_id,
+    sub_item_name: c.sub_items.name || '',
     username: c.username,
     email: c.email || '',
     member_or_version: (c.members && c.members.name) || (c.versions && c.versions.name) || '',
