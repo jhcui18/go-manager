@@ -254,7 +254,14 @@ def build_dataset(wb):
                     report['members_reconstructed_from_claims'].append(f'{gid}/{siid}')
             versions = parse_members(r.get('versions'))
             ms = parse_int(r.get('min_secure')) or 7
-            kind = r.get('kind') or 'random'
+            # Mirror index.html's live-sync default (line ~5395): a blank kind cell
+            # falls back to the GO's own type (then 'photocard'), NOT straight to
+            # 'random'. Without this, a photocard-GO sub-item with a blank kind cell
+            # defaults to 'random', which is outside SET_KINDS below and silently
+            # skips set replay -- claims never get a set_id and no `sets` rows are
+            # created, producing an empty/all-claims-based board instead of the
+            # placed-into-sets board the legacy app actually rendered.
+            kind = r.get('kind') or (g.get('type') or 'photocard')
             if kind not in ('photocard', 'member', 'member-set', 'single', 'versioned', 'random'):
                 report['unknown_kinds'].append(f'{gid}/{siid}: {kind!r}')
                 kind = 'random'
