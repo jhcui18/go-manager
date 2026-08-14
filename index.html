@@ -2062,13 +2062,11 @@ function renderMyOrderGoBlock(g, goRows, u, summary) {
           <input type="text" id="pay-txid-${g.go_id}" placeholder="e.g. PayPal transaction ID">
         </div>
         <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="submitGoPayment('${g.go_id}','${u}')">I paid</button>` : '';
-  const ba = computeBalanceApply(u, g.go_id);   // {balance, spent, sources, paidIds, unpaidIds}
-  // Balance self-serve is admin-gated for launch: apply_credit is an admin RPC (joiner
-  // self-serve returns via a server-validated RPC later).
+  const ba = computeBalanceApply(u, g.go_id);   // {balance, spent, sources, paidIds, unpaidIds} — client-side preview only; apply_balance recomputes server-side.
   const balanceControl = (s.owed > 0 && ba.spent > 0.001 && g.go_id !== 'shop') ? `
         <div style="margin-top:10px;font-size:12px;color:var(--teal-700);background:var(--teal-50);border-radius:var(--radius);padding:8px 10px;">
           👛 You have <strong>$${ba.balance.toFixed(2)}</strong> account balance.
-          ${isAdmin ? `<button class="btn btn-sm" style="margin-left:6px;" onclick="payWithBalance('${u}','${g.go_id}')">Use $${ba.spent.toFixed(2)} of balance</button>` : ''}
+          <button class="btn btn-sm" style="margin-left:6px;" onclick="payWithBalance('${u}','${g.go_id}')">Use $${ba.spent.toFixed(2)} of balance</button>
         </div>` : '';
   const creditNote = '';
   const goObj = allGOs[g.go_id];
@@ -2211,38 +2209,41 @@ async function submitGoPayment(goId, lookedUpUser) {
 }
 
 let creditApplyInFlight = false;
+// Joiner self-serve balance apply. All money math now lives server-side in the
+// apply_balance RPC (see db/migrations/008_apply_balance.sql) — this only sends
+// (username, target GO) and reflects back whatever the server actually computed
+// and wrote, rather than trusting a client-side recompute.
 async function payWithBalance(u, goId) {
   if (creditApplyInFlight) { toast('One moment…'); return; }
-  const ba = computeBalanceApply(u, goId);   // {balance, spent, sources, paidIds, unpaidIds}
-  if (ba.spent <= 0.001) { toast('Balance too small for any item on this GO.'); return; }
-  const link = 'cr_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-  const rows = ba.sources.map(src => ({ go_id: src.go_id, go_name: goDisplayName(src.go_id), amount: -src.amount, note: 'Credit applied to ' + goDisplayName(goId) }));
-  rows.push({ go_id: goId, go_name: goDisplayName(goId), amount: ba.spent, note: 'From credit on ' + ba.sources.map(s2 => goDisplayName(s2.go_id)).join(', ') });
-  // WAIT for the save so it's durable — the joiner can't close mid-write and silently lose it.
-  // One round-trip (~1s). Apps Script's POST redirect can make the response throw even when the
-  // write LANDED, so a throw is treated as applied (the write reliably completes server-side);
-  // only a PARSED rejection (e.g. lock busy) is a real failure.
   creditApplyInFlight = true;
-  showLoadingOverlay(true, 'Applying $' + ba.spent.toFixed(2) + ' from balance…');
-  let rejected = false;
+  showLoadingOverlay(true, 'Applying balance…');
+  let res = null, rejected = false;
   try {
-    const res = await db.applyCredit({ username: u, transaction_id: link, rows, paid_claim_ids: ba.paidIds, unpaid_claim_ids: ba.unpaidIds });
-    if (res && (res.ok === false || res.error)) rejected = true;
+    res = await db.applyBalance(u, goId);
+    if (!res || res.ok === false) rejected = true;
   } catch (e) {
     rejected = true;
   }
   creditApplyInFlight = false;
   showLoadingOverlay(false);
   if (rejected) { toast("Couldn't apply balance — please try again or contact the admin."); return; }
-  // Saved — reflect it locally (wrapped so a hiccup here can't look like a failure).
-  rows.forEach((r, i) => paymentProofs.push({ payment_id: 'cr_' + Date.now() + '_' + i + '_' + Math.random().toString(36).slice(2, 4), username: u, go_id: r.go_id, go_name: r.go_name, amount: r.amount, method: 'credit', transaction_id: link, status: 'confirmed', created_at: new Date().toISOString(), note: r.note }));
+  if (!res.spent || res.spent <= 0.001) { toast('Balance too small for any item on this GO.'); return; }
+  // Reconstruct the local ledger rows from the server's sources + target, using
+  // its server-generated transaction id, so My Orders reflects what was written
+  // without a second round-trip.
+  const tx = res.transaction_id;
+  const sources = res.sources || [];
+  const paidIds = res.paid_claim_ids || [];
+  const rows = sources.map(src => ({ go_id: src.go_id, go_name: goDisplayName(src.go_id), amount: -src.amount, note: 'Credit applied to ' + goDisplayName(goId) }));
+  rows.push({ go_id: goId, go_name: goDisplayName(goId), amount: res.spent, note: 'From credit on ' + sources.map(s2 => goDisplayName(s2.go_id)).join(', ') });
+  rows.forEach((r, i) => paymentProofs.push({ payment_id: 'cr_' + Date.now() + '_' + i + '_' + Math.random().toString(36).slice(2, 4), username: u, go_id: r.go_id, go_name: r.go_name, amount: r.amount, method: 'credit', transaction_id: tx, status: 'confirmed', created_at: new Date().toISOString(), note: r.note }));
   try {
     // Mark ONLY the newly-covered items paid — never un-mark anything already paid.
-    (myLookupClaims || []).forEach(c => { if (ba.paidIds.includes(c.claim_id)) c.payment_status = 'paid'; });
-    if (isAdmin) paymentOwedUnits(u, goId).forEach(unit => { if (unit.ids && unit.ids.some(id => ba.paidIds.includes(id))) setUnitPaid(unit, true); });
+    (myLookupClaims || []).forEach(c => { if (paidIds.includes(c.claim_id)) c.payment_status = 'paid'; });
+    if (isAdmin) paymentOwedUnits(u, goId).forEach(unit => { if (unit.ids && unit.ids.some(id => paidIds.includes(id))) setUnitPaid(unit, true); });
   } catch (e) {}
   doLookupRender(u);
-  toast('Applied $' + ba.spent.toFixed(2) + ' from your balance.');
+  toast('Applied $' + res.spent.toFixed(2) + ' from your balance.');
 }
 
 function resetLookup() {
@@ -5199,8 +5200,19 @@ const db = {
     if (r.error) throw r.error;
     return { ok: true };
   },
+  // Admin-only ledger write — client computes amounts/rows, RPC just applies them.
+  // Kept for the (now unused) admin credit-apply path; joiner self-serve uses
+  // applyBalance below, which recomputes everything server-side instead.
   async applyCredit(d) {
     const { data, error } = await sb.rpc('apply_credit', { p: d });
+    if (error) throw error;
+    return data;
+  },
+  // Joiner self-serve balance apply: only (username, target GO) cross the wire —
+  // apply_balance recomputes the owed-unit model, balance, greedy spend, and
+  // source draw entirely server-side, so the client can't hand in amounts.
+  async applyBalance(username, goId) {
+    const { data, error } = await sb.rpc('apply_balance', { p_username: username, p_go_id: goId });
     if (error) throw error;
     return data;
   },
