@@ -139,7 +139,6 @@
     <div class="nav-tab" id="admin-nav-tab" onclick="requireAdmin()" style="display:none;">Admin</div>
   </div>
   <div class="nav-right" style="display:flex;align-items:center;gap:10px;">
-    <button class="btn btn-sm btn-ghost" id="sheets-btn" onclick="openSettings()" style="font-size:12px;display:none;">⚙ Sheets</button>
     <span class="badge-admin" id="admin-badge" style="display:none;">admin</span>
     <button class="btn btn-sm btn-ghost" onclick="promptAdmin()" id="admin-login-btn" style="font-size:12px;">Admin</button>
     <button class="btn btn-sm btn-ghost" onclick="logoutAdmin()" id="admin-logout-btn" style="font-size:12px;display:none;">Log out</button>
@@ -832,7 +831,7 @@ function parseVariantLines(text) {
 let shopListingsLoaded = false;
 async function loadShopListings() {
   renderShopPage(); // render instantly from whatever's already loaded (empty on first open)
-  if (isAdmin || shopListingsLoaded || !API_URL) return;
+  if (isAdmin || shopListingsLoaded) return;
   try {
     const res = await db.getListings();
     if (res && Array.isArray(res.listings)) {
@@ -960,7 +959,6 @@ function submitShopOrder(listingId) {
   const hasVariants = !!(l.variants && l.variants.length);
   if (hasVariants && !shopOrderVariant) { toast('Pick a version first.'); return; }
   const qty = shopOrderQty;
-  if (!API_URL) { toast('Shop needs the backend configured.'); return; }
   const payload = { listing_id: listingId, username: u, qty };
   if (hasVariants) {
     const v = l.variants.find(x => x.name === shopOrderVariant);
@@ -1067,7 +1065,7 @@ async function loadGOClaims(goId) {
 async function openClaimPage(goId) {
   currentClaimGoId = goId;
   claimState = {};
-  if (!isAdmin && !claimsLoaded[goId] && API_URL) {
+  if (!isAdmin && !claimsLoaded[goId]) {
     showLoadingOverlay(true, 'Loading group order…');
     try { await loadGOClaims(goId); }
     catch (e) { showLoadingOverlay(false); toast('Couldn’t load this group order — please try again.'); return; }
@@ -1760,7 +1758,7 @@ function submitClaim(goId) {
   // A failed write (lock-contended 'busy', closed GO, or network error) must NOT
   // masquerade as success — otherwise the optimistic local claim vanishes on the next
   // refresh (sync rebuilds purely from the sheet) with no warning to the buyer.
-  if (API_URL && claimsToWrite.length) {
+  if (claimsToWrite.length) {
     submitClaimWithRetry(claimsToWrite).then(res => {
       if (res && res.ok) {
         toast('Claim submitted' + skippedNote + '! Check "My orders" to track status.');
@@ -1793,46 +1791,44 @@ async function submitClaimWithRetry(claims, attempts = 3) {
 }
 
 // ── LOOKUP ───────────────────────────────────────────────────────────────────
-let myLookupClaims = []; // buyer My Orders: this user's flat claims from getJoiners
+let myLookupClaims = []; // buyer My Orders: this user's flat claims from db.getMyOrders
 async function doLookup() {
   const raw = (document.getElementById('lookup-input') || {}).value || '';
   const u = raw.trim().startsWith('@') ? raw.trim() : '@' + raw.trim();
   if (!raw.trim()) { toast('Enter your username.'); return; }
-  if (API_URL) {
-    // Buyer lazy path: pull just this user's claims + payments/shop/shipping.
-    // Also used for admin — admin no longer has allGOs claims loaded at login (Finding 2).
-    showLoadingOverlay(true, 'Looking up your orders…');
-    let jr, pr, so, sh;
-    try {
-      const mo = await db.getMyOrders(raw.trim());
-      if (!mo || mo.claims === undefined) throw new Error('orders load failed');
-      jr = { claims: mo.claims }; pr = { payments: mo.payments };
-      so = { shop_orders: mo.shop_orders }; sh = { requests: mo.shipping };
-    } catch (e) {
-      showLoadingOverlay(false);
-      toast('Couldn’t load your orders — check your connection and try again.');
-      return;
-    }
+  // Buyer lazy path: pull just this user's claims + payments/shop/shipping.
+  // Also used for admin — admin no longer has allGOs claims loaded at login (Finding 2).
+  showLoadingOverlay(true, 'Looking up your orders…');
+  let jr, pr, so, sh;
+  try {
+    const mo = await db.getMyOrders(raw.trim());
+    if (!mo || mo.claims === undefined) throw new Error('orders load failed');
+    jr = { claims: mo.claims }; pr = { payments: mo.payments };
+    so = { shop_orders: mo.shop_orders }; sh = { requests: mo.shipping };
+  } catch (e) {
     showLoadingOverlay(false);
-    myLookupClaims = (jr && jr.claims) || [];
-    // These responses are scoped to ONE user. For an admin they must be MERGED into the
-    // global stores, never assigned over them — the admin's Payments tab, Shop orders and
-    // Shipping queue read the same globals, and replacing them with one user's rows made
-    // the Payments tab show "no pending proofs" and emptied the shop tables.
-    const mergeById = (existing, fetched, idKey) => {
-      if (!isAdmin) return fetched;
-      const by = {};
-      (existing || []).forEach(r => { if (r && r[idKey]) by[r[idKey]] = r; });
-      fetched.forEach(r => { if (r && r[idKey]) by[r[idKey]] = r; });
-      return Object.values(by);
-    };
-    if (pr && Array.isArray(pr.payments)) {
-      const fetched = pr.payments.filter(p => p && p.payment_id).map(p => ({ payment_id:p.payment_id, username:p.username, go_id:p.go_id, go_name:p.go_name, amount:p.amount, method:p.method, transaction_id:p.transaction_id, proof_url:p.proof_url, status:p.status||'pending', created_at:p.created_at, note:p.note||'' }));
-      paymentProofs = mergeById(paymentProofs, fetched, 'payment_id');
-    }
-    if (so && Array.isArray(so.shop_orders)) shopOrders = mergeById(shopOrders, so.shop_orders, 'order_id');
-    if (sh && Array.isArray(sh.requests)) shippingRequests = mergeById(shippingRequests, sh.requests, 'request_id');
+    toast('Couldn’t load your orders — check your connection and try again.');
+    return;
   }
+  showLoadingOverlay(false);
+  myLookupClaims = (jr && jr.claims) || [];
+  // These responses are scoped to ONE user. For an admin they must be MERGED into the
+  // global stores, never assigned over them — the admin's Payments tab, Shop orders and
+  // Shipping queue read the same globals, and replacing them with one user's rows made
+  // the Payments tab show "no pending proofs" and emptied the shop tables.
+  const mergeById = (existing, fetched, idKey) => {
+    if (!isAdmin) return fetched;
+    const by = {};
+    (existing || []).forEach(r => { if (r && r[idKey]) by[r[idKey]] = r; });
+    fetched.forEach(r => { if (r && r[idKey]) by[r[idKey]] = r; });
+    return Object.values(by);
+  };
+  if (pr && Array.isArray(pr.payments)) {
+    const fetched = pr.payments.filter(p => p && p.payment_id).map(p => ({ payment_id:p.payment_id, username:p.username, go_id:p.go_id, go_name:p.go_name, amount:p.amount, method:p.method, transaction_id:p.transaction_id, proof_url:p.proof_url, status:p.status||'pending', created_at:p.created_at, note:p.note||'' }));
+    paymentProofs = mergeById(paymentProofs, fetched, 'payment_id');
+  }
+  if (so && Array.isArray(so.shop_orders)) shopOrders = mergeById(shopOrders, so.shop_orders, 'order_id');
+  if (sh && Array.isArray(sh.requests)) shippingRequests = mergeById(shippingRequests, sh.requests, 'request_id');
   doLookupRender(u);
 }
 
@@ -1922,7 +1918,7 @@ function doLookupRender(u) {
   // allGOs, so it works without a full per-GO claims load. Admin path is unchanged.
   const getSummary = buyerMode
     ? (goId) => {
-        if (goId === 'shop') return goPaymentSummary(u, goId); // shop owed uses shopOrders (loaded), not getJoiners claims
+        if (goId === 'shop') return goPaymentSummary(u, goId); // shop owed uses shopOrders (loaded), not db.getMyOrders claims
         const claims = myLookupClaims.filter(c => sameUser(c.username, u) && c.go_id === goId);
         const securedValue = ownedUnitsFromClaims(claims, siMeta).reduce((a, un) => a + un.value, 0);
         const mine = paymentProofs.filter(pp => sameUser(pp.username, u) && pp.go_id === goId);
@@ -2169,7 +2165,7 @@ function submitShippingRequest(username) {
     items, shipped: false, ems_fee: '', dom_fee: '', total_fee: '', card_count: items.length
   };
   shippingRequests.push(req);
-  if (API_URL) db.submitShipping(req).catch(()=>{});
+  db.submitShipping(req).catch(()=>{});
   renderShipPanel(username);
   renderShippingQueue();
   toast('Shipping request submitted!');
@@ -2201,7 +2197,7 @@ function submitGoPayment(goId, lookedUpUser) {
     created_at: new Date().toISOString()
   };
   addPaymentProof(proof);
-  if (API_URL) db.submitPayment(proof).catch(()=>{});
+  db.submitPayment(proof).catch(()=>{});
   toast('Payment submitted — the manager will confirm it.');
   // Disable the button to prevent double-submit until next lookup refresh
   const btn = document.querySelector(`#lookup-go-blocks button[onclick^="submitGoPayment('${goId}'"]`);
@@ -2220,18 +2216,16 @@ async function payWithBalance(u, goId) {
   // One round-trip (~1s). Apps Script's POST redirect can make the response throw even when the
   // write LANDED, so a throw is treated as applied (the write reliably completes server-side);
   // only a PARSED rejection (e.g. lock busy) is a real failure.
-  if (API_URL) {
-    creditApplyInFlight = true;
-    showLoadingOverlay(true, 'Applying $' + ba.spent.toFixed(2) + ' from balance…');
-    let rejected = false;
-    try {
-      const res = await db.applyCredit({ username: u, transaction_id: link, rows, paid_claim_ids: ba.paidIds, unpaid_claim_ids: ba.unpaidIds });
-      if (res && (res.ok === false || res.error)) rejected = true;
-    } catch (e) {}
-    creditApplyInFlight = false;
-    showLoadingOverlay(false);
-    if (rejected) { toast('Couldn’t apply balance — please try again.'); return; }
-  }
+  creditApplyInFlight = true;
+  showLoadingOverlay(true, 'Applying $' + ba.spent.toFixed(2) + ' from balance…');
+  let rejected = false;
+  try {
+    const res = await db.applyCredit({ username: u, transaction_id: link, rows, paid_claim_ids: ba.paidIds, unpaid_claim_ids: ba.unpaidIds });
+    if (res && (res.ok === false || res.error)) rejected = true;
+  } catch (e) {}
+  creditApplyInFlight = false;
+  showLoadingOverlay(false);
+  if (rejected) { toast('Couldn’t apply balance — please try again.'); return; }
   // Saved — reflect it locally (wrapped so a hiccup here can't look like a failure).
   rows.forEach((r, i) => paymentProofs.push({ payment_id: 'cr_' + Date.now() + '_' + i + '_' + Math.random().toString(36).slice(2, 4), username: u, go_id: r.go_id, go_name: r.go_name, amount: r.amount, method: 'credit', transaction_id: link, status: 'confirmed', created_at: new Date().toISOString(), note: r.note }));
   try {
@@ -2252,7 +2246,6 @@ function resetLookup() {
 // Manual refresh from the My orders result header: pull latest from Sheets, then
 // re-render the current buyer's orders. (My orders no longer auto-syncs on open.)
 function refreshMyOrders(btn) {
-  if (!API_URL) { doLookup(); return; }
   const orig = btn ? btn.textContent : '';
   if (btn) { btn.disabled = true; btn.textContent = '↻ Syncing…'; }
   syncFromBackend().then(() => {
@@ -2296,7 +2289,7 @@ function renderAdminGOList() {
 }
 
 async function openGODetail(goId) {
-  if (!claimsLoaded[goId] && API_URL) {
+  if (!claimsLoaded[goId]) {
     showLoadingOverlay(true, 'Loading group order…');
     try { await loadGOClaims(goId); }
     catch (e) { showLoadingOverlay(false); toast('Couldn’t load this group order — please try again.'); return; }
@@ -2340,7 +2333,7 @@ function toggleGcAdded(goId, username) {
   gcAdded[goId] = gcAdded[goId] || {};
   const added = !gcAdded[goId][k];
   if (added) gcAdded[goId][k] = true; else delete gcAdded[goId][k];
-  if (API_URL) persistWrite(db.setGcAdded(goId, username, added), 'Group-chat mark');
+  persistWrite(db.setGcAdded(goId, username, added), 'Group-chat mark');
   renderDetailContent();
 }
 function copyHandle(username) {
@@ -2624,13 +2617,6 @@ async function logSetClaim(goId, siId) {
   for (let q = 0; q < n; q++) {
     claims.push({ go_id:goId, go_name:go.name, sub_item_id:si.id, sub_item_name:si.name, sub_item_kind:si.kind||go.type, username:u, email:'', member_or_version:member, set_num:'', qty:1, assigned_vers:'' });
   }
-  if (!API_URL) {
-    for (let q = 0; q < n; q++) { const t = pickTargetSet(si, member, closed); if (t) t.slots[member] = { user:u, payment:'unpaid', fulfillment:'Pending' }; }
-    document.getElementById('log-u-' + siId).value = '';
-    document.getElementById('log-q-' + siId).value = '1';
-    renderDetailContent(); renderAdminGOList(); renderOrdersList();
-    toast('Logged (local): ' + u + ' × ' + member); return;
-  }
   toast('Logging ' + n + ' × ' + member + '…');
   const res = await submitClaimWithRetry(claims);
   if (res && res.ok) {
@@ -2648,7 +2634,7 @@ function toggleSlotPayment(goId, siId, setIdx, member) {
   const slot = si.sets[setIdx].slots[member];
   if (!slot) return;
   slot.payment = slot.payment === 'paid' ? 'unpaid' : 'paid';
-  if (API_URL && slot.claim_id) persistWrite(db.updateClaim({ claim_id: slot.claim_id, payment_status: slot.payment }), 'Payment');
+  if (slot.claim_id) persistWrite(db.updateClaim({ claim_id: slot.claim_id, payment_status: slot.payment }), 'Payment');
   renderDetailContent();
   renderOrdersList();
   toast(member + ': ' + (slot.payment === 'paid' ? 'Paid' : 'Unpaid'));
@@ -2662,7 +2648,7 @@ function toggleSlotSecure(goId, siId, setIdx, member) {
   if (!slot) return;
   slot.claim_status = slot.claim_status === 'secured' ? 'pending' : 'secured';
   set.status = deriveSetStatus(si.id, set, si.members);
-  if (API_URL && slot.claim_id) persistWrite(db.updateClaim({ claim_id: slot.claim_id, claim_status: slot.claim_status }), 'Secure');
+  if (slot.claim_id) persistWrite(db.updateClaim({ claim_id: slot.claim_id, claim_status: slot.claim_status }), 'Secure');
   renderDetailContent();
   renderAdminGOList();
   renderOrdersList();
@@ -2677,7 +2663,7 @@ function toggleClaimSecure(claimId, goId, siId) {
   // A claim is "secured" when its status is secured OR unset (merch/versioned default
   // to secured). Toggle: pending -> secured, anything-else (incl. unset) -> pending.
   c.claim_status = c.claim_status === 'pending' ? 'secured' : 'pending';
-  if (API_URL) persistWrite(db.updateClaim({ claim_id: claimId, claim_status: c.claim_status }), 'Secure');
+  persistWrite(db.updateClaim({ claim_id: claimId, claim_status: c.claim_status }), 'Secure');
   renderDetailContent(); renderAdminGOList(); renderOrdersList();
   toast(c.member + ': ' + (c.claim_status === 'secured' ? 'Secured' : 'Not secured'));
 }
@@ -2686,7 +2672,7 @@ function toggleClaimPayment(claimId, goId, siId) {
   const c = (si.claims || []).find(x => x.claim_id === claimId);
   if (!c) return;
   c.payment = c.payment === 'paid' ? 'unpaid' : 'paid';
-  if (API_URL) persistWrite(db.updateClaim({ claim_id: claimId, payment_status: c.payment }), 'Payment');
+  persistWrite(db.updateClaim({ claim_id: claimId, payment_status: c.payment }), 'Payment');
   renderDetailContent(); renderOrdersList();
   toast(c.member + ': ' + (c.payment === 'paid' ? 'Paid' : 'Unpaid'));
 }
@@ -2697,7 +2683,7 @@ function secureBatch(goId, siId, batchNum) {
   const makeSecured = !b.ordered;
   b.items.forEach(c => {
     c.claim_status = makeSecured ? 'secured' : 'pending';
-    if (API_URL && c.claim_id) persistWrite(db.updateClaim({ claim_id: c.claim_id, claim_status: c.claim_status }), 'Secure batch');
+    if (c.claim_id) persistWrite(db.updateClaim({ claim_id: c.claim_id, claim_status: c.claim_status }), 'Secure batch');
   });
   renderDetailContent(); renderAdminGOList(); renderOrdersList();
   toast('Batch ' + batchNum + (makeSecured ? ' secured' : ' unsecured'));
@@ -2709,7 +2695,7 @@ function setSubItemDeadline(goId, siId, value) {
   si.deadline = value || '';
   const key = goId + '|' + siId;
   if (si.deadline) subItemDeadlines[key] = si.deadline; else delete subItemDeadlines[key];
-  if (API_URL) persistWrite(db.setSubItemFlag(siId, { deadline: si.deadline || null }), 'Deadline');
+  persistWrite(db.setSubItemFlag(siId, { deadline: si.deadline || null }), 'Deadline');
   renderDetailContent();
   toast(si.deadline ? ('Deadline set: ' + fmtDate(si.deadline)) : 'Deadline cleared.');
 }
@@ -2719,7 +2705,7 @@ function setSubItemPayDue(goId, siId, value) {
   si.payDue = value || '';
   const key = goId + '|' + siId;
   if (si.payDue) subItemPayDue[key] = si.payDue; else delete subItemPayDue[key];
-  if (API_URL) persistWrite(db.setSubItemFlag(siId, { pay_due: si.payDue || null }), 'Payment due');
+  persistWrite(db.setSubItemFlag(siId, { pay_due: si.payDue || null }), 'Payment due');
   renderDetailContent();
   toast(si.payDue ? ('Payment due: ' + fmtDate(si.payDue)) : 'Payment due cleared.');
 }
@@ -2729,7 +2715,7 @@ function toggleSubItemClosed(goId, siId) {
   si.closed = !si.closed;
   closedSubItems[goId + '|' + siId] = si.closed ? true : undefined;
   if (!si.closed) delete closedSubItems[goId + '|' + siId];
-  if (API_URL) persistWrite(db.setSubItemFlag(siId, { closed: !!si.closed }), si.closed ? 'Close POB' : 'Reopen POB');
+  persistWrite(db.setSubItemFlag(siId, { closed: !!si.closed }), si.closed ? 'Close POB' : 'Reopen POB');
   renderDetailContent();
   toast(si.closed ? 'POB closed — no new claims (except leftover secured spots).' : 'POB reopened.');
 }
@@ -2739,7 +2725,7 @@ function secureSet(goId, siId, setIdx) {
   si.sets[setIdx].status = 'secured';
   Object.values(si.sets[setIdx].slots).forEach(v => { if (v) v.claim_status = 'secured'; });
   const setNum = si.sets[setIdx].num || (setIdx + 1);
-  if (API_URL) persistWrite(db.secureSet(siId, setNum, true), 'Secure set');
+  persistWrite(db.secureSet(siId, setNum, true), 'Secure set');
   securedSets[siId + '|' + setNum] = true;
   renderDetailContent();
   renderAdminGOList();
@@ -2753,9 +2739,7 @@ function unsecureSet(goId, siId, setIdx) {
   const setNum = si.sets[setIdx].num || (setIdx + 1);
   delete securedSets[siId + '|' + setNum];
   si.sets[setIdx].status = deriveSetStatus(siId, si.sets[setIdx], si.members);
-  if (API_URL) {
-    persistWrite(db.secureSet(siId, setNum, false), 'Unsecure set');
-  }
+  persistWrite(db.secureSet(siId, setNum, false), 'Unsecure set');
   renderDetailContent();
   renderAdminGOList();
   renderOrdersList();
@@ -2818,7 +2802,7 @@ async function restoreClaim(goId, kind, siId, setIdx, member, claimId) {
     cid = slot && slot.claim_id;
   }
   applyClaimStatusRef(go, ref, 'pending');
-  if (API_URL && cid) { try { await db.updateClaim({ claim_id: cid, claim_status: 'pending' }); } catch (e) {} }
+  if (cid) { try { await db.updateClaim({ claim_id: cid, claim_status: 'pending' }); } catch (e) {} }
   saveLocal();
   renderDetailContent(); renderAdminGOList(); renderOrdersList();
   toast('Claim restored.');
@@ -2873,7 +2857,7 @@ function openDropReviewModal(goId) {
 async function secureFromReview(goId, kind, siId, setIdx, member, claimId) {
   const go = allGOs[goId];
   applyClaimStatusRef(go, { kind, siId, setIdx, member, claimId }, 'secured');
-  if (API_URL && claimId) { try { await db.updateClaim({ claim_id: claimId, claim_status: 'secured' }); } catch (e) {} }
+  if (claimId) { try { await db.updateClaim({ claim_id: claimId, claim_status: 'secured' }); } catch (e) {} }
   saveLocal();
   renderDetailContent(); renderAdminGOList(); renderOrdersList();
   openDropReviewModal(goId);
@@ -2885,7 +2869,7 @@ async function confirmDropUnsecured(goId) {
   const { droppable } = collectUnsecured(go);
   for (const ref of droppable) {
     applyClaimStatusRef(go, ref, 'dropped');
-    if (API_URL && ref.claimId) { try { await db.updateClaim({ claim_id: ref.claimId, claim_status: 'dropped' }); } catch (e) {} }
+    if (ref.claimId) { try { await db.updateClaim({ claim_id: ref.claimId, claim_status: 'dropped' }); } catch (e) {} }
   }
   saveLocal();
   closeModal();
@@ -2900,7 +2884,7 @@ function advanceSetFulfill(goId, siId, setIdx, member, dir) {
   const nf = dir === 'prev' ? prevFulfillment(slot.fulfillment) : nextFulfillment(slot.fulfillment);
   if (nf) {
     slot.fulfillment = nf;
-    if (API_URL && slot.claim_id) db.updateClaim({ claim_id: slot.claim_id, fulfillment: nf });
+    if (slot.claim_id) db.updateClaim({ claim_id: slot.claim_id, fulfillment: nf });
     renderDetailContent();
     toast('Updated: ' + member + ' → ' + nf);
   }
@@ -2912,7 +2896,7 @@ function advanceFCFSFulfill(goId, siId, claimIdx, dir) {
   const nf = dir === 'prev' ? prevFulfillment(claim.fulfillment) : nextFulfillment(claim.fulfillment);
   if (nf) {
     claim.fulfillment = nf;
-    if (API_URL && claim.claim_id) db.updateClaim({ claim_id: claim.claim_id, fulfillment: nf });
+    if (claim.claim_id) db.updateClaim({ claim_id: claim.claim_id, fulfillment: nf });
     renderDetailContent();
     toast('Fulfillment updated: ' + nf);
   }
@@ -2925,7 +2909,7 @@ function advanceBatchFulfill(goId, siId, claimId, dir) {
   const nf = dir === 'prev' ? prevFulfillment(claim.fulfillment) : nextFulfillment(claim.fulfillment);
   if (nf) {
     claim.fulfillment = nf;
-    if (API_URL && claim.claim_id) db.updateClaim({ claim_id: claim.claim_id, fulfillment: nf });
+    if (claim.claim_id) db.updateClaim({ claim_id: claim.claim_id, fulfillment: nf });
     renderDetailContent();
     toast('Fulfillment updated: ' + nf);
   }
@@ -2934,7 +2918,7 @@ function advanceBatchFulfill(goId, siId, claimId, dir) {
 async function removeFCFSClaim(goId, siId, claimIdx) {
   const si = allGOs[goId].subItems.find(s => s.id === siId);
   const claim = si.claims[claimIdx];
-  if (API_URL && claim?.claim_id) {
+  if (claim?.claim_id) {
     try { await db.deleteClaim(claim.claim_id); } catch(e) {}
   }
   si.claims.splice(claimIdx, 1);
@@ -3137,14 +3121,12 @@ function createGO() {
   if (!subItems.length) { toast('Add at least one item.'); return; }
   subItems.forEach(si => { const el = document.getElementById('si-img-' + si.id); si.imageUrl = el ? el.value.trim() : ''; });
   allGOs[id] = { id, name, type, deadline, paymentDeadline, status: 'open', minSecure: minSecure, subItems };
-  if (API_URL) {
-    db.saveGO(allGOs[id]).then(async () => {
-      delete allGOs[id];
-      await syncFromBackend(true);
-    }).catch(() => {
-      toast('GO may not have saved — check your connection and try again.');
-    });
-  }
+  db.saveGO(allGOs[id]).then(async () => {
+    delete allGOs[id];
+    await syncFromBackend(true);
+  }).catch(() => {
+    toast('GO may not have saved — check your connection and try again.');
+  });
   renderAdminGOList();
   renderOrdersList();
   toast('GO created: ' + name);
@@ -3186,7 +3168,7 @@ function loadingRow(id, msg, cols) {
 // indistinguishable from a failed load otherwise). The …Loaded flag is only set on real
 // data, so reopening the tab retries.
 async function loadAdminShop() {
-  if (adminShopLoaded || !API_URL) { renderAdminListings(); renderShopOrders(); return; }
+  if (adminShopLoaded) { renderAdminListings(); renderShopOrders(); return; }
   loadingDiv('admin-listings-list', 'Loading listings…');
   loadingRow('shop-orders-tbody', 'Loading shop orders…', 6);
   const [lrs, ors] = await Promise.allSettled([db.getListings(), db.getShopOrders()]);
@@ -3205,7 +3187,7 @@ async function loadAdminShop() {
 // as well as the Payments tab). Opening the Payments tab retries if that background fetch
 // failed — otherwise a throttled load left the tab reading "No pending proofs" forever.
 async function loadAdminPayments() {
-  if (adminPaymentsLoaded || !API_URL || !isAdmin) return;
+  if (adminPaymentsLoaded || !isAdmin) return;
   loadingRow('payment-proofs-tbody', 'Loading payments…', 7);
   let failed = false;
   try {
@@ -3225,7 +3207,7 @@ async function loadAdminPayments() {
 }
 
 async function loadAdminStore() {
-  if (adminStoreLoaded || !API_URL) { renderStoreOrders(); return; }
+  if (adminStoreLoaded) { renderStoreOrders(); return; }
   loadingDiv('store-orders-list', 'Loading store orders…');
   let failed = false;
   try {
@@ -3238,7 +3220,7 @@ async function loadAdminStore() {
 }
 
 async function loadAdminShipping() {
-  if (adminShippingLoaded || !API_URL) { renderShippingQueue(); return; }
+  if (adminShippingLoaded) { renderShippingQueue(); return; }
   loadingRow('shipping-queue-tbody', 'Loading shipping requests…', 8);
   let failed = false;
   try {
@@ -3270,7 +3252,6 @@ let isAdmin = false;   // set by the auth listener below (registered once `sb` e
 
 function applyAdminState() {
   document.getElementById('admin-nav-tab').style.display = isAdmin ? '' : 'none';
-  document.getElementById('sheets-btn').style.display = isAdmin ? '' : 'none';
   document.getElementById('admin-badge').style.display = isAdmin ? '' : 'none';
   document.getElementById('admin-login-btn').style.display = isAdmin ? 'none' : '';
   document.getElementById('admin-logout-btn').style.display = isAdmin ? '' : 'none';
@@ -3406,8 +3387,21 @@ function onSubItemDragEnd() {
 // One "Image URL" field for a sub-item form (create + edit). fieldId is the full input id.
 function imgFieldHtml(fieldId, current) {
   return `<div class="field" style="margin-top:8px;margin-bottom:0;"><label>Image URL</label>
-    <input type="text" id="${fieldId}" placeholder="https://… (direct image link)" value="${current || ''}">
+    <div style="display:flex;gap:8px;align-items:center;">
+      <input type="text" id="${fieldId}" placeholder="https://… (direct image link)" value="${current || ''}" style="flex:1;">
+      <input type="file" accept="image/*" style="display:none" id="${fieldId}-file" onchange="uploadSubItemImage(this, '${fieldId}')">
+      <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('${fieldId}-file').click()">Upload</button>
+    </div>
     <div class="field-hint">Optional — shown to buyers on the claim page.</div></div>`;
+}
+// Upload a chosen file to Storage and drop the resulting public URL into the paired text field.
+async function uploadSubItemImage(input, fieldId) {
+  if (!input.files || !input.files[0]) return;
+  try {
+    const url = await db.uploadItemImage(input.files[0]);
+    document.getElementById(fieldId).value = url;
+    toast('Image uploaded.');
+  } catch (e) { toast('Upload failed — try a smaller image.'); }
 }
 
 function renderEditSubItems() {
@@ -3757,14 +3751,12 @@ async function saveGOEdits() {
   // via delete-then-append (a window where the sheet has 0 sub-item rows); openGODetail below
   // can trigger a background sync, so reading before this write finishes could pull an empty
   // sub-item list and make the GO's items look deleted. Awaiting closes that race.
-  if (API_URL) {
-    try {
-      const res = await db.saveGO({ go_id: go.id, name: go.name, artist: go.artist, type: go.type, status: go.status, deadline: go.deadline, paymentDeadline: go.paymentDeadline, minSecure: go.minSecure, subItems: go.subItems });
-      if (res && res.ok === false) { toast(res.message || 'Save didn’t go through — please try again.'); return; }
-      await syncFromBackend(true);
-    }
-    catch (e) { toast('Save may not have gone through — check your connection and try again.'); return; }
+  try {
+    const res = await db.saveGO({ go_id: go.id, name: go.name, artist: go.artist, type: go.type, status: go.status, deadline: go.deadline, paymentDeadline: go.paymentDeadline, minSecure: go.minSecure, subItems: go.subItems });
+    if (res && res.ok === false) { toast(res.message || 'Save didn’t go through — please try again.'); return; }
+    await syncFromBackend(true);
   }
+  catch (e) { toast('Save may not have gone through — check your connection and try again.'); return; }
   saveLocal();
   renderAdminGOList();
   renderOrdersList();
@@ -3791,9 +3783,7 @@ async function confirmDeleteGO() {
   if (!confirm(msg)) return;
   const goId = go.id;
   showLoadingOverlay(true);
-  if (API_URL) {
-    try { await db.deleteGOWithClaims(goId); } catch(e) {}
-  }
+  try { await db.deleteGOWithClaims(goId); } catch(e) {}
   delete allGOs[goId];
   currentGO = null;
   saveLocal();
@@ -3852,7 +3842,7 @@ function saveClaimEdit(goId, siId, setIdx, member) {
   slot.user = document.getElementById('ec-user').value.trim() || slot.user;
   slot.payment = document.getElementById('ec-payment').value;
   slot.fulfillment = document.getElementById('ec-fulfillment').value;
-  if (slot.claim_id && API_URL) {
+  if (slot.claim_id) {
     db.updateClaim({ claim_id: slot.claim_id, payment_status: slot.payment, fulfillment: slot.fulfillment });
   }
   closeModal();
@@ -3865,7 +3855,7 @@ async function removeSetClaim(goId, siId, setIdx, member) {
   if (!confirm('Remove this claim?')) return;
   const si = allGOs[goId].subItems.find(s => s.id === siId);
   const slot = si.sets[setIdx].slots[member];
-  if (slot?.claim_id && API_URL) {
+  if (slot?.claim_id) {
     try { await db.deleteClaim(slot.claim_id); } catch(e) {}
   }
   si.sets[setIdx].slots[member] = null;
@@ -3895,7 +3885,7 @@ async function compactMemberColumn(si, member) {
   donors.forEach((d, i) => {
     const target = avail[i];
     target.slots[member] = d.slot;
-    if (target.num !== d.fromNum && API_URL && d.slot.claim_id) {
+    if (target.num !== d.fromNum && d.slot.claim_id) {
       writes.push(db.updateClaim({ claim_id: d.slot.claim_id, set_num: target.num }).catch(() => {}));
     }
   });
@@ -3919,13 +3909,13 @@ async function removeSlotClaim(goId, siId, setIdx, member) {
     for (const m of Object.keys(set.slots)) {
       const s2 = set.slots[m];
       if (s2 && s2.ot && sameUser(s2.user, who)) {
-        if (API_URL && s2.claim_id) { try { await db.deleteClaim(s2.claim_id); } catch (e) {} }
+        if (s2.claim_id) { try { await db.deleteClaim(s2.claim_id); } catch (e) {} }
         set.slots[m] = null;
       }
     }
   } else {
     if (!confirm(`Remove ${who}'s claim for ${member}? This can't be undone.`)) return;
-    if (API_URL && slot.claim_id) { try { await db.deleteClaim(slot.claim_id); } catch (e) {} }
+    if (slot.claim_id) { try { await db.deleteClaim(slot.claim_id); } catch (e) {} }
     set.slots[member] = null;
   }
   // Cascade-backfill: pack each affected member's column so freed spots are filled from higher
@@ -3943,7 +3933,7 @@ async function removeBatchClaim(goId, siId, claimId) {
   const c = si && (si.claims || []).find(x => x.claim_id === claimId);
   if (!c) return;
   if (!confirm(`Remove ${c.user}'s claim for ${c.member}? This can't be undone.`)) return;
-  if (API_URL && claimId) { try { await db.deleteClaim(claimId); } catch (e) {} }
+  if (claimId) { try { await db.deleteClaim(claimId); } catch (e) {} }
   si.claims = si.claims.filter(x => x.claim_id !== claimId);
   saveLocal();
   renderDetailContent(); renderAdminGOList(); renderOrdersList();
@@ -3990,7 +3980,7 @@ function saveFCFSClaimEdit(goId, siId, claimIdx) {
   c.assignedVers = document.getElementById('efc-vers').value.split('+').map(v=>v.trim()).filter(Boolean);
   c.payment = document.getElementById('efc-payment').value;
   c.fulfillment = document.getElementById('efc-fulfillment').value;
-  if (c.claim_id && API_URL) {
+  if (c.claim_id) {
     db.updateClaim({ claim_id: c.claim_id, payment_status: c.payment, fulfillment: c.fulfillment });
   }
   closeModal();
@@ -4124,7 +4114,13 @@ function openListingModal(listingId) {
     </div>
     <div class="field-row">
       <div class="field"><label>Quantity (if no variants)</label><input type="number" id="lst-qty" min="0" value="${l ? l.qty : 1}"></div>
-      <div class="field"><label>Image URL</label><input type="text" id="lst-image" placeholder="https://..." value="${l ? (l.image_url||'') : ''}"></div>
+      <div class="field"><label>Image URL</label>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input type="text" id="lst-image" placeholder="https://..." value="${l ? (l.image_url||'') : ''}" style="flex:1;">
+          <input type="file" accept="image/*" style="display:none" id="lst-image-file" onchange="uploadSubItemImage(this, 'lst-image')">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('lst-image-file').click()">Upload</button>
+        </div>
+      </div>
     </div>
     <div class="field"><label>Variants (optional)</label>
       <textarea id="lst-variants" placeholder="One per line: Name, stock&#10;Ver A, 2&#10;Ver B, 1" style="min-height:70px;font-family:var(--mono);font-size:12px;">${l && l.variants && l.variants.length ? l.variants.map(v => v.name + ', ' + v.qty).join('\n') : ''}</textarea>
@@ -4153,11 +4149,11 @@ function saveListing(listingId) {
     data.listing_id = listingId;
     const local = listings.find(x => x.listing_id === listingId);
     if (local) Object.assign(local, data);
-    if (API_URL) db.saveListing(data).catch(()=>{});
+    db.saveListing(data).catch(()=>{});
   } else {
     const tempId = 'lst_' + Date.now();
     listings.push({ listing_id: tempId, status: 'active', created_at: new Date().toISOString(), ...data });
-    if (API_URL) db.saveListing(data).catch(()=>{});
+    db.saveListing(data).catch(()=>{});
   }
   closeModal();
   renderAdminListings();
@@ -4169,7 +4165,7 @@ function hideListing(listingId) {
   if (!confirm('Hide this listing from the shop?')) return;
   const local = listings.find(x => x.listing_id === listingId);
   if (local) local.status = 'hidden';
-  if (API_URL) db.hideListing(listingId).catch(()=>{});
+  db.hideListing(listingId).catch(()=>{});
   renderAdminListings();
   renderShopPage();
   toast('Listing hidden.');
@@ -4333,11 +4329,11 @@ function saveStoreOrder(orderId) {
     data.order_id = orderId;
     const local = storeOrders.find(x => x.order_id === orderId);
     if (local) Object.assign(local, data);
-    if (API_URL) db.saveStoreOrder(data).catch(()=>{});
+    db.saveStoreOrder(data).catch(()=>{});
   } else {
     const tempId = 'sto_' + Date.now();
     storeOrders.push({ order_id: tempId, created_at: new Date().toISOString(), ...data });
-    if (API_URL) db.saveStoreOrder(data).catch(()=>{});
+    db.saveStoreOrder(data).catch(()=>{});
   }
   closeModal();
   renderStoreOrders();
@@ -4351,7 +4347,7 @@ function advanceStoreStatus(orderId) {
   o.status = STORE_STATUS[(i + 1) % STORE_STATUS.length];
   // saveStoreOrder replaces the whole row (no partial patch RPC exists for store_orders),
   // so re-send the full record — not just {order_id, status} — or the other columns get nulled.
-  if (API_URL) db.saveStoreOrder({ order_id: orderId, go_id: o.go_id, sub_item_id: o.sub_item_id,
+  db.saveStoreOrder({ order_id: orderId, go_id: o.go_id, sub_item_id: o.sub_item_id,
     store: o.store, album_version: o.album_version, qty: o.qty, unit_cost: o.unit_cost,
     status: o.status, notes: o.notes }).catch(()=>{});
   renderStoreOrders();
@@ -4361,7 +4357,7 @@ function advanceStoreStatus(orderId) {
 function deleteStoreOrderEntry(orderId) {
   if (!confirm('Delete this store order?')) return;
   storeOrders = storeOrders.filter(x => x.order_id !== orderId);
-  if (API_URL) db.deleteStoreOrder(orderId).catch(()=>{});
+  db.deleteStoreOrder(orderId).catch(()=>{});
   renderStoreOrders();
   if (currentGO) renderDetailContent();
   toast('Store order deleted.');
@@ -4409,7 +4405,7 @@ function deleteShopOrder(orderId) {
     }
   }
   shopOrders = shopOrders.filter(x => x.order_id !== orderId);
-  if (API_URL) db.deleteShopOrder(orderId).catch(()=>{});
+  db.deleteShopOrder(orderId).catch(()=>{});
   renderShopOrders();
   renderAdminListings();
   renderShopPage();
@@ -4420,7 +4416,7 @@ function toggleShopOrderPayment(orderId) {
   const o = shopOrders.find(x => x.order_id === orderId);
   if (!o) return;
   o.payment_status = o.payment_status === 'paid' ? 'unpaid' : 'paid';
-  if (API_URL) db.updateShopOrder({ order_id: orderId, payment_status: o.payment_status });
+  db.updateShopOrder({ order_id: orderId, payment_status: o.payment_status });
   renderShopOrders();
   toast(o.listing_name + ': ' + (o.payment_status==='paid'?'Paid':'Unpaid'));
 }
@@ -4431,7 +4427,7 @@ function advanceShopFulfill(orderId, dir) {
   const nf = dir === 'prev' ? shopPrevFulfillment(o.fulfillment) : shopNextFulfillment(o.fulfillment);
   if (!nf) return;
   o.fulfillment = nf;
-  if (API_URL) db.updateShopOrder({ order_id: orderId, fulfillment: nf });
+  db.updateShopOrder({ order_id: orderId, fulfillment: nf });
   renderShopOrders();
   toast('Fulfillment: ' + nf);
 }
@@ -4626,12 +4622,12 @@ let pendingConfirm = null;
 async function confirmPayment(id) {
   const p = findProof(id);
   if (!p) return;
-  if (p.go_id !== 'shop' && !claimsLoaded[p.go_id] && API_URL) {
+  if (p.go_id !== 'shop' && !claimsLoaded[p.go_id]) {
     showLoadingOverlay(true, 'Loading order…');
     try { await loadGOClaims(p.go_id); }
     catch (e) { showLoadingOverlay(false); toast('Couldn’t load this order — please try again.'); return; }
     showLoadingOverlay(false);
-  } else if (p.go_id === 'shop' && !adminShopLoaded && API_URL) {
+  } else if (p.go_id === 'shop' && !adminShopLoaded) {
     showLoadingOverlay(true, 'Loading orders…');
     await loadAdminShop();
     showLoadingOverlay(false);
@@ -4642,7 +4638,7 @@ async function confirmPayment(id) {
   // Guard against loadGOClaims() having returned early (e.g. the GO is missing from
   // allGOs metadata) without throwing — claimsLoaded[p.go_id] would still be false,
   // and paymentOwedUnits would silently confirm against an empty [] ("0 of 0").
-  if (p.go_id !== 'shop' && API_URL && !claimsLoaded[p.go_id]) { toast('Couldn’t load this order — please try again.'); return; }
+  if (p.go_id !== 'shop' && !claimsLoaded[p.go_id]) { toast('Couldn’t load this order — please try again.'); return; }
   const units = paymentOwedUnits(p.username, p.go_id);
   const securedTotal = units.reduce((a, u) => a + u.value, 0);
   // Total the buyer has paid for THIS GO (already-confirmed payments + this one).
@@ -4688,7 +4684,7 @@ function applyConfirmPayment() {
   pc.unpaid.forEach(u => setUnitPaid(u, false));
   const paidIds = pc.paid.flatMap(u => u.ids).filter(Boolean);
   const unpaidIds = pc.unpaid.flatMap(u => u.ids).filter(Boolean);
-  if (API_URL && p) {
+  if (p) {
     const payload = { payment_id: p.payment_id, status: 'confirmed', username: pc.username, go_id: pc.goId };
     if (pc.goId === 'shop') { payload.paid_order_ids = paidIds; payload.unpaid_order_ids = unpaidIds; }
     else { payload.paid_claim_ids = paidIds; payload.unpaid_claim_ids = unpaidIds; }
@@ -4705,7 +4701,7 @@ function applyConfirmPayment() {
 function deletePaymentProof(id) {
   if (!confirm('Delete this payment record? This cannot be undone.')) return;
   paymentProofs = paymentProofs.filter(p => p.payment_id !== id);
-  if (API_URL) db.deletePayment(id).catch(()=>{});
+  db.deletePayment(id).catch(()=>{});
   renderPaymentProofs();
   toast('Payment record deleted.');
 }
@@ -4717,7 +4713,7 @@ function rejectPayment(id) {
   if (reason === null) return;  // cancelled
   p.status = 'rejected';
   p.note = reason.trim();
-  if (API_URL && p.payment_id) persistWrite(db.updatePayment({ payment_id: p.payment_id, status:'rejected', note: p.note }), 'reject payment');
+  if (p.payment_id) persistWrite(db.updatePayment({ payment_id: p.payment_id, status:'rejected', note: p.note }), 'reject payment');
   renderPaymentProofs();
   toast('Payment rejected.');
 }
@@ -4762,7 +4758,7 @@ function saveProofEdit(id) {
   closeModal();
   renderPaymentProofs();
   renderDetailContent();
-  if (API_URL) persistWrite(db.updatePayment({
+  persistWrite(db.updatePayment({
     payment_id: p.payment_id, username: p.username, amount: p.amount,
     method: p.method, transaction_id: p.transaction_id, status: p.status
   }), 'update payment');
@@ -4793,7 +4789,7 @@ const _submitPaymentForm = () => {
     created_at: new Date().toISOString()
   };
   addPaymentProof(proof);
-  if (API_URL) db.submitPayment(proof);
+  db.submitPayment(proof);
   toast('Payment submitted! We\'ll confirm within 24 hours.');
 };
 
@@ -4803,7 +4799,6 @@ let shippingRequests = [];
 function refreshShippingQueue() {
   // Reload just the shipping requests (inline "Loading…"), not a whole-app sync with a
   // full-screen overlay — the queue is one endpoint and lives in its own tab now.
-  if (!API_URL) { renderShippingQueue(); return; }
   adminShippingLoaded = false;
   loadAdminShipping();
 }
@@ -4873,7 +4868,7 @@ function markShipped(requestId) {
     if (si.claims) si.claims.forEach(c => { if (c.claim_id && claimIds[c.claim_id]) c.fulfillment = 'Shipped'; });
   }));
   shopOrders.forEach(o => { if (orderIds[o.order_id]) o.fulfillment = 'Shipped'; });
-  if (API_URL) db.updateShipping({ request_id: r.request_id, ems_fee: r.ems_fee || '', dom_fee: r.dom_fee || '', total_fee: r.total_fee || '', shipped: true }).catch(()=>{});
+  db.updateShipping({ request_id: r.request_id, ems_fee: r.ems_fee || '', dom_fee: r.dom_fee || '', total_fee: r.total_fee || '', shipped: true }).catch(()=>{});
   renderShippingQueue();
   renderDetailContent();
   renderShopOrders();
@@ -4895,9 +4890,6 @@ sb.auth.onAuthStateChange((_event, session) => {
   isAdmin = !!session;
   if (was !== isAdmin) applyAdminState();
 });
-
-let API_URL = 'supabase';   // truthy: legacy guards stay live until Task 14 (settings code below reassigns this)
-let useBackend = !!API_URL;
 
 // ── Supabase data layer ────────────────────────────────────────────────────
 // Maps normalized rows into the EXACT legacy shapes the render code consumes.
@@ -5281,57 +5273,24 @@ const db = {
     }).eq('id', d.request_id);
     if (r.error) throw r.error;
     return { ok: true };
+  },
+  async uploadItemImage(file) {
+    // Downscale client-side to keep uploads ~150KB.
+    const img = await createImageBitmap(file);
+    const scale = Math.min(1, 1000 / Math.max(img.width, img.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(img.width * scale);
+    canvas.height = Math.round(img.height * scale);
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.8));
+    const path = Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.jpg';
+    const { error } = await sb.storage.from('item-images').upload(path, blob,
+      { contentType: 'image/jpeg' });
+    if (error) throw error;
+    return sb.storage.from('item-images').getPublicUrl(path).data.publicUrl;
   }
 };
 
-// Retry backoff: longer + jittered so many clients don't retry in lockstep and hammer a
-// throttled server. attempt i (0-based) waits 1..2s, 2..3s, ...
-function retryDelay(i) { return 1000 * (i + 1) + Math.floor(Math.random() * 1000); }
-
-// fetch() has NO default timeout: a throttled Apps Script can hold the connection open
-// indefinitely, so an awaited call never settles and any loading overlay in front of it
-// stays up forever with no way out. Bound every request so a hung call FAILS instead of
-// hanging — callers already handle a rejection (hide overlay + toast + retry).
-const API_TIMEOUT_MS = 20000;
-function fetchWithTimeout(url, options = {}, ms = API_TIMEOUT_MS) {
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), ms);
-  return fetch(url, { ...options, signal: ctl.signal })
-    .finally(() => clearTimeout(timer));
-}
-
-async function apiGet(action, params = {}, attempts = 2) {
-  if (!API_URL) return null;
-  const qs = new URLSearchParams({ action, ...params }).toString();
-  // Apps Script intermittently 404/500s a request when many fire at once. GET is
-  // idempotent, so retry with backoff before giving up.
-  let lastErr;
-  for (let i = 0; i < attempts; i++) {
-    try {
-      const res = await fetchWithTimeout(API_URL + '?' + qs);
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      return await res.json();
-    } catch (e) {
-      lastErr = e;
-      if (i < attempts - 1) await new Promise(r => setTimeout(r, retryDelay(i)));
-    }
-  }
-  throw lastErr;
-}
-
-async function apiPost(action, data = {}, attempts = 3) {
-  if (!API_URL) return null;
-  for (let i = 0; i < attempts; i++) {
-    const r = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action, data }) });
-    // 404/429 = Apps Script throttled / didn't route the request (it never ran), so a retry is
-    // safe even for appends. Retry with backoff; other statuses fall through to res.json() below.
-    if (!r.ok && (r.status === 404 || r.status === 429) && i < attempts - 1) {
-      await new Promise(res => setTimeout(res, retryDelay(i)));
-      continue;
-    }
-    return r.json();
-  }
-}
 // Persist a single admin mutation and reconcile the optimistic UI on failure. These writes
 // used to be fire-and-forget, so a failed save (network/lock) reverted silently on the next
 // sync ("I secured it but after refresh it's gone"). Now a failure toasts and re-syncs, so
@@ -5351,14 +5310,13 @@ function persistWrite(promise, label) {
 
 let lastSyncAt = 0;  // ms timestamp of the last sync attempt — used to throttle on-open refreshes
 async function syncFromBackend(silent) {
-  if (!API_URL) return;
   lastSyncAt = Date.now();
   if (!silent) showLoadingOverlay(true);
   try {
     // payResult/listResult/orderResult/... stay declared but are never populated here —
     // admin's per-area data (payments, listings, shop/store orders, shipping, secured/
     // closed/deadline/pay-due flags) now loads lazily via the sub-tabs and Manage view,
-    // each with its own apiGet call, not through this function. The guarded blocks below
+    // each with its own Supabase call, not through this function. The guarded blocks below
     // (`if (payResult && …)`) are therefore harmless no-ops for admin from here on.
     let result, payResult, listResult, orderResult, shipResult, storeResult, gcResult, securedResult, closedResult, deadlineResult, payDueResult;
     // Admin and joiner both land on the light metadata call now. Admin's per-area data
@@ -5489,7 +5447,7 @@ async function syncFromBackend(silent) {
       saveLocal();
       renderOrdersList();
       renderAdminGOList();
-      if (isAdmin && API_URL) {
+      if (isAdmin) {
         // Background: payments drive the "$X collected" card line + the Payments tab.
         loadAdminPayments();
         // Background: GC "added to group chat" state, read by isGcAdded() in the Manage Joiners section.
@@ -5702,60 +5660,6 @@ function showLoadingOverlay(show, msg) {
   el.style.display = show ? 'flex' : 'none';
 }
 
-// Settings panel
-function openSettings() {
-  let panel = document.getElementById('settings-panel');
-  if (!panel) {
-    panel = document.createElement('div');
-    panel.id = 'settings-panel';
-    panel.style.cssText = 'position:fixed;inset:0;background:rgba(44,44,42,0.4);display:flex;align-items:center;justify-content:center;z-index:998;';
-    panel.innerHTML = `<div style="background:var(--surface);border-radius:var(--radius-lg);padding:28px;max-width:480px;width:90%;border:0.5px solid var(--border);">
-      <div style="font-size:16px;font-weight:500;margin-bottom:4px;">Google Sheets connection</div>
-      <div style="font-size:13px;color:var(--text2);margin-bottom:20px;">Paste your Apps Script Web App URL to enable live data sync.</div>
-      <div class="field"><label>Web App URL</label>
-        <input type="text" id="settings-api-url" placeholder="https://script.google.com/macros/s/..." value="${API_URL}" style="font-size:12px;font-family:var(--mono);">
-      </div>
-      <div style="font-size:12px;color:var(--text3);margin-bottom:20px;">Need help setting this up? See the setup guide below.</div>
-      <div style="display:flex;gap:8px;">
-        <button class="btn btn-primary" onclick="saveSettings()" style="flex:1;justify-content:center;">Save & sync</button>
-        <button class="btn" onclick="testConnection()" style="justify-content:center;">Test</button>
-        <button class="btn btn-ghost" onclick="document.getElementById('settings-panel').style.display='none'">Cancel</button>
-      </div>
-      <div id="settings-status" style="margin-top:12px;font-size:12px;color:var(--text3);"></div>
-    </div>`;
-    document.body.appendChild(panel);
-  }
-  panel.style.display = 'flex';
-}
-
-async function saveSettings() {
-  const url = document.getElementById('settings-api-url').value.trim();
-  API_URL = url;
-  localStorage.setItem('go_api_url', url);
-  useBackend = !!url;
-  document.getElementById('settings-panel').style.display = 'none';
-  if (url) {
-    await syncFromBackend();
-  }
-}
-
-async function testConnection() {
-  const url = document.getElementById('settings-api-url').value.trim();
-  if (!url) { document.getElementById('settings-status').textContent = 'Enter a URL first.'; return; }
-  document.getElementById('settings-status').textContent = 'Testing…';
-  try {
-    const res = await sb.from('gos').select('id', { head: true, count: 'exact' });
-    if (!res.error) {
-      document.getElementById('settings-status').style.color = 'var(--teal-600)';
-      document.getElementById('settings-status').textContent = '✓ Connected successfully.';
-    } else {
-      throw new Error(res.error.message || 'Unexpected response');
-    }
-  } catch(e) {
-    document.getElementById('settings-status').style.color = 'var(--red-400)';
-    document.getElementById('settings-status').textContent = '✗ ' + e.message;
-  }
-}
 sb.auth.getSession().then(({ data: { session } }) => {
   isAdmin = !!session;
   applyAdminState();
@@ -5764,7 +5668,7 @@ applyAdminState();
 renderOrdersList();
 renderAdminGOList();
 renderPaymentGoSelect();
-if (API_URL) syncFromBackend();
+syncFromBackend();
 </script>
 </body>
 </html>
