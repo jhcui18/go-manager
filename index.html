@@ -833,7 +833,7 @@ async function loadShopListings() {
   renderShopPage(); // render instantly from whatever's already loaded (empty on first open)
   if (isAdmin || shopListingsLoaded || !API_URL) return;
   try {
-    const res = await apiGet('getListings');
+    const res = await db.getListings();
     if (res && Array.isArray(res.listings)) {
       listings = res.listings.filter(l => l && l.listing_id).map(l => ({ ...l, variants: tryParse(l.variants, []) }));
       shopListingsLoaded = true;
@@ -1029,22 +1029,15 @@ function renderGoPreview(goId) {
 async function loadGOClaims(goId) {
   const go = allGOs[goId];
   if (!go) return;
-  // One combined call (fewer executions). Fall back to the 5 separate calls pre-redeploy.
   let claimsRes, sec, closed, deads, pdue;
   let bd = null;
-  try { bd = await apiGet('getGOBoard', { go_id: goId }); } catch (e) { bd = null; }
+  try { bd = await db.getGOBoard(goId); } catch (e) { bd = null; }
   if (bd && bd.claims !== undefined) {
     claimsRes = { claims: bd.claims };
     sec = { secured_sets: bd.secured_sets };
     closed = { closed_subitems: bd.closed_subitems };
     deads = { subitem_deadlines: bd.subitem_deadlines };
     pdue = { subitem_payment_due: bd.subitem_payment_due };
-  } else {
-    const settled = await Promise.allSettled([
-      apiGet('getGOClaims', { go_id: goId }), apiGet('getSecuredSets'), apiGet('getClosedSubItems'),
-      apiGet('getSubItemDeadlines'), apiGet('getSubItemPayDue')
-    ]);
-    [claimsRes, sec, closed, deads, pdue] = settled.map(s => s.status === 'fulfilled' ? s.value : undefined);
   }
   if (!claimsRes || !claimsRes.claims) throw new Error('claims load failed');  // openClaimPage catches -> toast, no empty board
   const claims = claimsRes.claims;
@@ -1807,18 +1800,11 @@ async function doLookup() {
     showLoadingOverlay(true, 'Looking up your orders…');
     let jr, pr, so, sh;
     try {
-      // One combined call (fewer Apps Script executions). Falls back to the 4 separate calls
-      // if the endpoint isn't deployed yet (pre-redeploy 404 → apiGet throws → catch below).
       let mo = null;
-      try { mo = await apiGet('getMyOrders', { username: raw.trim() }); } catch (e) { mo = null; }
+      try { mo = await db.getMyOrders(raw.trim()); } catch (e) { mo = null; }
       if (mo && mo.claims !== undefined) {
         jr = { claims: mo.claims }; pr = { payments: mo.payments };
         so = { shop_orders: mo.shop_orders }; sh = { requests: mo.shipping };
-      } else {
-        [jr, pr, so, sh] = await Promise.all([
-          apiGet('getJoiners', { username: raw.trim() }), apiGet('getPayments'),
-          apiGet('getShopOrders'), apiGet('getShipping')
-        ]);
       }
     } catch (e) {
       showLoadingOverlay(false);
@@ -3196,7 +3182,7 @@ async function loadAdminShop() {
   if (adminShopLoaded || !API_URL) { renderAdminListings(); renderShopOrders(); return; }
   loadingDiv('admin-listings-list', 'Loading listings…');
   loadingRow('shop-orders-tbody', 'Loading shop orders…', 6);
-  const [lrs, ors] = await Promise.allSettled([apiGet('getListings'), apiGet('getShopOrders')]);
+  const [lrs, ors] = await Promise.allSettled([db.getListings(), db.getShopOrders()]);
   const lr = lrs.status === 'fulfilled' ? lrs.value : null;
   const or = ors.status === 'fulfilled' ? ors.value : null;
   if (lr && Array.isArray(lr.listings)) listings = lr.listings.filter(l => l && l.listing_id).map(l => ({ ...l, variants: tryParse(l.variants, []) }));
@@ -3216,7 +3202,7 @@ async function loadAdminPayments() {
   loadingRow('payment-proofs-tbody', 'Loading payments…', 7);
   let failed = false;
   try {
-    const pr = await apiGet('getPayments');
+    const pr = await db.getPayments();
     if (pr && Array.isArray(pr.payments)) {
       paymentProofs = pr.payments.filter(p => p && p.payment_id).map(p => ({
         payment_id: p.payment_id, username: p.username, go_id: p.go_id, go_name: p.go_name,
@@ -3236,7 +3222,7 @@ async function loadAdminStore() {
   loadingDiv('store-orders-list', 'Loading store orders…');
   let failed = false;
   try {
-    const sr = await apiGet('getStoreOrders');
+    const sr = await db.getStoreOrders();
     if (sr && Array.isArray(sr.store_orders)) { storeOrders = sr.store_orders.filter(o => o && o.order_id); adminStoreLoaded = true; }
     else failed = true;
   } catch (e) { failed = true; }
@@ -3249,7 +3235,7 @@ async function loadAdminShipping() {
   loadingRow('shipping-queue-tbody', 'Loading shipping requests…', 8);
   let failed = false;
   try {
-    const sr = await apiGet('getShipping');
+    const sr = await db.getShipping();
     if (sr && Array.isArray(sr.requests)) { shippingRequests = sr.requests.filter(r => r && r.request_id).map(r => ({ ...r, items: tryParse(r.items, []), shipped: r.shipped === true || r.shipped === 'true' })); adminShippingLoaded = true; }
     else failed = true;
   } catch (e) { failed = true; }
@@ -5131,11 +5117,8 @@ async function syncFromBackend(silent) {
     // Admin and joiner both land on the light metadata call now. Admin's per-area data
     // (payments, shop, store, shipping, per-GO claims) loads lazily via the sub-tabs and
     // Manage view. Payments loads in the background just below (for the "collected" sums).
-    try { result = await apiGet('getGOsList'); } catch (e) { result = undefined; }
+    try { result = await db.getGOsList(); } catch (e) { result = undefined; }
     let gosData = result;
-    if ((!gosData || !gosData.gos)) {
-      try { gosData = await apiGet('getAllGOs'); } catch (e) {}
-    }
     if (!gosData || !gosData.gos) toast('Some data could not be refreshed — showing the latest that loaded.');
     if (securedResult && Array.isArray(securedResult.secured_sets)) {
       securedSets = {};
@@ -5250,11 +5233,9 @@ async function syncFromBackend(silent) {
         rebuilt.subItems.forEach(s => { s.payDue = subItemPayByDate(go.go_id, s.id); });
         allGOs[go.go_id] = rebuilt;
       });
-      // A getAllGOs load already has every GO's claims; a getGOsList load has none.
-      // isAdmin no longer implies claims are present — admin's landing fetch is getGOsList
-      // now too. fullLoad is true only when the batch that actually loaded carried claims
-      // (i.e. the getAllGOs fallback above kicked in), so openGODetail still lazily loads
-      // per-GO claims on Manage open instead of treating the empty getGOsList batch as loaded.
+      // db.getGOsList() never carries per-GO claims (that's db.getGOBoard's job), so fullLoad
+      // is always false here — openGODetail/loadGOClaims always lazily loads per-GO claims on
+      // open instead of treating the metadata-only landing batch as already loaded.
       const fullLoad = gosData && gosData.gos && gosData.gos.some(g => g.claims);
       claimsLoaded = {};
       if (fullLoad) Object.keys(allGOs).forEach(id => { claimsLoaded[id] = true; });
@@ -5265,7 +5246,7 @@ async function syncFromBackend(silent) {
         // Background: payments drive the "$X collected" card line + the Payments tab.
         loadAdminPayments();
         // Background: GC "added to group chat" state, read by isGcAdded() in the Manage Joiners section.
-        apiGet('getGcAdded').then(gc => {
+        db.getGcAdded().then(gc => {
           if (gc && Array.isArray(gc.gc_added)) {
             gcAdded = {};
             gc.gc_added.forEach(r => { if (r && r.go_id && r.username) (gcAdded[r.go_id] = gcAdded[r.go_id] || {})[gcNorm(r.username)] = true; });
@@ -5507,7 +5488,6 @@ async function saveSettings() {
   useBackend = !!url;
   document.getElementById('settings-panel').style.display = 'none';
   if (url) {
-    await apiPost('bootstrap', {});
     await syncFromBackend();
   }
 }
@@ -5517,15 +5497,12 @@ async function testConnection() {
   if (!url) { document.getElementById('settings-status').textContent = 'Enter a URL first.'; return; }
   document.getElementById('settings-status').textContent = 'Testing…';
   try {
-    const tmpUrl = API_URL;
-    API_URL = url;
-    const res = await apiGet('ping');
-    API_URL = tmpUrl;
-    if (res && res.ok) {
+    const res = await sb.from('gos').select('id', { head: true, count: 'exact' });
+    if (!res.error) {
       document.getElementById('settings-status').style.color = 'var(--teal-600)';
       document.getElementById('settings-status').textContent = '✓ Connected successfully.';
     } else {
-      throw new Error(res?.error || 'Unexpected response');
+      throw new Error(res.error.message || 'Unexpected response');
     }
   } catch(e) {
     document.getElementById('settings-status').style.color = 'var(--red-400)';
