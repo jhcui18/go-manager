@@ -1902,7 +1902,22 @@ async function doLookup() {
   doLookupRender(u);
 }
 
+// Run a full re-render without the page visibly jumping: lock the document
+// height so the browser can't clamp the scroll while images/layout reflow,
+// re-render, restore the scroll, release the lock once things settle.
+function withScrollLock(renderFn) {
+  const y = window.scrollY;
+  document.body.style.minHeight = document.body.scrollHeight + 'px';
+  renderFn();
+  window.scrollTo(0, y);
+  requestAnimationFrame(() => window.scrollTo(0, y));
+  setTimeout(() => { document.body.style.minHeight = ''; }, 900);
+}
+
 function doLookupRender(u) {
+  return withScrollLock(() => doLookupRenderInner(u));
+}
+function doLookupRenderInner(u) {
   document.getElementById('result-avatar').textContent = u.replace('@','').slice(0,2).toUpperCase();
   document.getElementById('result-username').textContent = u;
   const rows = [];
@@ -2461,6 +2476,9 @@ function gcJoinersSectionHtml(go) {
   </div>`;
 }
 function renderDetailContent() {
+  return withScrollLock(renderDetailContentInner);
+}
+function renderDetailContentInner() {
   const go = currentGO;
   const el = document.getElementById('detail-content');
   if (!el) return;
@@ -4090,6 +4108,9 @@ function addPaymentProof(proof) {
 }
 
 function renderPaymentProofs() {
+  return withScrollLock(renderPaymentProofsInner);
+}
+function renderPaymentProofsInner() {
   renderCreditApplications();
   const tbody = document.getElementById('payment-proofs-tbody');
   if (!tbody) return;
@@ -4344,6 +4365,9 @@ function toggleStoreGo(gid) {
   if (chev) chev.textContent = storeGoOpen[gid] ? '▾' : '▸';
 }
 function renderStoreOrders() {
+  return withScrollLock(renderStoreOrdersInner);
+}
+function renderStoreOrdersInner() {
   const el = document.getElementById('store-orders-list');
   if (!el) return;
   if (!storeOrders.length) { el.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:8px 0;">No store orders yet.</div>'; return; }
@@ -4893,6 +4917,9 @@ function refreshShippingQueue() {
 }
 
 function renderShippingQueue() {
+  return withScrollLock(renderShippingQueueInner);
+}
+function renderShippingQueueInner() {
   const tbody = document.getElementById('shipping-queue-tbody');
   if (!tbody) return;
   const pending = (shippingRequests || []).filter(r => !r.shipped);
