@@ -1771,11 +1771,23 @@ function submitClaim(goId) {
   if (claimsToWrite.length) {
     submitClaimWithRetry(claimsToWrite).then(res => {
       if (res && res.ok) {
-        // Re-render to show the buyer's name on the board, but keep the viewport
-        // where it was — innerHTML replacement otherwise snaps the scroll to top.
-        const y = window.scrollY;
+        // Re-render to show the buyer's name on the board, keeping the SUBMIT BUTTON
+        // pinned to the same viewport spot. A plain scrollY restore fails when images
+        // above the button reflow (height collapses then reloads → scroll clamps to
+        // top), so anchor on the button and re-correct as the layout settles.
+        const btnBefore = document.getElementById('claim-submit-' + goId);
+        const anchorTop = btnBefore ? btnBefore.getBoundingClientRect().top : null;
         renderClaimPage(goId);
-        window.scrollTo(0, y);
+        const holdAnchor = () => {
+          const b = document.getElementById('claim-submit-' + goId);
+          if (!b || anchorTop === null) return;
+          const drift = b.getBoundingClientRect().top - anchorTop;
+          if (Math.abs(drift) > 2) window.scrollBy(0, drift);
+        };
+        holdAnchor();
+        requestAnimationFrame(holdAnchor);
+        setTimeout(holdAnchor, 250);
+        setTimeout(holdAnchor, 700);
         const uEl = document.getElementById('claim-username-' + goId);
         if (uEl) uEl.value = u;   // keep the username handy for follow-up claims
         markClaimSubmitted(goId, u);
@@ -1805,12 +1817,8 @@ function markClaimSubmitted(goId, u) {
   if (note) note.innerHTML = `<div style="text-align:center;margin-top:10px;font-size:13px;color:var(--text2);">
     Your name is on the board above · <a href="#" onclick="goToMyOrders('${safeU}');return false;" style="color:var(--teal-600);font-weight:500;text-decoration:underline;white-space:nowrap;">View in My orders →</a>
   </div>`;
-  // The buyer just clicked this button, so it's normally already on screen —
-  // only scroll if the re-render left it out of view.
-  const r = btn.getBoundingClientRect();
-  if (r.top < 0 || r.bottom > window.innerHeight) {
-    btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }
+  // No scrolling here — the submit handler pins the button to its pre-render
+  // viewport position (anchor correction), which keeps the page visually still.
 }
 
 // Flip the success state back to a live submit button (no-op if not in success state).
