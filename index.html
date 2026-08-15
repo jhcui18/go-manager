@@ -3880,6 +3880,10 @@ function openEditClaimModal(goId, siId, setIdx, member) {
     <div style="font-size:16px;font-weight:500;margin-bottom:4px;">Edit claim</div>
     <div style="font-size:13px;color:var(--text2);margin-bottom:20px;">${go.name} — ${si.name} / ${member} / Set ${setIdx+1}</div>
     <div class="field"><label>Username</label><input type="text" id="ec-user" value="${slot.user}"></div>
+    <div class="field"><label>Member</label>
+      <select id="ec-member">${(si.members||[]).map(m => `<option ${m===member?'selected':''}>${m}</option>`).join('')}</select>
+      <div class="field-hint">Moving to a member whose spot in this set is taken will be rejected.</div>
+    </div>
     <div class="field-row">
       <div class="field"><label>Payment status</label>
         <select id="ec-payment">
@@ -3900,15 +3904,34 @@ function openEditClaimModal(goId, siId, setIdx, member) {
     </div>`);
 }
 
-function saveClaimEdit(goId, siId, setIdx, member) {
+async function saveClaimEdit(goId, siId, setIdx, member) {
   const si = allGOs[goId].subItems.find(s => s.id === siId);
-  const slot = si.sets[setIdx].slots[member];
-  slot.user = document.getElementById('ec-user').value.trim() || slot.user;
-  slot.payment = document.getElementById('ec-payment').value;
-  slot.fulfillment = document.getElementById('ec-fulfillment').value;
-  if (slot.claim_id) {
-    db.updateClaim({ claim_id: slot.claim_id, payment_status: slot.payment, fulfillment: slot.fulfillment });
+  const set = si.sets[setIdx];
+  const slot = set.slots[member];
+  const newUser = document.getElementById('ec-user').value.trim() || slot.user;
+  const newMember = (document.getElementById('ec-member') || {}).value || member;
+  const newPayment = document.getElementById('ec-payment').value;
+  const newFulfillment = document.getElementById('ec-fulfillment').value;
+  if (newMember !== member && set.slots[newMember]) {
+    toast(`${newMember}'s spot in this set is already taken.`); return;
   }
+  // Persist FIRST; only mutate local state on success (edits used to fake-succeed).
+  if (slot.claim_id) {
+    try {
+      await db.updateClaim({
+        claim_id: slot.claim_id, username: newUser,
+        payment_status: newPayment, fulfillment: newFulfillment,
+        ...(newMember !== member ? { member_name: newMember, sub_item_id: siId } : {})
+      });
+    } catch (e) {
+      toast(e && e.message === 'slot_taken'
+        ? `${newMember}'s spot in this set is already taken.`
+        : "Couldn't save the claim edit — please try again.");
+      return;
+    }
+  }
+  slot.user = newUser; slot.payment = newPayment; slot.fulfillment = newFulfillment;
+  if (newMember !== member) { set.slots[newMember] = slot; set.slots[member] = null; }
   closeModal();
   renderDetailContent();
   renderAdminGOList();
@@ -4012,6 +4035,11 @@ function openEditFCFSClaimModal(goId, siId, claimIdx) {
     <div style="font-size:16px;font-weight:500;margin-bottom:4px;">Edit claim</div>
     <div style="font-size:13px;color:var(--text2);margin-bottom:20px;">${go.name} — ${si.name}</div>
     <div class="field"><label>Username</label><input type="text" id="efc-user" value="${c.user}"></div>
+    ${(si.members && si.members.length) ? `<div class="field"><label>Member</label>
+      <select id="efc-member">${si.members.map(m => `<option ${m===c.member?'selected':''}>${m}</option>`).join('')}</select>
+    </div>` : (si.versions && si.versions.length) ? `<div class="field"><label>Version</label>
+      <select id="efc-version">${si.versions.map(v => `<option ${v===c.member?'selected':''}>${v}</option>`).join('')}</select>
+    </div>` : ''}
     <div class="field-row">
       <div class="field"><label>Qty</label><input type="number" id="efc-qty" value="${c.qty}" min="1"></div>
       <div class="field"><label>Assigned versions</label><input type="text" id="efc-vers" value="${(c.assignedVers||[]).join('+')}"><div class="field-hint">e.g. A+B or random</div></div>
@@ -4036,17 +4064,35 @@ function openEditFCFSClaimModal(goId, siId, claimIdx) {
     </div>`);
 }
 
-function saveFCFSClaimEdit(goId, siId, claimIdx) {
+async function saveFCFSClaimEdit(goId, siId, claimIdx) {
   const si = allGOs[goId].subItems.find(s => s.id === siId);
   const c = si.claims[claimIdx];
-  c.user = document.getElementById('efc-user').value.trim() || c.user;
-  c.qty = parseInt(document.getElementById('efc-qty').value) || c.qty;
-  c.assignedVers = document.getElementById('efc-vers').value.split('+').map(v=>v.trim()).filter(Boolean);
-  c.payment = document.getElementById('efc-payment').value;
-  c.fulfillment = document.getElementById('efc-fulfillment').value;
+  const newUser = document.getElementById('efc-user').value.trim() || c.user;
+  const newQty = parseInt(document.getElementById('efc-qty').value) || c.qty;
+  const newVers = document.getElementById('efc-vers').value.split('+').map(v=>v.trim()).filter(Boolean);
+  const newPayment = document.getElementById('efc-payment').value;
+  const newFulfillment = document.getElementById('efc-fulfillment').value;
+  const memberSel = document.getElementById('efc-member');
+  const versionSel = document.getElementById('efc-version');
+  const newMember = memberSel ? memberSel.value : (versionSel ? versionSel.value : c.member);
+  // Persist FIRST; only mutate local state on success (edits used to fake-succeed).
   if (c.claim_id) {
-    db.updateClaim({ claim_id: c.claim_id, payment_status: c.payment, fulfillment: c.fulfillment });
+    try {
+      await db.updateClaim({
+        claim_id: c.claim_id, username: newUser, qty: newQty,
+        assigned_version: newVers.length ? newVers.join('+') : null,
+        payment_status: newPayment, fulfillment: newFulfillment,
+        ...(memberSel && newMember !== c.member ? { member_name: newMember, sub_item_id: siId } : {}),
+        ...(versionSel && newMember !== c.member ? { version_name: newMember, sub_item_id: siId } : {})
+      });
+    } catch (e) {
+      toast("Couldn't save the claim edit — please try again.");
+      return;
+    }
   }
+  c.user = newUser; c.qty = newQty; c.assignedVers = newVers;
+  c.payment = newPayment; c.fulfillment = newFulfillment;
+  c.member = newMember;
   closeModal();
   renderDetailContent();
   renderAdminGOList();
@@ -5179,9 +5225,29 @@ const db = {
     if (d.claim_status)   patch.status = d.claim_status;
     if (d.payment_status) patch.payment_status = d.payment_status;
     if (d.fulfillment)    patch.fulfillment = d.fulfillment;
+    if (d.username)       patch.username = String(d.username).trim().replace(/^@/, '');
+    if (d.qty)            patch.qty = parseInt(d.qty) || 1;
+    if (d.assigned_version !== undefined) patch.assigned_version = d.assigned_version || null;
+    // Member/version reassignment: resolve the name to its row for this sub-item.
+    if (d.member_name && d.sub_item_id) {
+      const m = dbThrow(await sb.from('members').select('id')
+        .eq('sub_item_id', d.sub_item_id).eq('name', d.member_name).limit(1));
+      if (!m.length) throw new Error('member "' + d.member_name + '" not found');
+      patch.member_id = m[0].id;
+    }
+    if (d.version_name && d.sub_item_id) {
+      const v = dbThrow(await sb.from('versions').select('id')
+        .eq('sub_item_id', d.sub_item_id).eq('name', d.version_name).limit(1));
+      if (!v.length) throw new Error('version "' + d.version_name + '" not found');
+      patch.version_id = v[0].id;
+    }
     if (Object.keys(patch).length) {
       const r = await sb.from('claims').update(patch).eq('id', d.claim_id);
-      if (r.error) throw r.error;
+      if (r.error) {
+        // 23505 = the slot-uniqueness index: that member's spot in this set is taken.
+        if (r.error.code === '23505') throw new Error('slot_taken');
+        throw r.error;
+      }
     }
     return { ok: true };
   },
