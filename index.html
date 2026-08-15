@@ -810,7 +810,8 @@ function renderOrdersList() {
     }
   });
   container.innerHTML = html;
-  if (isAdmin) visibleGOs.forEach(go => renderGoPreview(go.id));
+  // Group orders renders identically for admin and joiners (admin-only card
+  // previews removed by request — admin tooling lives in the Admin tab).
   renderPaymentGoSelect();
 }
 function setOrdersArtistFilter(k) { ordersArtistFilter = decodeURIComponent(k); renderOrdersList(); }
@@ -1005,34 +1006,6 @@ function submitShopOrder(listingId) {
   }).catch(() => toast('Could not place order.'));
 }
 
-function renderGoPreview(goId) {
-  const go = allGOs[goId];
-  const el = document.getElementById('go-preview-' + goId);
-  if (!el) return;
-  if (go.type === 'photocard') {
-    let html = '<div style="margin-top:10px;display:flex;flex-direction:column;gap:6px;">';
-    go.subItems.forEach(si => {
-      html += `<div style="font-size:12px;display:flex;align-items:center;gap:8px;">
-        <span style="font-weight:500;min-width:120px;">${si.name}</span>
-        <span style="color:var(--text3);">${setsSummary(si)}</span>
-      </div>`;
-    });
-    html += '</div>';
-    el.innerHTML = html;
-  } else if (go.type === 'album') {
-    let html = '<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;">';
-    go.subItems.forEach(si => {
-      html += `<div class="tag">${si.name} · ${setsSummary(si)}</div>`;
-    });
-    html += '</div>';
-    el.innerHTML = html;
-  } else {
-    // Merch: no per-item summary on the Group orders page (keeps the card short on
-    // phone); the header already shows the item count. Details are on the claim page.
-    el.innerHTML = '';
-  }
-}
-
 // ── CLAIM PAGE ───────────────────────────────────────────────────────────────
 // Buyer lazy-load: fetch one GO's claims (+ the small flag stores the board needs) and
 // rebuild that GO's sub-items in place. Idempotent; sets claimsLoaded[goId].
@@ -1073,7 +1046,7 @@ async function loadGOClaims(goId) {
 async function openClaimPage(goId) {
   currentClaimGoId = goId;
   claimState = {};
-  if (!isAdmin && !claimsLoaded[goId]) {
+  if (!claimsLoaded[goId]) {   // admin included — same live board joiners see
     showLoadingOverlay(true, 'Loading group order…');
     try { await loadGOClaims(goId); }
     catch (e) { showLoadingOverlay(false); toast('Couldn’t load this group order — please try again.'); return; }
