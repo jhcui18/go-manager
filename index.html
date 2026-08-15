@@ -1753,23 +1753,56 @@ function submitClaim(goId) {
   claimState = {};
   renderOrdersList();
   renderAdminGOList();
-  showPage('orders');
-  // Persist to the sheet and VERIFY it landed before telling the buyer it worked.
-  // A failed write (lock-contended 'busy', closed GO, or network error) must NOT
-  // masquerade as success — otherwise the optimistic local claim vanishes on the next
-  // refresh (sync rebuilds purely from the sheet) with no warning to the buyer.
+  // Stay on the claim page: the buyer's strongest confirmation is seeing their own
+  // name land on the board, with an inline banner + My-orders link (no page jump).
+  // Persist and VERIFY it landed before telling the buyer it worked. A failed write
+  // must NOT masquerade as success — otherwise the optimistic local claim vanishes
+  // on the next refresh with no warning to the buyer.
   if (claimsToWrite.length) {
     submitClaimWithRetry(claimsToWrite).then(res => {
       if (res && res.ok) {
-        toast('Claim submitted' + skippedNote + '! Check "My orders" to track status.');
+        renderClaimPage(goId);
+        const uEl = document.getElementById('claim-username-' + goId);
+        if (uEl) uEl.value = u;   // keep the username handy for follow-up claims
+        showClaimSuccessBanner(goId, u, skippedNote);
       } else {
         toast((res && res.message) || 'Your claim could not be saved — please try again.');
-        syncFromBackend(true);  // silent: drop the un-saved optimistic claim (the toast already explains)
+        // Drop the un-saved optimistic claims from the visible board.
+        claimsLoaded[goId] = false;
+        loadGOClaims(goId).then(() => renderClaimPage(goId)).catch(() => {});
       }
     });
   } else {
-    toast('Claim submitted' + skippedNote + '! Check "My orders" to track status.');  // local-only mode (no backend)
+    toast('Claim submitted' + skippedNote + '!');
   }
+}
+
+// Inline success banner at the top of the claim page, with a jump to My orders.
+function showClaimSuccessBanner(goId, u, skippedNote) {
+  const page = document.getElementById('page-claim-' + goId);
+  if (!page) { toast('Claim submitted' + skippedNote + '! Check "My orders" to track status.'); return; }
+  const old = document.getElementById('claim-success-' + goId);
+  if (old) old.remove();
+  const div = document.createElement('div');
+  div.id = 'claim-success-' + goId;
+  div.className = 'card';
+  div.style.cssText = 'background:var(--teal-50);border:1px solid var(--teal-600);margin-bottom:16px;';
+  const safeU = u.replace(/[^\w.@-]/g, '');
+  div.innerHTML = `<div style="display:flex;align-items:flex-start;gap:8px;">
+    <div style="font-size:13px;color:var(--teal-700);flex:1;">✓ <strong>Claim submitted${skippedNote}!</strong> Your name is on the board below.
+      <a href="#" onclick="goToMyOrders('${safeU}');return false;" style="color:var(--teal-700);text-decoration:underline;white-space:nowrap;">Track it in My orders →</a></div>
+    <button class="btn btn-ghost btn-sm" style="padding:2px 8px;flex:none;" onclick="document.getElementById('claim-success-${goId}').remove()">✕</button>
+  </div>`;
+  const header = page.firstElementChild;   // the back-button row stays on top
+  page.insertBefore(div, header ? header.nextSibling : page.firstChild);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function goToMyOrders(u) {
+  showPage('lookup');
+  const li = document.getElementById('lookup-input');
+  if (li) li.value = u;
+  doLookup();
 }
 
 // Persist claims, retrying ONLY the definitive "not written" signal (server lock-contended
