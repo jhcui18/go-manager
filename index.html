@@ -1568,6 +1568,7 @@ function adjustVersionedQty(siId, goId, delta) {
 }
 
 function updateClaimSummary(goId) {
+  resetClaimSubmitButton(goId);   // new selections put the "Submitted ✓" button back to work
   const el = document.getElementById('claim-summary-' + goId);
   if (!el) return;
   const go = allGOs[goId];
@@ -1802,6 +1803,17 @@ function markClaimSubmitted(goId, u) {
   if (r.top < 0 || r.bottom > window.innerHeight) {
     btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
+}
+
+// Flip the success state back to a live submit button (no-op if not in success state).
+function resetClaimSubmitButton(goId) {
+  const btn = document.getElementById('claim-submit-' + goId);
+  if (!btn || btn.textContent === 'Submit claim') return;
+  btn.textContent = 'Submit claim';
+  btn.style.background = '';
+  btn.style.borderColor = '';
+  const note = document.getElementById('claim-submitted-note-' + goId);
+  if (note) note.innerHTML = '';
 }
 
 function goToMyOrders(u) {
