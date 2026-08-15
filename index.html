@@ -835,12 +835,12 @@ function parseVariantLines(text) {
     return { name, qty };
   }).filter(Boolean);
 }
-// Joiners don't load shop listings at landing (see syncFromBackend) — fetch them the first
-// time the Shop tab is opened. Admin already has them from the full initial sync.
+// Shop listings load the first time the Shop tab is opened — same for admin and
+// joiners (skip only when either the public or admin path already fetched them).
 let shopListingsLoaded = false;
 async function loadShopListings() {
   renderShopPage(); // render instantly from whatever's already loaded (empty on first open)
-  if (isAdmin || shopListingsLoaded) return;
+  if (shopListingsLoaded || adminShopLoaded) return;
   try {
     const res = await db.getListings();
     if (res && Array.isArray(res.listings)) {
