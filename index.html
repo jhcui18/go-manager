@@ -2122,7 +2122,7 @@ function renderMyOrderGoBlock(g, goRows, u, summary) {
         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">${handles}</div>
         <div class="field-row">
           <div class="field" style="margin-bottom:0;"><label>Method</label>
-            <select id="pay-method-${g.go_id}">${PAYMENT_METHODS.map(p=>`<option>${p.method}</option>`).join('')}</select>
+            <select id="pay-method-${g.go_id}"><option value="" disabled selected>Select method…</option>${PAYMENT_METHODS.map(p=>`<option>${p.method}</option>`).join('')}</select>
           </div>
           <div class="field" style="margin-bottom:0;"><label>Amount paid</label>
             <input type="number" id="pay-amount-${g.go_id}" step="0.01" value="${s.owed.toFixed(2)}">
@@ -2256,6 +2256,7 @@ async function submitGoPayment(goId, lookedUpUser) {
   const method = (document.getElementById('pay-method-'+goId)||{}).value || '';
   const txid = (document.getElementById('pay-txid-'+goId)||{}).value || '';
   if (amount <= 0) { toast('Enter the amount you paid.'); return; }
+  if (!method) { toast('Please select the payment method you used.'); return; }
   const proof = {
     payment_id: 'pay_' + Date.now(),
     username: u,
