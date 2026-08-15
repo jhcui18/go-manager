@@ -1114,7 +1114,8 @@ function renderClaimPage(goId) {
     <div class="section-label">Your details</div>
     <div id="claim-summary-${goId}" style="display:none;background:var(--surface2);border-radius:var(--radius);padding:12px 14px;margin-bottom:16px;font-size:13px;"></div>
     <div class="field"><label>Instagram username</label><input type="text" id="claim-username-${goId}" placeholder="@username"></div>
-    <button class="btn btn-primary" onclick="submitClaim('${goId}')" style="width:100%;justify-content:center;">Submit claim</button>
+    <button class="btn btn-primary" id="claim-submit-${goId}" onclick="submitClaim('${goId}')" style="width:100%;justify-content:center;">Submit claim</button>
+    <div id="claim-submitted-note-${goId}"></div>
   </div>`;
   page.innerHTML = html;
   // init claim state
@@ -1764,7 +1765,8 @@ function submitClaim(goId) {
         renderClaimPage(goId);
         const uEl = document.getElementById('claim-username-' + goId);
         if (uEl) uEl.value = u;   // keep the username handy for follow-up claims
-        showClaimSuccessBanner(goId, u, skippedNote);
+        markClaimSubmitted(goId, u);
+        if (skippedNote) toast('Heads up' + skippedNote + '.');
       } else {
         toast((res && res.message) || 'Your claim could not be saved — please try again.');
         // Drop the un-saved optimistic claims from the visible board.
@@ -1777,25 +1779,20 @@ function submitClaim(goId) {
   }
 }
 
-// Inline success banner at the top of the claim page, with a jump to My orders.
-function showClaimSuccessBanner(goId, u, skippedNote) {
-  const page = document.getElementById('page-claim-' + goId);
-  if (!page) { toast('Claim submitted' + skippedNote + '! Check "My orders" to track status.'); return; }
-  const old = document.getElementById('claim-success-' + goId);
-  if (old) old.remove();
-  const div = document.createElement('div');
-  div.id = 'claim-success-' + goId;
-  div.className = 'card';
-  div.style.cssText = 'background:var(--teal-50);border-color:var(--teal-100);margin-bottom:16px;';
+// Success state shown in place: the submit button flips to "Submitted ✓" with a
+// My-orders link right under it. Reverts naturally on the next re-render.
+function markClaimSubmitted(goId, u) {
+  const btn = document.getElementById('claim-submit-' + goId);
+  const note = document.getElementById('claim-submitted-note-' + goId);
+  if (!btn) { toast('Claim submitted! Check "My orders" to track status.'); return; }
+  btn.textContent = 'Submitted ✓';
+  btn.style.background = 'var(--teal-600)';
+  btn.style.borderColor = 'var(--teal-600)';
   const safeU = u.replace(/[^\w.@-]/g, '');
-  div.innerHTML = `<div style="display:flex;align-items:flex-start;gap:8px;">
-    <div style="font-size:13px;color:var(--teal-800);flex:1;"><strong style="font-weight:500;">Claim submitted${skippedNote}!</strong> Your name is on the board below.
-      <a href="#" onclick="goToMyOrders('${safeU}');return false;" style="color:var(--teal-600);font-weight:500;text-decoration:underline;white-space:nowrap;">Track it in My orders →</a></div>
-    <button class="btn btn-ghost btn-sm" style="padding:2px 8px;flex:none;color:var(--teal-800);" onclick="document.getElementById('claim-success-${goId}').remove()">✕</button>
+  if (note) note.innerHTML = `<div style="text-align:center;margin-top:10px;font-size:13px;color:var(--text2);">
+    Your name is on the board above · <a href="#" onclick="goToMyOrders('${safeU}');return false;" style="color:var(--teal-600);font-weight:500;text-decoration:underline;white-space:nowrap;">View in My orders →</a>
   </div>`;
-  const header = page.firstElementChild;   // the back-button row stays on top
-  page.insertBefore(div, header ? header.nextSibling : page.firstChild);
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 function goToMyOrders(u) {
