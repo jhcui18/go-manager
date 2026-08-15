@@ -2298,9 +2298,16 @@ function renderAdminGOList() {
 }
 
 async function openGODetail(goId) {
-  if (!claimsLoaded[goId]) {
+  if (!claimsLoaded[goId] || !adminStoreLoaded) {
     showLoadingOverlay(true, 'Loading group order…');
-    try { await loadGOClaims(goId); }
+    try {
+      // Store orders feed the GO detail's per-item "ordered" sections, so they
+      // must load here too — not only when the Store tab is first opened.
+      const wants = [];
+      if (!claimsLoaded[goId]) wants.push(loadGOClaims(goId));
+      if (!adminStoreLoaded) wants.push(loadAdminStore().catch(() => {}));
+      await Promise.all(wants);
+    }
     catch (e) { showLoadingOverlay(false); toast('Couldn’t load this group order — please try again.'); return; }
     showLoadingOverlay(false);
   }
