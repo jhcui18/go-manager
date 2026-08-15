@@ -1771,26 +1771,12 @@ function submitClaim(goId) {
   if (claimsToWrite.length) {
     submitClaimWithRetry(claimsToWrite).then(res => {
       if (res && res.ok) {
-        // Re-render to show the buyer's name on the board WITHOUT any visible jump.
-        // The board's lazy images have no reserved height, so a re-render briefly
-        // collapses the page and the browser clamps the scroll toward the top.
-        // Two defenses: (1) lock the page height through the transition so the
-        // scroll physically cannot clamp; (2) pin the submit button to its exact
-        // viewport spot, re-correcting as images settle.
-        const btnBefore = document.getElementById('claim-submit-' + goId);
-        const anchorTop = btnBefore ? btnBefore.getBoundingClientRect().top : null;
-        document.body.style.minHeight = document.body.scrollHeight + 'px';
-        renderClaimPage(goId);
-        const holdAnchor = () => {
-          const b = document.getElementById('claim-submit-' + goId);
-          if (!b || anchorTop === null) return;
-          const drift = b.getBoundingClientRect().top - anchorTop;
-          if (Math.abs(drift) > 2) window.scrollBy(0, drift);
-        };
-        holdAnchor();
-        requestAnimationFrame(holdAnchor);
-        setTimeout(holdAnchor, 250);
-        setTimeout(() => { document.body.style.minHeight = ''; holdAnchor(); }, 900);
+        // Re-render to show the buyer's name on the board WITHOUT the viewport
+        // moving at all: lock the page height (so the browser can't clamp the
+        // scroll while lazy images reflow), re-render, restore the exact scroll.
+        // Never actively scroll — corrections themselves read as jumps on short
+        // pages. Content may shift slightly under the viewport; that's natural.
+        withScrollLock(() => renderClaimPage(goId));
         const uEl = document.getElementById('claim-username-' + goId);
         if (uEl) uEl.value = u;   // keep the username handy for follow-up claims
         markClaimSubmitted(goId, u);
