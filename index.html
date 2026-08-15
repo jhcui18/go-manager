@@ -650,9 +650,17 @@ function expandAllAdmin(open) {
   (currentGO && currentGO.subItems || []).forEach(si => { adminOpenSI[si.id] = open; });
   renderDetailContent();
 }
+// Small GOs render expanded — with only a few POBs, collapsing is just extra taps.
+const CLAIM_AUTO_OPEN_MAX = 4;
+function isClaimSIOpen(goId, siId) {
+  const k = goId + '|' + siId;
+  if (claimOpenSI[k] !== undefined) return !!claimOpenSI[k];
+  const go = allGOs[goId];
+  return !!go && (go.subItems || []).length <= CLAIM_AUTO_OPEN_MAX;
+}
 function toggleClaimSI(goId, siId) {
   const k = goId + '|' + siId;
-  claimOpenSI[k] = !claimOpenSI[k];
+  claimOpenSI[k] = !isClaimSIOpen(goId, siId);
   const body = document.getElementById('clm-body-' + siId);
   const chev = document.getElementById('clm-chev-' + siId);
   if (body) body.style.display = claimOpenSI[k] ? 'block' : 'none';
@@ -668,7 +676,7 @@ function toggleShopCat(cat) {
 }
 // Wrap a buyer sub-item's rendered card in a collapsible section (default collapsed).
 function claimCollapsible(goId, si, inner) {
-  const open = !!claimOpenSI[goId + '|' + si.id];
+  const open = isClaimSIOpen(goId, si.id);
   return `<div style="margin-bottom:10px;">
     <div style="display:flex;align-items:center;gap:8px;padding:12px 4px;cursor:pointer;user-select:none;border-bottom:0.5px solid var(--border);" onclick="toggleClaimSI('${goId}','${si.id}')">
       <span id="clm-chev-${si.id}" style="width:12px;color:var(--text3);">${open ? '▾' : '▸'}</span>
