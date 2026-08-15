@@ -1786,12 +1786,12 @@ function showClaimSuccessBanner(goId, u, skippedNote) {
   const div = document.createElement('div');
   div.id = 'claim-success-' + goId;
   div.className = 'card';
-  div.style.cssText = 'background:var(--teal-50);border:1px solid var(--teal-600);margin-bottom:16px;';
+  div.style.cssText = 'background:var(--teal-50);border-color:var(--teal-100);margin-bottom:16px;';
   const safeU = u.replace(/[^\w.@-]/g, '');
   div.innerHTML = `<div style="display:flex;align-items:flex-start;gap:8px;">
-    <div style="font-size:13px;color:var(--teal-700);flex:1;">✓ <strong>Claim submitted${skippedNote}!</strong> Your name is on the board below.
-      <a href="#" onclick="goToMyOrders('${safeU}');return false;" style="color:var(--teal-700);text-decoration:underline;white-space:nowrap;">Track it in My orders →</a></div>
-    <button class="btn btn-ghost btn-sm" style="padding:2px 8px;flex:none;" onclick="document.getElementById('claim-success-${goId}').remove()">✕</button>
+    <div style="font-size:13px;color:var(--teal-800);flex:1;"><strong style="font-weight:500;">Claim submitted${skippedNote}!</strong> Your name is on the board below.
+      <a href="#" onclick="goToMyOrders('${safeU}');return false;" style="color:var(--teal-600);font-weight:500;text-decoration:underline;white-space:nowrap;">Track it in My orders →</a></div>
+    <button class="btn btn-ghost btn-sm" style="padding:2px 8px;flex:none;color:var(--teal-800);" onclick="document.getElementById('claim-success-${goId}').remove()">✕</button>
   </div>`;
   const header = page.firstElementChild;   // the back-button row stays on top
   page.insertBefore(div, header ? header.nextSibling : page.firstChild);
