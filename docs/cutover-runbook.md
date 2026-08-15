@@ -7,10 +7,15 @@ migrations 001-006 there first and swap URL+keys in index.html + keepalive.yml.
 Note: the sandbox project (kkzmvuqfqbonsxebzaii) IS the production project by default; migrations 001-006 are already applied and tracked.
 
 1. [ ] Announce the freeze (IG story/GC): "GO site paused ~1 hour for an upgrade."
-2. [ ] Freeze: in the LIVE sheet's Apps Script, redeploy with `submitClaim`
-       returning `{ok:false, error:'closed', message:'Site upgrade in progress'}`
-       (single-line change), or simply mark every GO closed in the sheet UI.
-       Note what was changed so it can be restored for rollback.
+2. [ ] Freeze ALL writes (claims, payments, shipping, shop orders — reads keep
+       working so joiners can still browse): Google Sheet → Extensions →
+       Apps Script → add this as the FIRST line inside `doPost(e)`:
+       `return jsonResponse({ ok: false, error: 'frozen', message: 'Site upgrade in progress — back within the hour!' });`
+       Then Deploy → Manage deployments → ✏️ edit → Version: New version →
+       Deploy (edit the EXISTING deployment — a new deployment would change
+       the URL). Verify by trying a claim on the live site.
+       Undo (after cutover or for rollback): remove the line, redeploy the
+       same way.
 3. [ ] Fresh export: Google Sheets → File → Download → .xlsx →
        overwrite `GO Manager Data.xlsx` locally (do NOT commit — gitignored).
 4. [ ] `python3 db/migrate_from_xlsx.py --dry-run` → quality report clean.
