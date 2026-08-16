@@ -3497,7 +3497,14 @@ async function uploadSubItemImage(input, fieldId) {
     const url = await db.uploadItemImage(input.files[0]);
     document.getElementById(fieldId).value = url;
     toast('Image uploaded.');
-  } catch (e) { toast('Upload failed — try a smaller image.'); }
+  } catch (e) {
+    // Chrome can't decode iPhone HEIC photos (createImageBitmap throws before any
+    // size matters) — name the real cause instead of blaming file size.
+    const f = input.files[0] || {};
+    const isHeic = /\.hei[cf]$/i.test(f.name || '') || /image\/hei[cf]/.test(f.type || '');
+    toast(isHeic ? 'HEIC (iPhone) photos can’t be read by this browser — convert to JPG or PNG first, or upload from your phone.'
+                 : 'Upload failed — the image couldn’t be read. Try a JPG or PNG.');
+  }
 }
 
 function renderEditSubItems() {
