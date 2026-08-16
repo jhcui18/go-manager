@@ -517,6 +517,7 @@ const PAYMENT_METHODS = [
 function saveLocal() { try { localStorage.setItem('go_data', JSON.stringify(allGOs)); } catch(e) {} }
 let allGOs = (function() { try { return JSON.parse(localStorage.getItem('go_data') || '{}'); } catch(e) { return {}; } })();
 let claimsLoaded = {}; // goId -> true once that GO's claims have been fetched (buyer lazy-load)
+let claimActivity = {}; // admin only: goId -> { latest, seenAt } for the "new claims" dot
 
 let currentGO = null;
 let claimState = {}; // { subItemId: { type:'set', selectedMembers:{} } | { type:'versioned'|'merch', qty:0 } }
@@ -2322,6 +2323,23 @@ function goExpected(go) {
   users.forEach(u => { total += paymentOwedUnits(u, go.id).reduce((a, x) => a + x.value, 0); });
   return total;
 }
+function hasNewClaims(goId) {
+  const a = claimActivity[goId];
+  return !!(a && a.latest && (!a.seenAt || new Date(a.latest) > new Date(a.seenAt)));
+}
+
+function loadClaimActivity() {  // background; failure (e.g. pre-migration) just means no dots
+  if (!isAdmin) return;
+  db.getClaimActivity().then(act => { claimActivity = act; renderAdminGOList(); }).catch(()=>{});
+}
+
+function markGOSeen(goId) {
+  if (!isAdmin) return;
+  if (claimActivity[goId]) claimActivity[goId].seenAt = new Date().toISOString();
+  renderAdminGOList();
+  db.markGOSeen(goId).catch(()=>{});
+}
+
 function renderAdminGOList() {
   const el = document.getElementById('admin-go-list');
   if (!el) return;
@@ -2330,10 +2348,11 @@ function renderAdminGOList() {
     const badgeClass = go.type==='photocard'?'badge-set':go.type==='album'?'badge-fcfs':'badge-waitlist';
     const collected = (paymentProofs || []).filter(p => p.go_id === go.id && p.status === 'confirmed').reduce((a, p) => a + (parseFloat(p.amount) || 0), 0);
     const collectedHtml = collected > 0 ? ` · <span style="color:var(--teal-600);font-weight:500;">$${collected.toFixed(2)} collected</span>` : '';
+    const dot = hasNewClaims(go.id) ? '<span title="New claims since you last opened this GO" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--accent);margin-right:6px;"></span>' : '';
     return `<div class="card-sm" style="margin-bottom:8px;">
       <div style="display:flex;align-items:center;justify-content:space-between;">
         <div>
-          <div style="font-weight:500;font-size:13px;">${go.name}</div>
+          <div style="font-weight:500;font-size:13px;">${dot}${go.name}</div>
           <div style="font-size:11px;color:var(--text3);margin-top:2px;"><span class="badge ${badgeClass}" style="font-size:10px;padding:2px 7px;margin-right:6px;">${typeLabel}</span>${go.status==='closed'?'<span class="badge badge-waitlist" style="font-size:10px;padding:2px 7px;margin-right:6px;">Closed</span>':''}${collectedHtml}</div>
         </div>
         <button class="btn btn-sm" onclick="openGODetail('${go.id}')">Manage</button>
@@ -2356,6 +2375,7 @@ async function openGODetail(goId) {
     catch (e) { showLoadingOverlay(false); toast('Couldn’t load this group order — please try again.'); return; }
     showLoadingOverlay(false);
   }
+  markGOSeen(goId);  // clear the "new claims" dot — the admin is looking at this GO now
   currentGO = allGOs[goId];
   document.getElementById('detail-breadcrumb').textContent = currentGO.name;
   document.getElementById('detail-go-title').textContent = currentGO.name;
@@ -2378,6 +2398,7 @@ async function refreshCurrentGO(silent) {
   try { await loadGOClaims(goId); } catch (e) {}
   if (!silent) showLoadingOverlay(false);
   currentGO = allGOs[goId] || currentGO;
+  markGOSeen(goId);  // ↺ shows the latest claims, so the "new claims" dot clears too
   renderDetailContent();
 }
 
@@ -5163,6 +5184,19 @@ const db = {
       created_at: o.created_at, updated_at: o.updated_at
     })) };
   },
+  async getClaimActivity() {  // admin-only view + column: latest claim time vs last-seen per GO
+    const [act, seen] = await Promise.all([
+      sb.from('go_claim_activity').select('go_id, latest_claim_at'),
+      sb.from('gos').select('id, claims_seen_at')
+    ]);
+    const out = {};
+    dbThrow(seen).forEach(g => { out[g.id] = { latest: null, seenAt: g.claims_seen_at }; });
+    dbThrow(act).forEach(a => { if (out[a.go_id]) out[a.go_id].latest = a.latest_claim_at; });
+    return out;
+  },
+  async markGOSeen(goId) {
+    dbThrow(await sb.from('gos').update({ claims_seen_at: new Date().toISOString() }).eq('id', goId));
+  },
   async getGcAdded() {   // admin-only table; anon gets an empty list, which is fine pre-login
     const data = await selectAll(() => sb.from('gc_members').select('go_id, username').order('go_id').order('username'));
     return { gc_added: data };
@@ -5606,6 +5640,8 @@ async function syncFromBackend(silent) {
       if (isAdmin) {
         // Background: payments drive the "$X collected" card line + the Payments tab.
         loadAdminPayments();
+        // Background: latest-claim-vs-last-seen per GO, for the "new claims" dot.
+        loadClaimActivity();
         // Background: GC "added to group chat" state, read by isGcAdded() in the Manage Joiners section.
         db.getGcAdded().then(gc => {
           if (gc && Array.isArray(gc.gc_added)) {
