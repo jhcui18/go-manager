@@ -992,10 +992,21 @@ function submitShopOrder(listingId) {
       });
       closeModal();
       renderShopPage();
-      toast('Order placed — pay in My orders.');
       document.getElementById('lookup-input').value = u;
       showPage('lookup');
       doLookup();
+      // Land them on My orders with the two next steps spelled out — buyers weren't
+      // finding the shipping options from a passing toast.
+      showModal(`
+        <div style="font-size:16px;font-weight:500;margin-bottom:10px;">Order placed 🎉</div>
+        <div style="font-size:13px;color:var(--text2);line-height:1.55;margin-bottom:8px;">
+          <span style="font-weight:500;color:var(--text);">1. Pay</span> — your order is on this page under
+          <span style="font-weight:500;color:var(--text);">Shop</span>. Submit your payment there.</div>
+        <div style="font-size:13px;color:var(--text2);line-height:1.55;margin-bottom:14px;">
+          <span style="font-weight:500;color:var(--text);">2. Shipping</span> — once it's paid and marked
+          Ready, a <span style="font-weight:500;color:var(--text);">Request shipping</span> box appears on
+          this page. Ship it on its own right away, or bundle it with your GO claims in one shipment.</div>
+        <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="closeModal()">Got it</button>`);
     } else if (res && res.error === 'oversold') {
       toast('Only ' + (res.available || 0) + ' left — please retry.');
       if (hasVariants) { const v = l.variants.find(x => x.name === shopOrderVariant); if (v) v.qty = res.available || 0; }
@@ -2181,7 +2192,7 @@ function renderShipPanel(username) {
   el.innerHTML = `
     <div class="card" style="margin-top:12px;">
       <div style="font-weight:500;font-size:15px;margin-bottom:6px;">Request shipping</div>
-      <div style="font-size:12px;color:var(--text2);margin-bottom:8px;">Pick the items to ship now — unchecked ones stay ready for a later shipment. Then enter your address:</div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:8px;">Pick the items to ship now — unchecked ones stay ready for a later shipment. Shop orders and GO claims can go in one shipment. Then enter your address:</div>
       <div style="margin-bottom:12px;">${items.map(it => `<label style="display:flex;align-items:flex-start;gap:8px;padding:4px 0;cursor:pointer;font-size:13px;">
         <input type="checkbox" class="ship-item-cb" value="${it.id}" checked style="width:16px;height:16px;flex:none;margin-top:1px;">
         <span>${it.label}</span>
