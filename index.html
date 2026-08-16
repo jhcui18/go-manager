@@ -4311,12 +4311,23 @@ function saveListing(listingId) {
   if (listingId) {
     data.listing_id = listingId;
     const local = listings.find(x => x.listing_id === listingId);
+    const prevImage = local ? (local.image_url || '') : '';
     if (local) Object.assign(local, data);
-    db.saveListing(data).catch(()=>{});
+    db.saveListing(data).then(() => {
+      // Image replaced? Clear the old uploaded copy from Storage so stale files
+      // don't pile up (removeItemImage ignores non-bucket URLs). Only after the
+      // save lands — a failed save must keep the old image reachable.
+      if (prevImage && prevImage !== data.image_url) db.removeItemImage(prevImage).catch(()=>{});
+    }).catch(() => toast('Couldn’t save the listing — please try again.'));
   } else {
     const tempId = 'lst_' + Date.now();
     listings.push({ listing_id: tempId, status: 'active', created_at: new Date().toISOString(), ...data });
-    db.saveListing(data).catch(()=>{});
+    // Swap in the database's real id once the insert lands — edits made before a
+    // refresh used to target the temp id and silently update nothing.
+    db.saveListing(data).then(r => {
+      const local = listings.find(x => x.listing_id === tempId);
+      if (local && r && r.listing_id) { local.listing_id = r.listing_id; renderAdminListings(); }
+    }).catch(() => toast('Couldn’t save the listing — please try again.'));
   }
   closeModal();
   renderAdminListings();
@@ -4328,7 +4339,7 @@ function hideListing(listingId) {
   if (!confirm('Hide this listing from the shop?')) return;
   const local = listings.find(x => x.listing_id === listingId);
   if (local) local.status = 'hidden';
-  db.hideListing(listingId).catch(()=>{});
+  db.hideListing(listingId).catch(() => toast('Couldn’t hide the listing — please try again.'));
   renderAdminListings();
   renderShopPage();
   toast('Listing hidden.');
@@ -5507,6 +5518,15 @@ const db = {
       { contentType: 'image/jpeg' });
     if (error) throw error;
     return sb.storage.from('item-images').getPublicUrl(path).data.publicUrl;
+  },
+  // Delete a previously uploaded image when it's replaced. Only touches our own
+  // bucket — external links (postimg etc.) pass through untouched.
+  async removeItemImage(url) {
+    const m = String(url).match(/\/object\/public\/item-images\/([^?#]+)/);
+    if (!m) return { ok: false };
+    const { error } = await sb.storage.from('item-images').remove([decodeURIComponent(m[1])]);
+    if (error) throw error;
+    return { ok: true };
   }
 };
 
