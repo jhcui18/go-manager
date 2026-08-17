@@ -305,7 +305,7 @@
     <ul style="list-style:none;display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--text2);">
       <li><span style="font-weight:500;color:var(--text);">EMS (international, to me)</span> — $0.50 per card; other items depend on size and weight.</li>
       <li><span style="font-weight:500;color:var(--text);">Domestic (within U.S.)</span> — <span style="font-weight:500;color:var(--text);">stamped</span> from $1.70 (up to 4 photocards, no tracking) or <span style="font-weight:500;color:var(--text);">tracked</span> from $6. You pick the method on the shipping request form.</li>
-      <li><span style="font-weight:500;color:var(--text);">International joiners</span> — tracked only (stamped is U.S. only); the cost depends on your country.</li>
+      <li><span style="font-weight:500;color:var(--text);">International joiners</span> — stamped from $2.70 (no card limit) or tracked; tracked cost depends on your country.</li>
       <li>Bulky items (albums, merch) always ship tracked, whichever option you pick.</li>
       <li>Fees are calculated based on the item's weight and dimensions.</li>
     </ul>
@@ -316,7 +316,7 @@
     <ul style="list-style:none;display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--text2);">
       <li>International shipping takes approximately 3 weeks to arrive to me.</li>
       <li>When your items are <span style="font-weight:500;color:var(--text);">paid and marked Ready</span>, a Request shipping form appears under <span style="font-weight:500;color:var(--text);">My orders</span>. Pick stamped or tracked, and feel free to combine GO claims and Shop orders in one package.</li>
-      <li>Once I receive your shipping request, I'll send you a picture of your items, then ship them within 1 week (after your shipping payment).</li>
+      <li>Once I receive your shipping request, I'll send you a picture of your items and let you know the shipping fee; your package goes out after the shipping payment.</li>
       <li>Follow your package under <span style="font-weight:500;color:var(--text);">My orders → Your shipments</span> — for tracked shipments, your tracking number appears there and clicking it opens live tracking.</li>
     </ul>
   </div>
@@ -2234,22 +2234,11 @@ function shipmentsCardHtml(username) {
   </div>`;
 }
 let shipMethod = 'tracked';
-function shipCountryIsUS() {
-  const v = ((document.getElementById('ship-country') || {}).value || '').trim();
-  return /^(us|usa|u\.s\.?a?\.?|united states( of america)?)$/i.test(v);
-}
 function setShipMethod(m) {
-  if (m === 'stamped' && !shipCountryIsUS()) { toast('Stamped shipping is US-only — international orders ship tracked.'); return; }
   shipMethod = m;
   const t = document.getElementById('ship-m-tracked'), s = document.getElementById('ship-m-stamped');
   if (t) t.classList.toggle('selected', m === 'tracked');
   if (s) s.classList.toggle('selected', m === 'stamped');
-}
-function onShipCountryChange() {
-  const us = shipCountryIsUS();
-  const s = document.getElementById('ship-m-stamped');
-  if (s) s.style.opacity = us ? '' : '0.5';
-  if (!us && shipMethod === 'stamped') setShipMethod('tracked');
 }
 function renderShipPanel(username) {
   const el = document.getElementById('lookup-ship-panel');
@@ -2273,10 +2262,10 @@ function renderShipPanel(username) {
         </div>
         <div class="member-tile" id="ship-m-stamped" onclick="setShipMethod('stamped')" style="flex:1;">
           <div class="member-tile-name">Stamped</div>
-          <div class="member-tile-sub">cheapest · US only</div>
+          <div class="member-tile-sub">cheapest · no tracking</div>
         </div>
       </div>
-      <div style="font-size:11px;color:var(--text3);line-height:1.5;margin-bottom:12px;">Stamped: US addresses only, up to 4 photocards, no tracking. Bulky items (albums, merch) always ship tracked.</div>
+      <div style="font-size:11px;color:var(--text3);line-height:1.5;margin-bottom:12px;">Stamped has no tracking — up to 4 photocards for U.S. addresses, no card limit internationally. Bulky items (albums, merch) always ship tracked.</div>
       <div class="field"><label>Full name</label><input type="text" id="ship-fullname" placeholder="As on the label"></div>
       <div class="field"><label>Address line 1</label><input type="text" id="ship-addr1"></div>
       <div class="field"><label>Address line 2 (optional)</label><input type="text" id="ship-addr2" placeholder="Apt, unit..."></div>
@@ -2286,7 +2275,7 @@ function renderShipPanel(username) {
       </div>
       <div class="field-row">
         <div class="field"><label>Postal / ZIP code</label><input type="text" id="ship-postal"></div>
-        <div class="field"><label>Country</label><input type="text" id="ship-country" value="United States" oninput="onShipCountryChange()"></div>
+        <div class="field"><label>Country</label><input type="text" id="ship-country" value="United States"></div>
       </div>
       <div class="field"><label>Notes (optional)</label><textarea id="ship-notes" placeholder="Anything I should know — special instructions, customs notes, combine with a future order…" style="min-height:60px;"></textarea></div>
       <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="submitShippingRequest('${username}')">Submit shipping request</button>
