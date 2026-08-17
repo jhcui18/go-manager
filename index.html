@@ -396,8 +396,8 @@
           <button class="btn btn-sm" onclick="refreshShippingQueue()">↺ Refresh</button>
         </div>
         <div class="card"><div class="table-wrap"><table>
-          <thead><tr><th>Username</th><th>Items ready</th><th>Cards</th><th>EMS fee</th><th>Dom. fee</th><th>Total</th><th>Address</th><th></th></tr></thead>
-          <tbody id="shipping-queue-tbody"><tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px;">No shipping requests yet.</td></tr></tbody>
+          <thead><tr><th>Username</th><th>Items ready</th><th>Cards</th><th>Method</th><th>EMS fee</th><th>Dom. fee</th><th>Total</th><th>Tracking #</th><th>Address</th><th></th></tr></thead>
+          <tbody id="shipping-queue-tbody"><tr><td colspan="10" style="text-align:center;color:var(--text3);padding:20px;">No shipping requests yet.</td></tr></tbody>
         </table></div></div>
       </div>
     </div>
@@ -2187,12 +2187,57 @@ function shipEligibleItems(username) {
   return items.filter(it => !requested[it.id]);
 }
 
+// Universal tracking link — 17TRACK auto-detects the carrier from the number,
+// so no carrier field is needed anywhere (works for USPS, EMS, intl carriers).
+function trackingLink(num) {
+  const n = String(num || '').trim();
+  if (!n) return '';
+  return `<a href="https://t.17track.net/en#nums=${encodeURIComponent(n)}" target="_blank" rel="noopener" style="font-family:var(--mono);font-weight:500;color:var(--accent);">${n}</a>`;
+}
+// The joiner's submitted shipments: method, status, fee, and tracking link.
+function shipmentsCardHtml(username) {
+  const mine = (shippingRequests || []).filter(r => sameUser(r.username, username));
+  if (!mine.length) return '';
+  const rows = mine.map(r => `
+    <div style="padding:8px 0;border-bottom:0.5px solid var(--border);">
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+        <span class="badge ${r.shipped ? 'badge-secured' : 'badge-pending'}" style="font-size:10px;">${r.shipped ? 'Shipped' : 'Preparing'}</span>
+        <span class="badge badge-fcfs" style="font-size:10px;">${r.method === 'stamped' ? 'Stamped' : 'Tracked'}</span>
+        <span style="font-size:11px;color:var(--text3);">${(r.items || []).length} item${(r.items || []).length !== 1 ? 's' : ''}${r.created_at ? ' · ' + fmtDate(r.created_at) : ''}</span>
+        ${parseFloat(r.total_fee) > 0 ? `<span style="font-size:11px;font-family:var(--mono);color:var(--text2);margin-left:auto;">$${parseFloat(r.total_fee).toFixed(2)} shipping</span>` : ''}
+      </div>
+      <div style="font-size:12px;color:var(--text3);margin-top:3px;">${(r.items || []).map(it => it.label).join(' · ')}</div>
+      ${r.tracking_number ? `<div style="font-size:12px;margin-top:4px;">Tracking: ${trackingLink(r.tracking_number)}</div>` : ''}
+    </div>`).join('');
+  return `<div class="card" style="margin-top:12px;">
+    <div style="font-weight:500;font-size:15px;margin-bottom:4px;">Your shipments</div>${rows}
+  </div>`;
+}
+let shipMethod = 'tracked';
+function shipCountryIsUS() {
+  const v = ((document.getElementById('ship-country') || {}).value || '').trim();
+  return /^(us|usa|u\.s\.?a?\.?|united states( of america)?)$/i.test(v);
+}
+function setShipMethod(m) {
+  if (m === 'stamped' && !shipCountryIsUS()) { toast('Stamped shipping is US-only — international orders ship tracked.'); return; }
+  shipMethod = m;
+  const t = document.getElementById('ship-m-tracked'), s = document.getElementById('ship-m-stamped');
+  if (t) t.classList.toggle('selected', m === 'tracked');
+  if (s) s.classList.toggle('selected', m === 'stamped');
+}
+function onShipCountryChange() {
+  const us = shipCountryIsUS();
+  const s = document.getElementById('ship-m-stamped');
+  if (s) s.style.opacity = us ? '' : '0.5';
+  if (!us && shipMethod === 'stamped') setShipMethod('tracked');
+}
 function renderShipPanel(username) {
   const el = document.getElementById('lookup-ship-panel');
   if (!el) return;
   const items = shipEligibleItems(username);
-  if (!items.length) { el.innerHTML = ''; return; }
-  el.innerHTML = `
+  let html = shipmentsCardHtml(username);
+  shipMethod = 'tracked';
+  if (items.length) html += `
     <div class="card" style="margin-top:12px;">
       <div style="font-weight:500;font-size:15px;margin-bottom:6px;">Request shipping</div>
       <div style="font-size:12px;color:var(--text2);margin-bottom:8px;">Pick the items to ship now — unchecked ones stay ready for a later shipment. Shop orders and GO claims can go in one shipment. Then enter your address:</div>
@@ -2200,20 +2245,33 @@ function renderShipPanel(username) {
         <input type="checkbox" class="ship-item-cb" value="${it.id}" checked style="width:16px;height:16px;flex:none;margin-top:1px;">
         <span>${it.label}</span>
       </label>`).join('')}</div>
+      <div class="section-label" style="margin-bottom:6px;">Shipping method</div>
+      <div style="display:flex;gap:8px;margin-bottom:6px;">
+        <div class="member-tile selected" id="ship-m-tracked" onclick="setShipMethod('tracked')" style="flex:1;">
+          <div class="member-tile-name">Tracked</div>
+          <div class="member-tile-sub">tracking number included</div>
+        </div>
+        <div class="member-tile" id="ship-m-stamped" onclick="setShipMethod('stamped')" style="flex:1;">
+          <div class="member-tile-name">Stamped</div>
+          <div class="member-tile-sub">cheapest · US only</div>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--text3);line-height:1.5;margin-bottom:12px;">Stamped: US addresses only, up to 4 photocards, no tracking. Bulky items (albums, merch) always ship tracked.</div>
       <div class="field"><label>Full name</label><input type="text" id="ship-fullname" placeholder="As on the label"></div>
       <div class="field"><label>Address line 1</label><input type="text" id="ship-addr1"></div>
       <div class="field"><label>Address line 2 (optional)</label><input type="text" id="ship-addr2" placeholder="Apt, unit..."></div>
       <div class="field-row">
         <div class="field"><label>City</label><input type="text" id="ship-city"></div>
-        <div class="field"><label>State / Province</label><input type="text" id="ship-state"></div>
+        <div class="field"><label>State / Province / Region</label><input type="text" id="ship-state" placeholder="If applicable"></div>
       </div>
       <div class="field-row">
-        <div class="field"><label>Postal code</label><input type="text" id="ship-postal"></div>
-        <div class="field"><label>Country</label><input type="text" id="ship-country" value="United States"></div>
+        <div class="field"><label>Postal / ZIP code</label><input type="text" id="ship-postal"></div>
+        <div class="field"><label>Country</label><input type="text" id="ship-country" value="United States" oninput="onShipCountryChange()"></div>
       </div>
-      <div class="field"><label>Notes (optional)</label><input type="text" id="ship-notes" placeholder="Special instructions"></div>
+      <div class="field"><label>Notes (optional)</label><textarea id="ship-notes" placeholder="Anything I should know — special instructions, customs notes, combine with a future order…" style="min-height:60px;"></textarea></div>
       <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="submitShippingRequest('${username}')">Submit shipping request</button>
     </div>`;
+  el.innerHTML = html;
 }
 
 async function submitShippingRequest(username) {
@@ -2232,10 +2290,16 @@ async function submitShippingRequest(username) {
     full_name, address1, address2: g('ship-addr2').trim(), city,
     state: g('ship-state').trim(), postal: g('ship-postal').trim(),
     country: g('ship-country').trim(), notes: g('ship-notes').trim(),
-    items, shipped: false, ems_fee: '', dom_fee: '', total_fee: '', card_count: items.length
+    method: shipMethod, tracking_number: '',
+    items, shipped: false, ems_fee: '', dom_fee: '', total_fee: '', card_count: items.length,
+    created_at: new Date().toISOString()
   };
   let ok = false;
-  try { await db.submitShipping(req); ok = true; } catch (e) {}
+  try {
+    const res = await db.submitShipping(req);
+    if (res && res.request_id) req.request_id = res.request_id;  // real id, not the temp one
+    ok = true;
+  } catch (e) {}
   if (!ok) { toast("Couldn't submit your shipping request — please try again."); return; }
   shippingRequests.push(req);
   renderShipPanel(username);
@@ -5006,7 +5070,7 @@ function renderShippingQueueInner() {
   if (!tbody) return;
   const pending = (shippingRequests || []).filter(r => !r.shipped);
   if (!pending.length) {
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px;">No shipping requests.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:20px;">No shipping requests.</td></tr>';
     return;
   }
   tbody.innerHTML = pending.map(r => {
@@ -5018,15 +5082,26 @@ function renderShippingQueueInner() {
       <td style="font-weight:500;">${r.username}</td>
       <td style="font-size:12px;color:var(--text2);">${items.map(it => it.label).join('<br>') || '—'}</td>
       <td>${items.length}</td>
+      <td><span class="badge ${r.method === 'stamped' ? 'badge-pending' : 'badge-fcfs'}" style="font-size:10px;">${r.method === 'stamped' ? 'Stamped' : 'Tracked'}</span></td>
       <td><input type="number" placeholder="0.00" step="0.01" value="${r.ems_fee||''}" oninput="updateShipFee('${r.request_id}','ems',this.value)" style="width:72px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);"></td>
       <td><input type="number" placeholder="0.00" step="0.01" value="${r.dom_fee||''}" oninput="updateShipFee('${r.request_id}','dom',this.value)" style="width:72px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);"></td>
       <td style="font-family:var(--mono);font-weight:500;" id="ship-total-${r.request_id}">${total !== '—' ? '$'+total : '—'}</td>
+      <td><input type="text" placeholder="Paste number" value="${r.tracking_number||''}" onchange="saveShipTracking('${r.request_id}',this.value)" style="width:130px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);"></td>
       <td><button class="btn btn-sm btn-ghost" onclick="viewShippingAddress('${r.request_id}')">View</button></td>
       <td><button class="btn btn-sm btn-primary" onclick="markShipped('${r.request_id}')">Mark shipped</button></td>
     </tr>`;
   }).join('');
 }
 
+// Tracking number persists as soon as it's typed (onchange), not only at "Mark
+// shipped" — so it survives even if the admin marks shipped later or elsewhere.
+function saveShipTracking(requestId, val) {
+  const r = shippingRequests.find(x => x.request_id === requestId);
+  if (!r) return;
+  r.tracking_number = val.trim();
+  db.updateShipping({ request_id: r.request_id, ems_fee: r.ems_fee || '', dom_fee: r.dom_fee || '', total_fee: r.total_fee || '', tracking_number: r.tracking_number, shipped: !!r.shipped })
+    .catch(() => toast("Couldn't save the tracking number — please retry."));
+}
 function updateShipFee(requestId, which, val) {
   const r = shippingRequests.find(x => x.request_id === requestId);
   if (!r) return;
@@ -5044,7 +5119,9 @@ function viewShippingAddress(requestId) {
   const addr = [r.full_name, r.address1, r.address2, [r.city, r.state, r.postal].filter(Boolean).join(', '), r.country, r.notes ? ('Notes: ' + r.notes) : ''].filter(Boolean).join('\n');
   showModal(`
     <div style="font-size:16px;font-weight:500;margin-bottom:4px;">Shipping address</div>
-    <div style="font-size:13px;font-weight:500;margin-bottom:8px;">${r.username}</div>
+    <div style="font-size:13px;font-weight:500;margin-bottom:8px;">${r.username}
+      <span class="badge ${r.method === 'stamped' ? 'badge-pending' : 'badge-fcfs'}" style="font-size:10px;margin-left:6px;">${r.method === 'stamped' ? 'Stamped' : 'Tracked'}</span>
+      ${r.tracking_number ? `<span style="font-size:12px;font-weight:400;margin-left:6px;">${trackingLink(r.tracking_number)}</span>` : ''}</div>
     <div style="font-size:13px;color:var(--text2);white-space:pre-line;margin-bottom:16px;">${addr || 'No address.'}</div>
     <div style="font-size:13px;font-weight:500;margin-bottom:6px;">Items:</div>
     <div style="font-size:12px;color:var(--text2);">${(r.items||[]).map(it => '• ' + it.label).join('<br>') || '—'}</div>
@@ -5066,7 +5143,7 @@ function markShipped(requestId) {
     if (si.claims) si.claims.forEach(c => { if (c.claim_id && claimIds[c.claim_id]) c.fulfillment = 'Shipped'; });
   }));
   shopOrders.forEach(o => { if (orderIds[o.order_id]) o.fulfillment = 'Shipped'; });
-  db.updateShipping({ request_id: r.request_id, ems_fee: r.ems_fee || '', dom_fee: r.dom_fee || '', total_fee: r.total_fee || '', shipped: true })
+  db.updateShipping({ request_id: r.request_id, ems_fee: r.ems_fee || '', dom_fee: r.dom_fee || '', total_fee: r.total_fee || '', tracking_number: r.tracking_number || '', shipped: true })
     .catch(() => toast("Couldn't save the shipped flag — please retry."));
   // Persist the bundled items' fulfillment too — the local flips above are lost on
   // reload otherwise, and buyers would keep seeing "Ready".
@@ -5213,6 +5290,7 @@ const db = {
       shipping: dbThrow(sh).map(r => ({ request_id: r.id, username: r.username,
         ems_fee: r.ems_fee, dom_fee: r.dom_fee, total_fee: r.total_fee,
         shipped: r.shipped, created_at: r.created_at,
+        method: r.method || 'tracked', tracking_number: r.tracking_number || '',
         items: Array.isArray(r.items) ? r.items : [] }))
     };
   },
@@ -5273,6 +5351,7 @@ const db = {
       card_count: (r.shipping_request_items || []).reduce((a, i) => a + (i.qty || 0), 0),
       ems_fee: r.ems_fee, dom_fee: r.dom_fee, total_fee: r.total_fee,
       shipped: r.shipped, created_at: r.created_at,
+      method: r.method || 'tracked', tracking_number: r.tracking_number || '',
       items: JSON.stringify((r.shipping_request_items || [])
         .map(i => ({ type: i.claim_id ? 'claim' : i.shop_order_id ? 'shop' : 'item',
                      id: i.claim_id || i.shop_order_id || i.id, label: i.description })))
@@ -5305,7 +5384,7 @@ const db = {
     const items = (req.items || []).map(it => ({ go_id: null, description: it.label || '', qty: 1,
       claim_id: it.type === 'claim' ? it.id : null,
       shop_order_id: it.type === 'shop' ? it.id : null }));
-    const { data, error } = await sb.rpc('submit_shipping', { p: { ...req, items } });
+    const { data, error } = await sb.rpc('submit_shipping', { p: { ...req, method: req.method || 'tracked', items } });
     if (error) throw error;
     return data;
   },
@@ -5529,6 +5608,7 @@ const db = {
       ems_fee: d.ems_fee === '' ? null : d.ems_fee,
       dom_fee: d.dom_fee === '' ? null : d.dom_fee,
       total_fee: d.total_fee === '' ? null : d.total_fee,
+      tracking_number: (d.tracking_number || '').trim() || null,
       shipped: !!d.shipped
     }).eq('id', d.request_id);
     if (r.error) throw r.error;
