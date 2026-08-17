@@ -1047,6 +1047,9 @@ async function loadGOClaims(goId) {
     if (si.sets !== undefined) si.sets = buildSetsFromClaims(claims, si.id, members);
     else if (isBatch(si)) si.claims = buildBatchClaims(claims, si.id);
     else si.claims = buildVersionedClaims(claims, si.id);
+    // Newest claim per POB — drives the per-POB "new claims" dot in the admin detail.
+    si.latestClaimAt = claims.reduce((a, c) =>
+      (c.sub_item_id === si.id && c.created_at && (!a || c.created_at > a)) ? c.created_at : a, null);
     si.closed = isSubItemClosed(goId, si.id);
     si.deadline = subItemDeadline(goId, si.id);
     si.payDue = subItemPayByDate(goId, si.id);
@@ -2362,6 +2365,15 @@ function markGOSeen(goId) {
   db.markGOSeen(goId).catch(()=>{});
 }
 
+// Per-POB breakdown of the GO-card dot. Compared against the seen-mark snapshotted
+// when this Manage visit started (openGODetail), so dots stay visible while browsing
+// and ↺-refreshing, and clear on the next visit — same lifecycle as the GO dot.
+let goDetailPrevSeen = {};  // go_id -> claims_seen_at at the moment Manage was opened
+function subItemHasNewClaims(goId, si) {
+  const prev = goDetailPrevSeen[goId];
+  return !!(si.latestClaimAt && (!prev || new Date(si.latestClaimAt) > new Date(prev)));
+}
+
 function renderAdminGOList() {
   const el = document.getElementById('admin-go-list');
   if (!el) return;
@@ -2397,6 +2409,8 @@ async function openGODetail(goId) {
     catch (e) { showLoadingOverlay(false); toast('Couldn’t load this group order — please try again.'); return; }
     showLoadingOverlay(false);
   }
+  // Snapshot the pre-visit seen-mark for the per-POB dots BEFORE markGOSeen bumps it.
+  goDetailPrevSeen[goId] = (claimActivity[goId] || {}).seenAt || null;
   markGOSeen(goId);  // clear the "new claims" dot — the admin is looking at this GO now
   currentGO = allGOs[goId];
   document.getElementById('detail-breadcrumb').textContent = currentGO.name;
@@ -2500,7 +2514,7 @@ function renderDetailContentInner() {
     const siOpen = !!adminOpenSI[si.id];
     html += `<div class="admin-section">
       <div class="admin-section-title" style="cursor:pointer;user-select:none;" onclick="toggleAdminSI('${si.id}')">
-        <span id="adm-chev-${si.id}" style="width:12px;color:var(--text3);">${siOpen ? '▾' : '▸'}</span>${si.name}`;
+        <span id="adm-chev-${si.id}" style="width:12px;color:var(--text3);">${siOpen ? '▾' : '▸'}</span>${subItemHasNewClaims(go.id, si) ? '<span title="New claims since you last opened this GO" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent);margin-right:6px;flex:none;"></span>' : ''}${si.name}`;
     if (si.sets) {
       html += ` <span class="badge badge-set" style="font-size:10px;">set-based</span>`;
       if (si.price) html += ` <span style="font-size:12px;color:var(--text3);">$${si.price.toFixed(2)}/copy</span>`;
