@@ -1103,7 +1103,11 @@ function renderClaimPage(goId) {
     <button class="btn btn-ghost btn-sm" onclick="showPage('orders')" style="padding:5px 8px;">← Back</button>
     <span style="font-size:13px;color:var(--text2);">${go.name}</span>
   </div>
-  ${go.status === 'closed' ? '<div class="card" style="background:var(--surface2);border-color:var(--border2);margin-bottom:16px;"><div style="font-size:13px;color:var(--text2);font-weight:500;">This GO is closed — no longer accepting new claims.</div></div>' : ''}`;
+  ${go.status === 'closed' ? '<div class="card" style="background:var(--surface2);border-color:var(--border2);margin-bottom:16px;"><div style="font-size:13px;color:var(--text2);font-weight:500;">This GO is closed — no longer accepting new claims.</div></div>' : ''}
+  ${(go.status !== 'closed' && (go.deadline || go.paymentDeadline)) ? `<div class="card" style="margin-bottom:16px;padding:10px 14px;"><div style="font-size:13px;color:var(--text2);display:flex;flex-wrap:wrap;gap:4px 14px;">
+    ${go.deadline ? `<span>🗓️ Closes <span style="font-weight:600;color:var(--text);">${fmtDate(go.deadline)}</span></span>` : ''}
+    ${go.paymentDeadline ? `<span>💸 Payment due <span style="font-weight:600;color:var(--text);">${fmtDate(go.paymentDeadline)}</span></span>` : ''}
+  </div><div style="font-size:11px;color:var(--text3);margin-top:3px;">Items showing their own dates use those instead.</div></div>` : ''}`;
 
   if (go.type === 'photocard') {
     go.subItems.forEach(si => {
