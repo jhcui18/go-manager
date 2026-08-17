@@ -2428,10 +2428,12 @@ function refreshMyOrders(btn) {
 // ── ADMIN ────────────────────────────────────────────────────────────────────
 // Total a GO SHOULD collect = sum of every claimant's owed (secured value), matching what buyers see.
 function goExpected(go) {
+  // Lowercase the user set: paymentOwedUnits matches case-insensitively, so two
+  // capitalizations of one joiner would otherwise count their money twice.
   const users = new Set();
   (go.subItems || []).forEach(si => {
-    if (si.sets) si.sets.forEach(set => Object.values(set.slots || {}).forEach(slot => { if (slot && slot.user) users.add(slot.user); }));
-    if (si.claims) si.claims.forEach(c => { if (c.user) users.add(c.user); });
+    if (si.sets) si.sets.forEach(set => Object.values(set.slots || {}).forEach(slot => { if (slot && slot.user) users.add(String(slot.user).toLowerCase()); }));
+    if (si.claims) si.claims.forEach(c => { if (c.user) users.add(String(c.user).toLowerCase()); });
   });
   let total = 0;
   users.forEach(u => { total += paymentOwedUnits(u, go.id).reduce((a, x) => a + x.value, 0); });
@@ -2445,7 +2447,10 @@ function hasNewClaims(goId) {
 function loadClaimActivity() {  // background; failure (e.g. pre-migration) just means no dots
   if (!isAdmin) return;
   db.getClaimActivity().then(act => { claimActivity = act; renderAdminGOList(); }).catch(()=>{});
+  // Per-GO expected totals (go_money view) drive the "to collect" amount on the list.
+  db.getGoMoney().then(m => { goMoney = m; renderAdminGOList(); }).catch(()=>{});
 }
+let goMoney = {};  // go_id -> expected collection total (secured value), from go_money
 
 function markGOSeen(goId) {
   if (!isAdmin) return;
@@ -2470,7 +2475,14 @@ function renderAdminGOList() {
     const typeLabel = go.type==='photocard'?'Photocard':go.type==='album'?'Album':'Merch';
     const badgeClass = go.type==='photocard'?'badge-set':go.type==='album'?'badge-fcfs':'badge-waitlist';
     const collected = (paymentProofs || []).filter(p => p.go_id === go.id && p.status === 'confirmed').reduce((a, p) => a + (parseFloat(p.amount) || 0), 0);
-    const collectedHtml = collected > 0 ? ` · <span style="color:var(--teal-600);font-weight:500;">$${collected.toFixed(2)} collected</span>` : '';
+    let collectedHtml = collected > 0 ? ` · <span style="color:var(--teal-600);font-weight:500;">$${collected.toFixed(2)} collected</span>` : '';
+    const expected = goMoney[go.id];
+    if (expected > 0) {
+      const toCollect = Math.max(0, expected - collected);
+      collectedHtml += toCollect > 0.005
+        ? ` · <span style="color:var(--red-400);font-weight:500;">$${toCollect.toFixed(2)} to collect</span>`
+        : ` · <span style="color:var(--teal-600);">fully collected ✓</span>`;
+    }
     const dot = hasNewClaims(go.id) ? '<span title="New claims since you last opened this GO" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--accent);margin-right:6px;"></span>' : '';
     return `<div class="card-sm" style="margin-bottom:8px;">
       <div style="display:flex;align-items:center;justify-content:space-between;">
@@ -5358,6 +5370,12 @@ const db = {
     const out = {};
     dbThrow(seen).forEach(g => { out[g.id] = { latest: null, seenAt: g.claims_seen_at }; });
     dbThrow(act).forEach(a => { if (out[a.go_id]) out[a.go_id].latest = a.latest_claim_at; });
+    return out;
+  },
+  async getGoMoney() {
+    const data = dbThrow(await sb.from('go_money').select('go_id, expected'));
+    const out = {};
+    data.forEach(r => { out[r.go_id] = parseFloat(r.expected) || 0; });
     return out;
   },
   async markGOSeen(goId) {
