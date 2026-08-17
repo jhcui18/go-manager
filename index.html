@@ -2497,7 +2497,9 @@ function renderDetailContent() {
 function renderDetailContentInner() {
   const go = currentGO;
   const el = document.getElementById('detail-content');
-  if (!el) return;
+  // No GO detail open (e.g. marking shipped straight from the Shipping tab):
+  // nothing to redraw — without this guard the caller dies mid-function.
+  if (!el || !go) return;
   let html = '';
   // Money summary for this GO (claims are loaded here, so goExpected is valid).
   const _exp = goExpected(go);
@@ -5064,7 +5066,12 @@ function markShipped(requestId) {
     if (si.claims) si.claims.forEach(c => { if (c.claim_id && claimIds[c.claim_id]) c.fulfillment = 'Shipped'; });
   }));
   shopOrders.forEach(o => { if (orderIds[o.order_id]) o.fulfillment = 'Shipped'; });
-  db.updateShipping({ request_id: r.request_id, ems_fee: r.ems_fee || '', dom_fee: r.dom_fee || '', total_fee: r.total_fee || '', shipped: true }).catch(()=>{});
+  db.updateShipping({ request_id: r.request_id, ems_fee: r.ems_fee || '', dom_fee: r.dom_fee || '', total_fee: r.total_fee || '', shipped: true })
+    .catch(() => toast("Couldn't save the shipped flag — please retry."));
+  // Persist the bundled items' fulfillment too — the local flips above are lost on
+  // reload otherwise, and buyers would keep seeing "Ready".
+  db.markShipmentItems(Object.keys(claimIds), Object.keys(orderIds))
+    .catch(() => toast("Couldn't set the items to Shipped — retry from the queue."));
   renderShippingQueue();
   renderDetailContent();
   renderShopOrders();
@@ -5205,7 +5212,8 @@ const db = {
       shop_orders: dbThrow(so).map(shopOrderToLegacy),
       shipping: dbThrow(sh).map(r => ({ request_id: r.id, username: r.username,
         ems_fee: r.ems_fee, dom_fee: r.dom_fee, total_fee: r.total_fee,
-        shipped: r.shipped, created_at: r.created_at }))
+        shipped: r.shipped, created_at: r.created_at,
+        items: Array.isArray(r.items) ? r.items : [] }))
     };
   },
   async getPayments() {
@@ -5257,7 +5265,7 @@ const db = {
   },
   async getShipping() {  // admin: full requests incl. addresses + items
     const data = await selectAll(() => sb.from('shipping_requests')
-      .select('*, shipping_request_items(id, go_id, description, qty)').order('created_at').order('id'));
+      .select('*, shipping_request_items(id, go_id, description, qty, claim_id, shop_order_id)').order('created_at').order('id'));
     return { requests: data.map(r => ({
       request_id: r.id, username: r.username, full_name: r.full_name,
       address1: r.address1, address2: r.address2 || '', city: r.city, state: r.state,
@@ -5266,7 +5274,8 @@ const db = {
       ems_fee: r.ems_fee, dom_fee: r.dom_fee, total_fee: r.total_fee,
       shipped: r.shipped, created_at: r.created_at,
       items: JSON.stringify((r.shipping_request_items || [])
-        .map(i => ({ type: 'item', id: i.id, label: i.description })))
+        .map(i => ({ type: i.claim_id ? 'claim' : i.shop_order_id ? 'shop' : 'item',
+                     id: i.claim_id || i.shop_order_id || i.id, label: i.description })))
     })) };
   },
   async submitClaim(payload) {
@@ -5293,7 +5302,9 @@ const db = {
     return data;
   },
   async submitShipping(req) {
-    const items = (req.items || []).map(it => ({ go_id: null, description: it.label || '', qty: 1 }));
+    const items = (req.items || []).map(it => ({ go_id: null, description: it.label || '', qty: 1,
+      claim_id: it.type === 'claim' ? it.id : null,
+      shop_order_id: it.type === 'shop' ? it.id : null }));
     const { data, error } = await sb.rpc('submit_shipping', { p: { ...req, items } });
     if (error) throw error;
     return data;
@@ -5506,6 +5517,11 @@ const db = {
   async deleteShopOrder(orderId) {
     const r = await sb.from('shop_orders').delete().eq('id', orderId);
     if (r.error) throw r.error;
+    return { ok: true };
+  },
+  async markShipmentItems(claimIds, orderIds) {
+    if (claimIds.length) dbThrow(await sb.from('claims').update({ fulfillment: 'Shipped' }).in('id', claimIds));
+    if (orderIds.length) dbThrow(await sb.from('shop_orders').update({ fulfillment: 'Shipped' }).in('id', orderIds));
     return { ok: true };
   },
   async updateShipping(d) {
