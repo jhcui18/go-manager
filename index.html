@@ -2337,6 +2337,7 @@ async function submitGoPayment(goId, lookedUpUser) {
   const txid = (document.getElementById('pay-txid-'+goId)||{}).value || '';
   if (amount <= 0) { toast('Enter the amount you paid.'); return; }
   if (!method) { toast('Please select the payment method you used.'); return; }
+  if (!txid.trim()) { toast('Please paste your transaction ID — payments can’t be confirmed without one.'); return; }
   const proof = {
     payment_id: 'pay_' + Date.now(),
     username: u,
@@ -2349,9 +2350,17 @@ async function submitGoPayment(goId, lookedUpUser) {
     status: 'pending',
     created_at: new Date().toISOString()
   };
-  let ok = false;
-  try { await db.submitPayment(proof); ok = true; } catch (e) {}
-  if (!ok) { toast("Couldn't submit your payment — please try again."); return; }
+  let res = null;
+  try { res = await db.submitPayment(proof); } catch (e) {}
+  if (!res || !res.ok) {
+    // Server-side transaction-id checks (migration 012): name the problem.
+    const err = res && res.error;
+    toast(err === 'txid_other_user' ? 'This transaction ID matches another account’s confirmed payment — double-check the ID, or message me.'
+        : err === 'txid_duplicate' ? 'You already submitted this transaction ID for this GO — it’s waiting for confirmation.'
+        : err === 'txid_required' ? 'Please paste your transaction ID — payments can’t be confirmed without one.'
+        : "Couldn't submit your payment — please try again.");
+    return;
+  }
   addPaymentProof(proof);
   toast('Payment submitted — the manager will confirm it.');
   // Disable the button to prevent double-submit until next lookup refresh
@@ -5061,9 +5070,10 @@ const _submitPaymentForm = async () => {
     status: 'pending',
     created_at: new Date().toISOString()
   };
-  let ok = false;
-  try { await db.submitPayment(proof); ok = true; } catch (e) {}
-  if (!ok) { toast("Couldn't submit your payment — please try again."); return; }
+  if (!String(proof.transaction_id).trim()) { toast('Please paste your transaction ID — payments can’t be confirmed without one.'); return; }
+  let res = null;
+  try { res = await db.submitPayment(proof); } catch (e) {}
+  if (!res || !res.ok) { toast("Couldn't submit your payment — please try again."); return; }
   addPaymentProof(proof);
   toast('Payment submitted! We\'ll confirm within 24 hours.');
 };
