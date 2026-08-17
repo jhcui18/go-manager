@@ -2187,12 +2187,20 @@ function shipEligibleItems(username) {
   return items.filter(it => !requested[it.id]);
 }
 
-// Universal tracking link — 17TRACK auto-detects the carrier from the number,
-// so no carrier field is needed anywhere (works for USPS, EMS, intl carriers).
+// Tracking link with carrier auto-detected from the number format — official
+// USPS/UPS/FedEx pages when recognizable, 17TRACK for everything else (EMS,
+// Japan Post, unknown formats). No carrier field needed anywhere.
+function trackingUrl(num) {
+  const n = String(num || '').replace(/\s+/g, '').toUpperCase();
+  if (/^1Z[0-9A-Z]{16}$/.test(n)) return 'https://www.ups.com/track?tracknum=' + encodeURIComponent(n);
+  if (/^[A-Z]{2}\d{9}US$/.test(n) || /^9[0-5]\d{18,24}$/.test(n)) return 'https://tools.usps.com/go/TrackConfirmAction?tLabels=' + encodeURIComponent(n);
+  if (/^\d{12}$/.test(n) || /^\d{15}$/.test(n)) return 'https://www.fedex.com/fedextrack/?trknbr=' + encodeURIComponent(n);
+  return 'https://t.17track.net/en#nums=' + encodeURIComponent(n);
+}
 function trackingLink(num) {
   const n = String(num || '').trim();
   if (!n) return '';
-  return `<a href="https://t.17track.net/en#nums=${encodeURIComponent(n)}" target="_blank" rel="noopener" style="font-family:var(--mono);font-weight:500;color:var(--accent);">${n}</a>`;
+  return `<a href="${trackingUrl(n)}" target="_blank" rel="noopener" style="font-family:var(--mono);font-weight:500;color:var(--accent);">${n}</a>`;
 }
 // The joiner's submitted shipments: method, status, fee, and tracking link.
 function shipmentsCardHtml(username) {
