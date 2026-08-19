@@ -1094,6 +1094,7 @@ async function openClaimPage(goId) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   page.classList.add('active');
   renderClaimPage(goId);
+  if (location.hash !== '#go/' + goId) history.replaceState(null, '', '#go/' + goId);
 }
 
 function renderClaimPage(goId) {
@@ -3512,6 +3513,8 @@ function applyAdminState() {
   document.getElementById('admin-badge').style.display = isAdmin ? '' : 'none';
   document.getElementById('admin-login-btn').style.display = isAdmin ? 'none' : '';
   document.getElementById('admin-logout-btn').style.display = isAdmin ? '' : 'none';
+  // A refresh on #admin lands before the auth session resolves — finish the restore now.
+  if (isAdmin && pendingAdminRestore) { pendingAdminRestore = false; showPage('admin'); }
 }
 
 function logoutAdmin() {
@@ -3569,7 +3572,22 @@ function showPage(id) {
     // My orders no longer auto-syncs on open (the site already syncs once on load).
     // Buyers use the ↻ Refresh button in the result header to pull the latest status.
     if (id === 'admin') { if (!isAdmin) { promptAdmin(); page.classList.remove('active'); return; } showAdminPanel('home'); }
+    // Remember the page in the URL so a refresh comes back here (replaceState:
+    // no history spam, no hashchange loops).
+    if (location.hash !== '#' + id) history.replaceState(null, '', '#' + id);
   }
+}
+
+// Restore the page recorded in the hash after the initial data sync. #go/<id>
+// needs allGOs; #admin waits for the auth session if it hasn't resolved yet.
+let pendingAdminRestore = false;
+function restoreHashPage() {
+  const h = decodeURIComponent((location.hash || '').replace(/^#/, ''));
+  if (!h || h === 'orders') return;
+  const goMatch = /^go\/(.+)$/.exec(h);
+  if (goMatch) { if (allGOs[goMatch[1]]) openClaimPage(goMatch[1]); return; }
+  if (h === 'shop' || h === 'lookup' || h === 'rules') { showPage(h); return; }
+  if (h === 'admin') { if (isAdmin) showPage('admin'); else pendingAdminRestore = true; }
 }
 
 function calcShip(input, totalId) {
@@ -6112,7 +6130,7 @@ applyAdminState();
 renderOrdersList();
 renderAdminGOList();
 renderPaymentGoSelect();
-syncFromBackend();
+syncFromBackend().then(restoreHashPage);
 </script>
 </body>
 </html>
