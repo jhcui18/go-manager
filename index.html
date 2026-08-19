@@ -2471,7 +2471,22 @@ function subItemHasNewClaims(goId, si) {
 function renderAdminGOList() {
   const el = document.getElementById('admin-go-list');
   if (!el) return;
-  el.innerHTML = Object.values(allGOs).map(go => {
+  // Group by artist — same headers as the buyer Orders page. The artist column
+  // wins; goArtist() (name-prefix parse) covers GOs saved before it existed.
+  const groups = {};
+  const order = [];
+  Object.values(allGOs).forEach(go => {
+    const label = (go.artist || '').trim() || goArtist(go);
+    const key = label.toLowerCase();
+    if (!groups[key]) { groups[key] = { label, gos: [] }; order.push(key); }
+    groups[key].gos.push(go);
+  });
+  el.innerHTML = order.map(key => {
+    const g = groups[key];
+    return `<div class="artist-header">${g.label}</div>` + g.gos.map(go => renderAdminGOCard(go)).join('');
+  }).join('');
+}
+function renderAdminGOCard(go) {
     const typeLabel = go.type==='photocard'?'Photocard':go.type==='album'?'Album':'Merch';
     const badgeClass = go.type==='photocard'?'badge-set':go.type==='album'?'badge-fcfs':'badge-waitlist';
     const collected = (paymentProofs || []).filter(p => p.go_id === go.id && p.status === 'confirmed').reduce((a, p) => a + (parseFloat(p.amount) || 0), 0);
@@ -2493,7 +2508,6 @@ function renderAdminGOList() {
         <button class="btn btn-sm" onclick="openGODetail('${go.id}')">Manage</button>
       </div>
     </div>`;
-  }).join('');
 }
 
 async function openGODetail(goId) {
@@ -5747,7 +5761,7 @@ async function syncFromBackend(silent) {
       gosData.gos.forEach(go => {
         if (!go.go_id) return; // skip blank rows
         const rebuilt = {
-          id: go.go_id, name: go.name || '', type: go.type || 'photocard',
+          id: go.go_id, name: go.name || '', artist: go.artist || '', type: go.type || 'photocard',
           deadline: fmtDate(go.deadline), paymentDeadline: fmtDate(go.payment_deadline), status: go.status || 'open',
           minSecure: parseInt(go.min_secure) || 7,   // the ONE GO-level secure threshold for its set POBs
           subItems: []
