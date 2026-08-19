@@ -93,6 +93,7 @@
   .admin-section-title { font-size:13px;font-weight:500;margin-bottom:12px;display:flex;align-items:center;gap:8px; }
   .admin-tabs { display:flex; gap:4px; overflow-x:auto; border-bottom:1.5px solid var(--border); margin:8px 0 16px; }
   .admin-tab { flex:0 0 auto; background:none; border:none; padding:8px 12px; font-size:13px; font-weight:500; color:var(--text3); cursor:pointer; border-bottom:2px solid transparent; }
+  .admin-tab .tab-dot { display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-left:5px;vertical-align:1px; }
   .admin-tab.active { color:var(--text); border-bottom-color:var(--accent); }
   #toast { position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--gray-900);color:white;font-size:13px;padding:10px 20px;border-radius:20px;opacity:0;transition:opacity .2s;pointer-events:none;white-space:nowrap;z-index:999; }
   #toast.show { opacity:1; }
@@ -3375,8 +3376,26 @@ function createGO() {
 let adminActiveTab = 'gos';
 let adminShopLoaded = false, adminStoreLoaded = false, adminShippingLoaded = false, adminPaymentsLoaded = false;
 
+// Work-waiting dots on the admin tab bar: payments pending confirmation, shipping
+// requests not yet shipped. Live counts — a dot clears when its queue is handled,
+// not merely viewed.
+function updateAdminTabDots() {
+  const set = (tab, on, title) => {
+    const el = document.getElementById('admin-tab-' + tab);
+    if (!el) return;
+    let dot = el.querySelector('.tab-dot');
+    if (on && !dot) { dot = document.createElement('span'); dot.className = 'tab-dot'; el.appendChild(dot); }
+    if (!on && dot) dot.remove();
+    if (dot && title) dot.title = title;
+  };
+  const pay = (paymentProofs || []).filter(p => p.status === 'pending').length;
+  const ship = (shippingRequests || []).filter(r => !r.shipped).length;
+  set('payments', pay > 0, pay + ' payment' + (pay !== 1 ? 's' : '') + ' waiting for confirmation');
+  set('shipping', ship > 0, ship + ' shipping request' + (ship !== 1 ? 's' : '') + ' to send');
+}
 function showAdminTab(name) {
   adminActiveTab = name;
+  updateAdminTabDots();
   ['gos','shop','store','payments','shipping'].forEach(t => {
     const panel = document.getElementById('admin-tabpanel-' + t);
     if (panel) panel.style.display = t === name ? 'block' : 'none';
@@ -4294,6 +4313,7 @@ function addPaymentProof(proof) {
 }
 
 function renderPaymentProofs() {
+  updateAdminTabDots();
   return withScrollLock(renderPaymentProofsInner);
 }
 function renderPaymentProofsInner() {
@@ -5115,6 +5135,7 @@ function refreshShippingQueue() {
 }
 
 function renderShippingQueue() {
+  updateAdminTabDots();
   return withScrollLock(renderShippingQueueInner);
 }
 function renderShippingQueueInner() {
