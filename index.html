@@ -978,7 +978,7 @@ function submitShopOrder(listingId) {
   const rawUser = (document.getElementById('shop-order-user')||{}).value || '';
   const username = rawUser.trim();
   if (!username) { toast('Enter your username.'); return; }
-  const u = username.startsWith('@') ? username : '@' + username;
+  const u = (username.startsWith('@') ? username : '@' + username).toLowerCase();
   const l = listings.find(x => x.listing_id === listingId);
   if (!l) return;
   const hasVariants = !!(l.variants && l.variants.length);
@@ -1670,7 +1670,7 @@ function submitClaim(goId) {
   const usernameEl = document.getElementById('claim-username-' + goId);
   const username = usernameEl ? usernameEl.value.trim() : '';
   if (!username) { toast('Please enter your username.'); return; }
-  const u = username.startsWith('@') ? username : '@' + username;
+  const u = (username.startsWith('@') ? username : '@' + username).toLowerCase();
   const go = allGOs[goId];
   const claimsToWrite = [];
   let placed = false;
@@ -2330,7 +2330,7 @@ async function submitGoPayment(goId, lookedUpUser) {
   const rawUser = (lookedUpUser || (document.getElementById('lookup-input')||{}).value || '');
   const username = rawUser.trim();
   if (!username) { toast('Look up your username first.'); return; }
-  const u = username.startsWith('@') ? username : '@' + username;
+  const u = (username.startsWith('@') ? username : '@' + username).toLowerCase();
   const go = allGOs[goId];
   const amount = parseFloat((document.getElementById('pay-amount-'+goId)||{}).value) || 0;
   const method = (document.getElementById('pay-method-'+goId)||{}).value || '';
@@ -2825,7 +2825,7 @@ async function logSetClaim(goId, siId) {
   const member = document.getElementById('log-m-' + siId).value;
   const qty = parseInt(document.getElementById('log-q-' + siId).value) || 1;
   if (!username || !member) { toast('Enter username and member.'); return; }
-  const u = username.startsWith('@') ? username : '@' + username;
+  const u = (username.startsWith('@') ? username : '@' + username).toLowerCase();
   const closed = isPobClosed(go, si);
   let n = qty;
   if (closed) {
@@ -5447,7 +5447,7 @@ const db = {
     if (d.claim_status)   patch.status = d.claim_status;
     if (d.payment_status) patch.payment_status = d.payment_status;
     if (d.fulfillment)    patch.fulfillment = d.fulfillment;
-    if (d.username)       patch.username = String(d.username).trim().replace(/^@/, '');
+    if (d.username)       patch.username = String(d.username).trim().replace(/^@/, '').toLowerCase();
     if (d.qty)            patch.qty = parseInt(d.qty) || 1;
     if (d.assigned_version !== undefined) patch.assigned_version = d.assigned_version || null;
     // Member/version reassignment: resolve the name to its row for this sub-item.
