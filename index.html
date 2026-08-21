@@ -2389,7 +2389,8 @@ async function payWithBalance(u, goId) {
   creditApplyInFlight = false;
   showLoadingOverlay(false);
   if (rejected) { toast("Couldn't apply balance — please try again or contact the admin."); return; }
-  if (!res.spent || res.spent <= 0.001) { toast('Balance too small for any item on this GO.'); return; }
+  const covered = res.paid_claim_ids || [];
+  if ((!res.spent || res.spent <= 0.001) && !covered.length) { toast('Balance too small for any item on this GO.'); return; }
   // Reconstruct the local ledger rows from the server's sources + target, using
   // its server-generated transaction id, so My Orders reflects what was written
   // without a second round-trip.
@@ -2397,7 +2398,8 @@ async function payWithBalance(u, goId) {
   const sources = res.sources || [];
   const paidIds = res.paid_claim_ids || [];
   const rows = sources.map(src => ({ go_id: src.go_id, go_name: goDisplayName(src.go_id), amount: -src.amount, note: 'Credit applied to ' + goDisplayName(goId) }));
-  rows.push({ go_id: goId, go_name: goDisplayName(goId), amount: res.spent, note: 'From credit on ' + sources.map(s2 => goDisplayName(s2.go_id)).join(', ') });
+  // No target row when the cover came entirely from loose cash already on this GO (spent=0).
+  if (res.spent > 0.001) rows.push({ go_id: goId, go_name: goDisplayName(goId), amount: res.spent, note: 'From credit on ' + sources.map(s2 => goDisplayName(s2.go_id)).join(', ') });
   rows.forEach((r, i) => paymentProofs.push({ payment_id: 'cr_' + Date.now() + '_' + i + '_' + Math.random().toString(36).slice(2, 4), username: u, go_id: r.go_id, go_name: r.go_name, amount: r.amount, method: 'credit', transaction_id: tx, status: 'confirmed', created_at: new Date().toISOString(), note: r.note }));
   try {
     // Mark ONLY the newly-covered items paid — never un-mark anything already paid.
@@ -4952,9 +4954,15 @@ function computeBalanceApply(u, goId) {
   const balance = perGo.reduce((a, g) => a + g.credit, 0);
   const siMeta = {}; Object.values(allGOs).forEach(go => (go.subItems || []).forEach(si => { siMeta[si.id] = si; }));
   const units = ownedUnitsFromClaims((myLookupClaims || []).filter(c => sameUser(c.username, u) && c.go_id === goId), siMeta);
-  const { spent, paidIds } = applyStoreCredit(units, balance);   // only the newly-covered items
-  const sources = drawSources(perGo, spent);
-  return { balance, spent, paidIds, unpaidIds: [], sources };
+  // Loose cash: confirmed payments on this GO not yet backing a paid unit. It tops
+  // up part-paid items so a small balance can finish them (mirrors apply_balance 015);
+  // only the remainder is drawn from the balance.
+  const paidUnitsValue = units.filter(un => un.paid).reduce((a, un) => a + un.value, 0);
+  const loose = Math.max(0, (myGoSummary(u, goId).paid || 0) - paidUnitsValue);
+  const { spent, paidIds } = applyStoreCredit(units, balance + loose);   // only the newly-covered items
+  const fromBalance = Math.max(0, spent - loose);
+  const sources = drawSources(perGo, fromBalance);
+  return { balance, spent: fromBalance, covered: spent, paidIds, unpaidIds: [], sources };
 }
 
 function setUnitPaid(u, paid) {
