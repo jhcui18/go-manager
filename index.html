@@ -2695,6 +2695,7 @@ function renderDetailContentInner() {
             <div style="margin-top:3px;display:flex;gap:4px;flex-wrap:wrap;">
               <span class="badge ${c.payment==='paid'?'badge-paid':'badge-unpaid'}" style="font-size:10px;cursor:pointer;" onclick="toggleClaimPayment('${c.claim_id}','${go.id}','${si.id}')">${c.payment==='paid'?'Paid':'Unpaid'}</span>
               <span class="badge ${sec?'badge-secured':'badge-pending'}" style="font-size:10px;cursor:pointer;" onclick="toggleClaimSecure('${c.claim_id}','${go.id}','${si.id}')">${sec?'Secured':'Secure?'}</span>
+              <button class="btn btn-sm btn-ghost" style="font-size:10px;padding:1px 6px;" title="Mark not fulfilled — kept in history, not ordered/charged" onclick="dropBatchClaim('${go.id}','${si.id}','${c.claim_id}')">Drop</button>
               <button class="btn btn-sm btn-ghost" style="font-size:11px;padding:1px 6px;color:var(--red-400);" title="Remove this claim" onclick="removeBatchClaim('${go.id}','${si.id}','${c.claim_id}')">×</button>
             </div>
             ${sec ? `<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
@@ -4135,6 +4136,14 @@ function openEditClaimModal(goId, siId, setIdx, member) {
         </select>
       </div>
     </div>
+    <div class="field"><label>Claim status</label>
+      <select id="ec-status">
+        <option value="secured" ${slot.claim_status==='secured'?'selected':''}>Secured</option>
+        <option value="pending" ${slot.claim_status==='pending'?'selected':''}>Pending</option>
+        <option value="dropped" ${slot.claim_status==='dropped'?'selected':''}>Not fulfilled (dropped)</option>
+      </select>
+      <div class="field-hint">Not fulfilled: kept in history but not ordered/charged — the joiner sees "Not fulfilled".</div>
+    </div>
     <div style="display:flex;gap:8px;margin-top:8px;">
       <button class="btn btn-primary" onclick="saveClaimEdit('${goId}','${siId}',${setIdx},'${member}')" style="flex:1;justify-content:center;">Save</button>
       <button class="btn" style="color:var(--red-400);border-color:var(--red-400);" onclick="removeSetClaim('${goId}','${siId}',${setIdx},'${member}')">Remove claim</button>
@@ -4150,6 +4159,7 @@ async function saveClaimEdit(goId, siId, setIdx, member) {
   const newMember = (document.getElementById('ec-member') || {}).value || member;
   const newPayment = document.getElementById('ec-payment').value;
   const newFulfillment = document.getElementById('ec-fulfillment').value;
+  const newStatus = (document.getElementById('ec-status') || {}).value || slot.claim_status;
   if (newMember !== member && set.slots[newMember]) {
     toast(`${newMember}'s spot in this set is already taken.`); return;
   }
@@ -4159,6 +4169,7 @@ async function saveClaimEdit(goId, siId, setIdx, member) {
       await db.updateClaim({
         claim_id: slot.claim_id, username: newUser,
         payment_status: newPayment, fulfillment: newFulfillment,
+        ...(newStatus !== slot.claim_status ? { claim_status: newStatus } : {}),
         ...(newMember !== member ? { member_name: newMember, sub_item_id: siId } : {})
       });
     } catch (e) {
@@ -4169,6 +4180,7 @@ async function saveClaimEdit(goId, siId, setIdx, member) {
     }
   }
   slot.user = newUser; slot.payment = newPayment; slot.fulfillment = newFulfillment;
+  slot.claim_status = newStatus;
   if (newMember !== member) { set.slots[newMember] = slot; set.slots[member] = null; }
   closeModal();
   renderDetailContent();
@@ -4253,6 +4265,20 @@ async function removeSlotClaim(goId, siId, setIdx, member) {
 }
 
 // Remove one batch POB claim by claim_id.
+// Mark a batch claim Not fulfilled (dropped): stays in the Dropped section with a
+// Restore button, disappears from batches. Note batches regroup, so later batch
+// boundaries shift by one — same as any drop.
+function dropBatchClaim(goId, siId, claimId) {
+  const si = allGOs[goId].subItems.find(s => s.id === siId);
+  const c = si && (si.claims || []).find(x => x.claim_id === claimId);
+  if (!c) return;
+  if (!confirm(`Mark ${c.user}'s ${c.member || 'claim'} as Not fulfilled? It stays in history but won't be ordered or charged.`)) return;
+  c.claim_status = 'dropped';
+  persistWrite(db.updateClaim({ claim_id: claimId, claim_status: 'dropped' }), 'Drop');
+  saveLocal();
+  renderDetailContent(); renderAdminGOList(); renderOrdersList();
+  toast('Marked not fulfilled.');
+}
 async function removeBatchClaim(goId, siId, claimId) {
   const si = allGOs[goId].subItems.find(s => s.id === siId);
   const c = si && (si.claims || []).find(x => x.claim_id === claimId);
@@ -4295,6 +4321,14 @@ function openEditFCFSClaimModal(goId, siId, claimIdx) {
         </select>
       </div>
     </div>
+    <div class="field"><label>Claim status</label>
+      <select id="efc-status">
+        <option value="secured" ${(!c.claim_status || c.claim_status==='secured')?'selected':''}>Secured</option>
+        <option value="pending" ${c.claim_status==='pending'?'selected':''}>Pending</option>
+        <option value="dropped" ${c.claim_status==='dropped'?'selected':''}>Not fulfilled (dropped)</option>
+      </select>
+      <div class="field-hint">Not fulfilled: kept in history but not ordered/charged — the joiner sees "Not fulfilled".</div>
+    </div>
     <div style="display:flex;gap:8px;margin-top:8px;">
       <button class="btn btn-primary" onclick="saveFCFSClaimEdit('${goId}','${siId}',${claimIdx})" style="flex:1;justify-content:center;">Save</button>
       <button class="btn" style="color:var(--red-400);border-color:var(--red-400);" onclick="removeFCFSClaim('${goId}','${siId}',${claimIdx});closeModal()">Remove</button>
@@ -4310,6 +4344,7 @@ async function saveFCFSClaimEdit(goId, siId, claimIdx) {
   const newVers = document.getElementById('efc-vers').value.split('+').map(v=>v.trim()).filter(Boolean);
   const newPayment = document.getElementById('efc-payment').value;
   const newFulfillment = document.getElementById('efc-fulfillment').value;
+  const newStatus = (document.getElementById('efc-status') || {}).value || c.claim_status;
   const memberSel = document.getElementById('efc-member');
   const versionSel = document.getElementById('efc-version');
   const newMember = memberSel ? memberSel.value : (versionSel ? versionSel.value : c.member);
@@ -4320,6 +4355,7 @@ async function saveFCFSClaimEdit(goId, siId, claimIdx) {
         claim_id: c.claim_id, username: newUser, qty: newQty,
         assigned_version: newVers.length ? newVers.join('+') : null,
         payment_status: newPayment, fulfillment: newFulfillment,
+        ...(newStatus !== c.claim_status ? { claim_status: newStatus } : {}),
         ...(memberSel && newMember !== c.member ? { member_name: newMember, sub_item_id: siId } : {}),
         ...(versionSel && newMember !== c.member ? { version_name: newMember, sub_item_id: siId } : {})
       });
@@ -4330,6 +4366,7 @@ async function saveFCFSClaimEdit(goId, siId, claimIdx) {
   }
   c.user = newUser; c.qty = newQty; c.assignedVers = newVers;
   c.payment = newPayment; c.fulfillment = newFulfillment;
+  c.claim_status = newStatus;
   c.member = newMember;
   closeModal();
   renderDetailContent();
