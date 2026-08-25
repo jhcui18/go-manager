@@ -594,6 +594,14 @@ let subItemDeadlines = {}; // 'goId|siId' -> deadline date string (display only)
 function subItemDeadline(goId, siId) { return subItemDeadlines[goId + '|' + siId] || ''; }
 let subItemPayDue = {}; // 'goId|siId' -> payment due date ("Pay by") string (display only)
 function subItemPayByDate(goId, siId) { return subItemPayDue[goId + '|' + siId] || ''; }
+// Effective pay-by for a My-orders row: the POB's own due date, else the GO-level
+// payment deadline. Display-only — the admin's per-POB input keeps using the raw value.
+function effectivePayBy(goId, siId) {
+  const own = subItemPayByDate(goId, siId);
+  if (own) return own;
+  const go = allGOs[goId];
+  return (go && go.paymentDeadline) ? fmtDate(go.paymentDeadline) : '';
+}
 function gcNorm(u) { return String(u == null ? '' : u).trim().toLowerCase(); }
 function isGcAdded(goId, username) { return !!(gcAdded[goId] && gcAdded[goId][gcNorm(username)]); }
 // Unique joiner handles across ALL of a GO's claims (set slots + claims-based), case-insensitive dedup.
@@ -1955,7 +1963,7 @@ function doLookupRenderInner(u) {
         const detail = c.member_or_version || c.assigned_vers || '';
         rows.push({ go_id:c.go_id, go:c.go_name, item:(meta && meta.name) || c.sub_item_name, detail, qty: parseInt(c.qty)||1, price: parseFloat(meta && meta.price)||0,
           claim:(c.claim_status==='dropped')?'Not fulfilled':((c.claim_status && c.claim_status !== 'secured') ? 'Pending' : 'Secured'),
-          payment:c.payment_status, fulfillment:c.fulfillment, due: subItemPayByDate(c.go_id, c.sub_item_id) });
+          payment:c.payment_status, fulfillment:c.fulfillment, due: effectivePayBy(c.go_id, c.sub_item_id) });
       }
     });
     Object.values(setGroups).forEach(g => {
@@ -1965,12 +1973,12 @@ function doLookupRenderInner(u) {
         const c0 = otClaims.find(c => c.claim_status !== 'dropped') || otClaims[0];
         rows.push({ go_id:g.go_id, go:g.go, item:g.item, detail:'OT'+otClaims.length+' full set', qty:1, price:(g.meta && g.meta.otPrice)||0,
           claim:(c0.claim_status==='dropped')?'Not fulfilled':((c0.claim_status==='secured')?'Secured':'Pending'), payment:c0.payment_status, fulfillment:c0.fulfillment,
-          due: subItemPayByDate(g.go_id, g.meta && g.meta.id) });
+          due: effectivePayBy(g.go_id, g.meta && g.meta.id) });
       }
       normalClaims.forEach(c => {
         rows.push({ go_id:g.go_id, go:g.go, item:g.item, detail:c.member_or_version, qty:1, price:(g.meta && g.meta.price)||0,
           claim:(c.claim_status==='dropped')?'Not fulfilled':((c.claim_status==='secured')?'Secured':'Pending'), payment:c.payment_status, fulfillment:c.fulfillment,
-          due: subItemPayByDate(g.go_id, g.meta && g.meta.id) });
+          due: effectivePayBy(g.go_id, g.meta && g.meta.id) });
       });
     });
   } else {
@@ -1985,13 +1993,13 @@ function doLookupRenderInner(u) {
             const isOT = membersToCheck.length && membersToCheck.every(m => { const s = set.slots[m]; return s && sameUser(s.user, u) && s.ot; });
             if (isOT) {
               const s0 = set.slots[membersToCheck[0]];
-              rows.push({ go_id:go.id, go:go.name, item:si.name, detail:'OT'+membersToCheck.length+' full set', qty:1, price:si.otPrice||0, claim:(s0.claim_status==='dropped')?'Not fulfilled':((s0.claim_status==='secured')?'Secured':'Pending'), payment:s0.payment, fulfillment:s0.fulfillment, due: subItemPayByDate(go.id, si.id) });
+              rows.push({ go_id:go.id, go:go.name, item:si.name, detail:'OT'+membersToCheck.length+' full set', qty:1, price:si.otPrice||0, claim:(s0.claim_status==='dropped')?'Not fulfilled':((s0.claim_status==='secured')?'Secured':'Pending'), payment:s0.payment, fulfillment:s0.fulfillment, due: effectivePayBy(go.id, si.id) });
               return;
             }
             membersToCheck.forEach(member => {
               const slot = set.slots[member];
               if (slot && sameUser(slot.user, u)) {
-                rows.push({ go_id:go.id, go:go.name, item:si.name, detail:member, qty:1, price:si.price||0, claim:(slot.claim_status==='dropped')?'Not fulfilled':((slot.claim_status==='secured')?'Secured':'Pending'), payment:slot.payment, fulfillment:slot.fulfillment, due: subItemPayByDate(go.id, si.id) });
+                rows.push({ go_id:go.id, go:go.name, item:si.name, detail:member, qty:1, price:si.price||0, claim:(slot.claim_status==='dropped')?'Not fulfilled':((slot.claim_status==='secured')?'Secured':'Pending'), payment:slot.payment, fulfillment:slot.fulfillment, due: effectivePayBy(go.id, si.id) });
               }
             });
           });
@@ -2000,7 +2008,7 @@ function doLookupRenderInner(u) {
           (si.claims||[]).forEach(c => {
             if (sameUser(c.user, u)) {
               const detail = c.member || (c.assignedVers||[]).join('+');
-              rows.push({ go_id:go.id, go:go.name, item:si.name, detail, qty:c.qty, price:si.price||0, claim:(c.claim_status==='dropped')?'Not fulfilled':((c.claim_status && c.claim_status !== 'secured') ? 'Pending' : 'Secured'), payment:c.payment, fulfillment:c.fulfillment, due: subItemPayByDate(go.id, si.id) });
+              rows.push({ go_id:go.id, go:go.name, item:si.name, detail, qty:c.qty, price:si.price||0, claim:(c.claim_status==='dropped')?'Not fulfilled':((c.claim_status && c.claim_status !== 'secured') ? 'Pending' : 'Secured'), payment:c.payment, fulfillment:c.fulfillment, due: effectivePayBy(go.id, si.id) });
             }
           });
         }
