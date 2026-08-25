@@ -1961,7 +1961,7 @@ function doLookupRenderInner(u) {
         (setGroups[key] = setGroups[key] || { meta, go_id: c.go_id, go: c.go_name, item: (meta && meta.name) || c.sub_item_name, claims: [] }).claims.push(c);
       } else {
         const detail = c.member_or_version || c.assigned_vers || '';
-        rows.push({ go_id:c.go_id, go:c.go_name, item:(meta && meta.name) || c.sub_item_name, detail, qty: parseInt(c.qty)||1, price: parseFloat(meta && meta.price)||0,
+        rows.push({ go_id:c.go_id, go:c.go_name, item:(meta && meta.name) || c.sub_item_name, detail, qty: parseInt(c.qty)||1, price: effClaimPrice(c, meta && meta.price),
           claim:(c.claim_status==='dropped')?'Not fulfilled':((c.claim_status && c.claim_status !== 'secured') ? 'Pending' : 'Secured'),
           payment:c.payment_status, fulfillment:c.fulfillment, due: effectivePayBy(c.go_id, c.sub_item_id) });
       }
@@ -1976,7 +1976,7 @@ function doLookupRenderInner(u) {
           due: effectivePayBy(g.go_id, g.meta && g.meta.id) });
       }
       normalClaims.forEach(c => {
-        rows.push({ go_id:g.go_id, go:g.go, item:g.item, detail:c.member_or_version, qty:1, price:(g.meta && g.meta.price)||0,
+        rows.push({ go_id:g.go_id, go:g.go, item:g.item, detail:c.member_or_version, qty:1, price:effClaimPrice(c, g.meta && g.meta.price),
           claim:(c.claim_status==='dropped')?'Not fulfilled':((c.claim_status==='secured')?'Secured':'Pending'), payment:c.payment_status, fulfillment:c.fulfillment,
           due: effectivePayBy(g.go_id, g.meta && g.meta.id) });
       });
@@ -1999,7 +1999,7 @@ function doLookupRenderInner(u) {
             membersToCheck.forEach(member => {
               const slot = set.slots[member];
               if (slot && sameUser(slot.user, u)) {
-                rows.push({ go_id:go.id, go:go.name, item:si.name, detail:member, qty:1, price:si.price||0, claim:(slot.claim_status==='dropped')?'Not fulfilled':((slot.claim_status==='secured')?'Secured':'Pending'), payment:slot.payment, fulfillment:slot.fulfillment, due: effectivePayBy(go.id, si.id) });
+                rows.push({ go_id:go.id, go:go.name, item:si.name, detail:member, qty:1, price:effClaimPrice(slot, si.price), claim:(slot.claim_status==='dropped')?'Not fulfilled':((slot.claim_status==='secured')?'Secured':'Pending'), payment:slot.payment, fulfillment:slot.fulfillment, due: effectivePayBy(go.id, si.id) });
               }
             });
           });
@@ -2008,7 +2008,7 @@ function doLookupRenderInner(u) {
           (si.claims||[]).forEach(c => {
             if (sameUser(c.user, u)) {
               const detail = c.member || (c.assignedVers||[]).join('+');
-              rows.push({ go_id:go.id, go:go.name, item:si.name, detail, qty:c.qty, price:si.price||0, claim:(c.claim_status==='dropped')?'Not fulfilled':((c.claim_status && c.claim_status !== 'secured') ? 'Pending' : 'Secured'), payment:c.payment, fulfillment:c.fulfillment, due: effectivePayBy(go.id, si.id) });
+              rows.push({ go_id:go.id, go:go.name, item:si.name, detail, qty:c.qty, price:effClaimPrice(c, si.price), claim:(c.claim_status==='dropped')?'Not fulfilled':((c.claim_status && c.claim_status !== 'secured') ? 'Pending' : 'Secured'), payment:c.payment, fulfillment:c.fulfillment, due: effectivePayBy(go.id, si.id) });
             }
           });
         }
@@ -2695,6 +2695,7 @@ function renderDetailContentInner() {
             <div style="margin-top:3px;display:flex;gap:4px;flex-wrap:wrap;">
               <span class="badge ${c.payment==='paid'?'badge-paid':'badge-unpaid'}" style="font-size:10px;cursor:pointer;" onclick="toggleClaimPayment('${c.claim_id}','${go.id}','${si.id}')">${c.payment==='paid'?'Paid':'Unpaid'}</span>
               <span class="badge ${sec?'badge-secured':'badge-pending'}" style="font-size:10px;cursor:pointer;" onclick="toggleClaimSecure('${c.claim_id}','${go.id}','${si.id}')">${sec?'Secured':'Secure?'}</span>
+              <button class="btn btn-sm btn-ghost" style="font-size:10px;padding:1px 6px;" title="Edit claim (username, price override, status…)" onclick="editBatchClaim('${go.id}','${si.id}','${c.claim_id}')">✎</button>
               <button class="btn btn-sm btn-ghost" style="font-size:10px;padding:1px 6px;" title="Mark not fulfilled — kept in history, not ordered/charged" onclick="dropBatchClaim('${go.id}','${si.id}','${c.claim_id}')">Drop</button>
               <button class="btn btn-sm btn-ghost" style="font-size:11px;padding:1px 6px;color:var(--red-400);" title="Remove this claim" onclick="removeBatchClaim('${go.id}','${si.id}','${c.claim_id}')">×</button>
             </div>
@@ -4144,6 +4145,10 @@ function openEditClaimModal(goId, siId, setIdx, member) {
       </select>
       <div class="field-hint">Not fulfilled: kept in history but not ordered/charged — the joiner sees "Not fulfilled".</div>
     </div>
+    ${slot.ot ? '' : `<div class="field"><label>Price override (USD)</label>
+      <input type="number" step="0.01" min="0" id="ec-override" value="${slot.price_override != null ? slot.price_override : ''}" placeholder="${(si.price||0).toFixed(2)} (item price)">
+      <div class="field-hint">Blank = item price. Changes what this claim is worth everywhere (owed, credit, totals).</div>
+    </div>`}
     <div style="display:flex;gap:8px;margin-top:8px;">
       <button class="btn btn-primary" onclick="saveClaimEdit('${goId}','${siId}',${setIdx},'${member}')" style="flex:1;justify-content:center;">Save</button>
       <button class="btn" style="color:var(--red-400);border-color:var(--red-400);" onclick="removeSetClaim('${goId}','${siId}',${setIdx},'${member}')">Remove claim</button>
@@ -4160,6 +4165,8 @@ async function saveClaimEdit(goId, siId, setIdx, member) {
   const newPayment = document.getElementById('ec-payment').value;
   const newFulfillment = document.getElementById('ec-fulfillment').value;
   const newStatus = (document.getElementById('ec-status') || {}).value || slot.claim_status;
+  const ovrEl = document.getElementById('ec-override');
+  const newOverride = ovrEl ? (ovrEl.value.trim() === '' ? null : parseFloat(ovrEl.value)) : (slot.price_override != null ? slot.price_override : null);
   if (newMember !== member && set.slots[newMember]) {
     toast(`${newMember}'s spot in this set is already taken.`); return;
   }
@@ -4169,6 +4176,7 @@ async function saveClaimEdit(goId, siId, setIdx, member) {
       await db.updateClaim({
         claim_id: slot.claim_id, username: newUser,
         payment_status: newPayment, fulfillment: newFulfillment,
+        price_override: newOverride,
         ...(newStatus !== slot.claim_status ? { claim_status: newStatus } : {}),
         ...(newMember !== member ? { member_name: newMember, sub_item_id: siId } : {})
       });
@@ -4180,7 +4188,7 @@ async function saveClaimEdit(goId, siId, setIdx, member) {
     }
   }
   slot.user = newUser; slot.payment = newPayment; slot.fulfillment = newFulfillment;
-  slot.claim_status = newStatus;
+  slot.claim_status = newStatus; slot.price_override = newOverride;
   if (newMember !== member) { set.slots[newMember] = slot; set.slots[member] = null; }
   closeModal();
   renderDetailContent();
@@ -4268,6 +4276,12 @@ async function removeSlotClaim(goId, siId, setIdx, member) {
 // Mark a batch claim Not fulfilled (dropped): stays in the Dropped section with a
 // Restore button, disappears from batches. Note batches regroup, so later batch
 // boundaries shift by one — same as any drop.
+// Batch claims reuse the FCFS edit modal (username/member/status/price override).
+function editBatchClaim(goId, siId, claimId) {
+  const si = allGOs[goId].subItems.find(s => s.id === siId);
+  const idx = (si.claims || []).findIndex(x => x.claim_id === claimId);
+  if (idx >= 0) openEditFCFSClaimModal(goId, siId, idx);
+}
 function dropBatchClaim(goId, siId, claimId) {
   const si = allGOs[goId].subItems.find(s => s.id === siId);
   const c = si && (si.claims || []).find(x => x.claim_id === claimId);
@@ -4329,6 +4343,10 @@ function openEditFCFSClaimModal(goId, siId, claimIdx) {
       </select>
       <div class="field-hint">Not fulfilled: kept in history but not ordered/charged — the joiner sees "Not fulfilled".</div>
     </div>
+    ${c.ot ? '' : `<div class="field"><label>Price override (USD)</label>
+      <input type="number" step="0.01" min="0" id="efc-override" value="${c.price_override != null ? c.price_override : ''}" placeholder="${(si.price||0).toFixed(2)} (item price)">
+      <div class="field-hint">Blank = item price. Per unit — multiplied by qty. Changes what this claim is worth everywhere.</div>
+    </div>`}
     <div style="display:flex;gap:8px;margin-top:8px;">
       <button class="btn btn-primary" onclick="saveFCFSClaimEdit('${goId}','${siId}',${claimIdx})" style="flex:1;justify-content:center;">Save</button>
       <button class="btn" style="color:var(--red-400);border-color:var(--red-400);" onclick="removeFCFSClaim('${goId}','${siId}',${claimIdx});closeModal()">Remove</button>
@@ -4345,6 +4363,8 @@ async function saveFCFSClaimEdit(goId, siId, claimIdx) {
   const newPayment = document.getElementById('efc-payment').value;
   const newFulfillment = document.getElementById('efc-fulfillment').value;
   const newStatus = (document.getElementById('efc-status') || {}).value || c.claim_status;
+  const ovrEl2 = document.getElementById('efc-override');
+  const newOverride = ovrEl2 ? (ovrEl2.value.trim() === '' ? null : parseFloat(ovrEl2.value)) : (c.price_override != null ? c.price_override : null);
   const memberSel = document.getElementById('efc-member');
   const versionSel = document.getElementById('efc-version');
   const newMember = memberSel ? memberSel.value : (versionSel ? versionSel.value : c.member);
@@ -4355,6 +4375,7 @@ async function saveFCFSClaimEdit(goId, siId, claimIdx) {
         claim_id: c.claim_id, username: newUser, qty: newQty,
         assigned_version: newVers.length ? newVers.join('+') : null,
         payment_status: newPayment, fulfillment: newFulfillment,
+        price_override: newOverride,
         ...(newStatus !== c.claim_status ? { claim_status: newStatus } : {}),
         ...(memberSel && newMember !== c.member ? { member_name: newMember, sub_item_id: siId } : {}),
         ...(versionSel && newMember !== c.member ? { version_name: newMember, sub_item_id: siId } : {})
@@ -4366,7 +4387,7 @@ async function saveFCFSClaimEdit(goId, siId, claimIdx) {
   }
   c.user = newUser; c.qty = newQty; c.assignedVers = newVers;
   c.payment = newPayment; c.fulfillment = newFulfillment;
-  c.claim_status = newStatus;
+  c.claim_status = newStatus; c.price_override = newOverride;
   c.member = newMember;
   closeModal();
   renderDetailContent();
@@ -4848,6 +4869,13 @@ function findProof(id) { return paymentProofs.find(p => p.payment_id === id); }
 // Mirrors paymentOwedUnits: set OT full set -> one otPrice unit; other secured set slots ->
 // one price unit each; batch/FCFS secured -> price*qty; skip dropped and unsecured batch.
 // siMeta: sub_item_id -> { price, otPrice, kind, minSecure }.
+// Effective unit price for a claim/slot: its price_override when set, else the
+// item price. Mirrors apply_balance/go_money (migration 018). OT groups never
+// use overrides — an OT set prices as one unit at ot_price.
+function effClaimPrice(ref, basePrice) {
+  const o = ref && ref.price_override;
+  return (o != null && o !== '' && isFinite(parseFloat(o))) ? parseFloat(o) : (parseFloat(basePrice) || 0);
+}
 function ownedUnitsFromClaims(claims, siMeta) {
   const units = [];
   // group set-based claims by sub_item + set_num
@@ -4867,12 +4895,12 @@ function ownedUnitsFromClaims(claims, siMeta) {
       const isBatchKind = (meta.kind === 'member' || meta.kind === 'photocard' || meta.kind === 'member-set') && parseInt(meta.minSecure) < 0;
       if (isBatchKind && c.claim_status !== 'secured') return; // batch: only secured owed
       if (c.claim_status === 'pending') return;                // explicitly unsecured merch not owed
-      units.push({ value: (parseFloat(meta.price) || 0) * (parseInt(c.qty) || 1), ids: [c.claim_id].filter(Boolean), paid: c.payment_status === 'paid' });
+      units.push({ value: effClaimPrice(c, meta.price) * (parseInt(c.qty) || 1), ids: [c.claim_id].filter(Boolean), paid: c.payment_status === 'paid' });
     }
   });
   Object.values(sets).forEach(s => {
     if (s.ot.length) units.push({ value: parseFloat(s.meta.otPrice) || 0, ids: s.ot.map(c => c.claim_id).filter(Boolean), paid: s.ot.every(c => c.payment_status === 'paid') });
-    s.normal.forEach(c => units.push({ value: parseFloat(s.meta.price) || 0, ids: [c.claim_id].filter(Boolean), paid: c.payment_status === 'paid' }));
+    s.normal.forEach(c => units.push({ value: effClaimPrice(c, s.meta.price), ids: [c.claim_id].filter(Boolean), paid: c.payment_status === 'paid' }));
   });
   return units;
 }
@@ -4905,14 +4933,14 @@ function paymentOwedUnits(username, goId) {
         if (otSlots.length) {
           units.push({ ids: otSlots.map(s => s.claim_id).filter(Boolean), value: si.otPrice||0, kind: 'slot', refs: otSlots, paid: otSlots.every(s => s.payment === 'paid') });
         }
-        normalSlots.forEach(slot => units.push({ ids: [slot.claim_id].filter(Boolean), value: si.price||0, kind: 'slot', refs: [slot], paid: slot.payment === 'paid' }));
+        normalSlots.forEach(slot => units.push({ ids: [slot.claim_id].filter(Boolean), value: effClaimPrice(slot, si.price), kind: 'slot', refs: [slot], paid: slot.payment === 'paid' }));
       });
     }
     if (si.claims) si.claims.forEach(c => {
       if (!sameUser(c.user, username) || c.claim_status === 'dropped') return;
       if (isBatch(si) && c.claim_status !== 'secured') return;  // batch: only secured cards are owed/payable
       if (c.claim_status === 'pending') return;  // explicitly unsecured (e.g. merch) not owed/payable
-      units.push({ ids: [c.claim_id].filter(Boolean), value: (si.price||0) * (c.qty||1), kind: 'claim', refs: [c], paid: c.payment === 'paid' });
+      units.push({ ids: [c.claim_id].filter(Boolean), value: effClaimPrice(c, si.price) * (c.qty||1), kind: 'claim', refs: [c], paid: c.payment === 'paid' });
     });
   });
   return units;
@@ -5328,7 +5356,7 @@ sb.auth.onAuthStateChange((_event, session) => {
 // ── Supabase data layer ────────────────────────────────────────────────────
 // Maps normalized rows into the EXACT legacy shapes the render code consumes.
 const CLAIM_SELECT = 'id, sub_item_id, username, email, qty, is_ot, assigned_version,' +
-  ' status, payment_status, fulfillment, created_at, updated_at,' +
+  ' status, payment_status, fulfillment, price_override, created_at, updated_at,' +
   ' members(name), versions(name), sets(set_no), sub_items!inner(go_id, name, gos(name))';
 
 function claimRowToLegacy(c) {
@@ -5347,6 +5375,7 @@ function claimRowToLegacy(c) {
     claim_status: c.status,
     payment_status: c.payment_status,
     fulfillment: c.fulfillment || '',
+    price_override: c.price_override != null ? parseFloat(c.price_override) : null,
     created_at: c.created_at,
     updated_at: c.updated_at
   };
@@ -5565,6 +5594,7 @@ const db = {
     if (d.fulfillment)    patch.fulfillment = d.fulfillment;
     if (d.username)       patch.username = String(d.username).trim().replace(/^@/, '').toLowerCase();
     if (d.qty)            patch.qty = parseInt(d.qty) || 1;
+    if (d.price_override !== undefined) patch.price_override = (d.price_override === null || d.price_override === '' || isNaN(parseFloat(d.price_override))) ? null : parseFloat(d.price_override);
     if (d.assigned_version !== undefined) patch.assigned_version = d.assigned_version || null;
     // Member/version reassignment: resolve the name to its row for this sub-item.
     if (d.member_name && d.sub_item_id) {
@@ -6070,7 +6100,7 @@ function buildSetsFromClaims(claims, siId, members) {
     }
     return setsByNum[n];
   };
-  const mkSlot = (c) => ({ user: c.username, payment: c.payment_status, fulfillment: c.fulfillment, claim_status: c.claim_status, claim_id: c.claim_id, ot: c.assigned_vers === 'OT' });
+  const mkSlot = (c) => ({ user: c.username, payment: c.payment_status, fulfillment: c.fulfillment, claim_status: c.claim_status, claim_id: c.claim_id, ot: c.assigned_vers === 'OT', price_override: c.price_override != null ? c.price_override : null });
   // Pass 1: OT full-set claims → ATOMIC sets, grouped by (user + declared set). Each group takes its
   // own set number (its declared one, or the next free) and reserves it, so no individual claim can
   // ever enter or split a full-set order. This keeps every OT8 together as one complete set.
@@ -6123,7 +6153,8 @@ function buildVersionedClaims(claims, siId) {
     member: c.member_or_version || '',
     assignedVers: c.assigned_vers ? c.assigned_vers.split('+') : [],
     payment: c.payment_status, fulfillment: c.fulfillment, claim_id: c.claim_id,
-    claim_status: c.claim_status
+    claim_status: c.claim_status,
+    price_override: c.price_override != null ? c.price_override : null
   }));
 }
 
@@ -6133,7 +6164,8 @@ function buildBatchClaims(claims, siId) {
     user: c.username, member: c.member_or_version || '', qty: parseInt(c.qty) || 1,
     payment: c.payment_status, fulfillment: c.fulfillment,
     claim_status: c.claim_status, claim_id: c.claim_id,
-    created_at: c.created_at, ot: c.assigned_vers === 'OT'
+    created_at: c.created_at, ot: c.assigned_vers === 'OT',
+    price_override: c.price_override != null ? c.price_override : null
   }));
 }
 
