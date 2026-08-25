@@ -694,11 +694,21 @@ function toggleShopCat(cat) {
 // Wrap a buyer sub-item's rendered card in a collapsible section (default collapsed).
 function claimCollapsible(goId, si, inner) {
   const open = isClaimSIOpen(goId, si.id);
+  // Deadline/closed state must be visible on the COLLAPSED row — most joiners
+  // never expand an item they aren't claiming, and per-item deadlines were
+  // effectively hidden inside the cards.
+  const closed = isPobClosed(allGOs[goId], si);
+  const dateLine = closed
+    ? '<span class="badge badge-waitlist" style="font-size:10px;padding:2px 7px;">Closed</span>'
+    : (si.deadline ? `<span style="font-size:11px;color:var(--red-400);">closes ${fmtDate(si.deadline)}</span>` : '');
   return `<div style="margin-bottom:10px;">
     <div style="display:flex;align-items:center;gap:8px;padding:12px 4px;cursor:pointer;user-select:none;border-bottom:0.5px solid var(--border);" onclick="toggleClaimSI('${goId}','${si.id}')">
-      <span id="clm-chev-${si.id}" style="width:12px;color:var(--text3);">${open ? '▾' : '▸'}</span>
-      <span style="font-weight:500;font-size:15px;">${si.name}</span>
-      <span style="margin-left:auto;font-size:12px;color:var(--text3);">${setsSummary(si)}</span>
+      <span id="clm-chev-${si.id}" style="width:12px;flex:none;color:var(--text3);">${open ? '▾' : '▸'}</span>
+      <div style="min-width:0;">
+        <div style="font-weight:500;font-size:15px;">${si.name}</div>
+        ${dateLine ? `<div style="margin-top:2px;">${dateLine}</div>` : ''}
+      </div>
+      <span style="margin-left:auto;flex:none;font-size:12px;color:var(--text3);">${setsSummary(si)}</span>
     </div>
     <div id="clm-body-${si.id}" style="display:${open ? 'block' : 'none'};padding-top:10px;">${inner}</div>
   </div>`;
