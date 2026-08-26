@@ -2245,7 +2245,9 @@ function trackingLink(num) {
 function shipmentsCardHtml(username) {
   const mine = (shippingRequests || []).filter(r => sameUser(r.username, username));
   if (!mine.length) return '';
-  const rows = mine.map(r => `
+  const rows = mine.map(r => {
+    const { itemsHtml, feesHtml } = shipReceiptHtml(r.items || [], r.ems_fee, r.dom_fee);
+    return `
     <div style="padding:8px 0;border-bottom:0.5px solid var(--border);">
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
         <span class="badge ${r.shipped ? 'badge-secured' : 'badge-pending'}" style="font-size:10px;">${r.shipped ? 'Shipped' : 'Preparing'}</span>
@@ -2253,9 +2255,13 @@ function shipmentsCardHtml(username) {
         <span style="font-size:11px;color:var(--text3);">${(r.items || []).length} item${(r.items || []).length !== 1 ? 's' : ''}${r.created_at ? ' · ' + fmtDate(r.created_at) : ''}</span>
         ${parseFloat(r.total_fee) > 0 ? `<span style="font-size:11px;font-family:var(--mono);color:var(--text2);margin-left:auto;">$${parseFloat(r.total_fee).toFixed(2)} shipping</span>` : ''}
       </div>
-      <div style="font-size:12px;color:var(--text3);margin-top:3px;">${(r.items || []).map(it => it.label).join(' · ')}</div>
       ${r.tracking_number ? `<div style="font-size:12px;margin-top:4px;">Tracking: ${trackingLink(r.tracking_number)}</div>` : ''}
-    </div>`).join('');
+      <details style="margin-top:4px;">
+        <summary style="font-size:12px;color:var(--accent);cursor:pointer;user-select:none;">View receipt</summary>
+        <div style="margin-top:6px;">${itemsHtml || '<div style="font-size:12px;color:var(--text3);">—</div>'}${feesHtml}</div>
+      </details>
+    </div>`;
+  }).join('');
   return `<div class="card" style="margin-top:12px;">
     <div style="font-weight:500;font-size:15px;margin-bottom:4px;">Your shipments</div>${rows}
   </div>`;
@@ -5294,30 +5300,36 @@ function updateShipFee(requestId, which, val) {
   if (el) el.textContent = (ems + dom) > 0 ? '$' + r.total_fee : '—';
 }
 
-// Packing-slip view of one request: address, then a receipt-style item list with
-// prices (from the claim/shop links; OT-set cards and legacy items show no price),
-// then the shipping fees once entered.
-function viewShippingAddress(requestId) {
-  const r = shippingRequests.find(x => x.request_id === requestId);
-  if (!r) return;
-  const addr = [r.full_name, r.address1, r.address2, [r.city, r.state, r.postal].filter(Boolean).join(', '), r.country, r.notes ? ('Notes: ' + r.notes) : ''].filter(Boolean).join('\n');
-  const items = r.items || [];
+// Receipt body shared by the admin packing slip and the joiner's Your-shipments
+// card: itemized prices (OT-set cards and legacy unlinked lines unpriced), an
+// items-already-paid total, and the shipping fees once entered.
+function shipReceiptHtml(items, emsFee, domFee) {
   const line = (label, right, bold) => `<div style="display:flex;gap:10px;justify-content:space-between;align-items:baseline;padding:3px 0;${bold?'font-weight:600;':''}">
     <span style="font-size:12px;color:${bold?'var(--text)':'var(--text2)'};min-width:0;">${label}</span>
     <span style="font-size:12px;font-family:var(--mono);flex:none;color:${bold?'var(--text)':'var(--text2)'};">${right}</span>
   </div>`;
-  let itemsHtml = items.map(it => line(it.label, it.ot ? 'OT set' : (it.price != null ? '$' + it.price.toFixed(2) : '—'))).join('');
-  const priced = items.filter(it => it.price != null);
+  const pv = (it) => (it.price != null && isFinite(parseFloat(it.price))) ? parseFloat(it.price) : null;
+  let itemsHtml = (items || []).map(it => line(it.label, it.ot ? 'OT set' : (pv(it) != null ? '$' + pv(it).toFixed(2) : '—'))).join('');
+  const priced = (items || []).map(pv).filter(v => v != null);
   if (priced.length) {
-    const sum = priced.reduce((a, it) => a + it.price, 0);
+    const sum = priced.reduce((a, v) => a + v, 0);
     itemsHtml += `<div style="border-top:0.5px solid var(--border);margin-top:4px;">${line('Items total (already paid)', '$' + sum.toFixed(2), true)}</div>`;
   }
-  const ems = parseFloat(r.ems_fee) || 0, dom = parseFloat(r.dom_fee) || 0;
+  const ems = parseFloat(emsFee) || 0, dom = parseFloat(domFee) || 0;
   const feesHtml = (ems || dom) ? `<div style="margin-top:12px;">
     ${ems ? line('EMS fee', '$' + ems.toFixed(2)) : ''}
     ${dom ? line('Domestic shipping', '$' + dom.toFixed(2)) : ''}
     <div style="border-top:0.5px solid var(--border);margin-top:4px;">${line('Shipping to collect', '$' + (ems + dom).toFixed(2), true)}</div>
   </div>` : '';
+  return { itemsHtml, feesHtml };
+}
+// Packing-slip view of one request: address, then the shared receipt.
+function viewShippingAddress(requestId) {
+  const r = shippingRequests.find(x => x.request_id === requestId);
+  if (!r) return;
+  const addr = [r.full_name, r.address1, r.address2, [r.city, r.state, r.postal].filter(Boolean).join(', '), r.country, r.notes ? ('Notes: ' + r.notes) : ''].filter(Boolean).join('\n');
+  const items = r.items || [];
+  const { itemsHtml, feesHtml } = shipReceiptHtml(items, r.ems_fee, r.dom_fee);
   showModal(`
     <div style="font-size:16px;font-weight:500;margin-bottom:4px;">Shipping request</div>
     <div style="font-size:13px;font-weight:500;margin-bottom:8px;">${r.username}
