@@ -2245,26 +2245,39 @@ function trackingLink(num) {
 function shipmentsCardHtml(username) {
   const mine = (shippingRequests || []).filter(r => sameUser(r.username, username));
   if (!mine.length) return '';
-  const rows = mine.map(r => {
-    const { itemsHtml, feesHtml } = shipReceiptHtml(r.items || [], r.ems_fee, r.dom_fee);
-    return `
+  const rows = mine.map(r => `
     <div style="padding:8px 0;border-bottom:0.5px solid var(--border);">
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
         <span class="badge ${r.shipped ? 'badge-secured' : 'badge-pending'}" style="font-size:10px;">${r.shipped ? 'Shipped' : 'Preparing'}</span>
         <span class="badge badge-fcfs" style="font-size:10px;">${r.method === 'stamped' ? 'Stamped' : 'Tracked'}</span>
         <span style="font-size:11px;color:var(--text3);">${(r.items || []).length} item${(r.items || []).length !== 1 ? 's' : ''}${r.created_at ? ' · ' + fmtDate(r.created_at) : ''}</span>
+        <button class="btn btn-sm btn-ghost" style="font-size:11px;padding:2px 8px;${parseFloat(r.total_fee) > 0 ? '' : 'margin-left:auto;'}" onclick="viewMyShipment('${r.request_id}')">View receipt</button>
         ${parseFloat(r.total_fee) > 0 ? `<span style="font-size:11px;font-family:var(--mono);color:var(--text2);margin-left:auto;">$${parseFloat(r.total_fee).toFixed(2)} shipping</span>` : ''}
       </div>
       ${r.tracking_number ? `<div style="font-size:12px;margin-top:4px;">Tracking: ${trackingLink(r.tracking_number)}</div>` : ''}
-      <details style="margin-top:4px;">
-        <summary style="font-size:12px;color:var(--accent);cursor:pointer;user-select:none;">View receipt</summary>
-        <div style="margin-top:6px;">${itemsHtml || '<div style="font-size:12px;color:var(--text3);">—</div>'}${feesHtml}</div>
-      </details>
-    </div>`;
-  }).join('');
+    </div>`).join('');
   return `<div class="card" style="margin-top:12px;">
     <div style="font-weight:500;font-size:15px;margin-bottom:4px;">Your shipments</div>${rows}
   </div>`;
+}
+// Joiner's receipt popup — same packing-slip modal shape as the admin queue's
+// View, minus the address (shipping_status doesn't expose it).
+function viewMyShipment(requestId) {
+  const r = (shippingRequests || []).find(x => x.request_id === requestId);
+  if (!r) return;
+  const items = r.items || [];
+  const { itemsHtml, feesHtml } = shipReceiptHtml(items, r.ems_fee, r.dom_fee);
+  showModal(`
+    <div style="font-size:16px;font-weight:500;margin-bottom:4px;">Shipment receipt</div>
+    <div style="font-size:13px;font-weight:500;margin-bottom:12px;">
+      <span class="badge ${r.shipped ? 'badge-secured' : 'badge-pending'}" style="font-size:10px;">${r.shipped ? 'Shipped' : 'Preparing'}</span>
+      <span class="badge badge-fcfs" style="font-size:10px;margin-left:4px;">${r.method === 'stamped' ? 'Stamped' : 'Tracked'}</span>
+      ${r.created_at ? `<span style="font-size:12px;font-weight:400;color:var(--text3);margin-left:6px;">${fmtDate(r.created_at)}</span>` : ''}
+      ${r.tracking_number ? `<span style="font-size:12px;font-weight:400;margin-left:6px;">${trackingLink(r.tracking_number)}</span>` : ''}</div>
+    <div style="font-size:13px;font-weight:500;margin-bottom:4px;">Items (${items.length})</div>
+    <div style="max-height:45vh;overflow-y:auto;">${itemsHtml || '<div style="font-size:12px;color:var(--text3);">—</div>'}</div>
+    ${feesHtml}
+    <button class="btn btn-ghost" onclick="closeModal()" style="margin-top:20px;width:100%;justify-content:center;">Close</button>`);
 }
 let shipMethod = 'tracked';
 function setShipMethod(m) {
