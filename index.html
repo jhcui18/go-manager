@@ -412,8 +412,8 @@
           <button class="btn btn-sm" onclick="refreshShippingQueue()">↺ Refresh</button>
         </div>
         <div class="card"><div class="table-wrap"><table>
-          <thead><tr><th>Username</th><th>Items ready</th><th>Cards</th><th>Method</th><th>EMS fee</th><th>Dom. fee</th><th>Total</th><th>Tracking #</th><th>Address</th><th></th></tr></thead>
-          <tbody id="shipping-queue-tbody"><tr><td colspan="10" style="text-align:center;color:var(--text3);padding:20px;">No shipping requests yet.</td></tr></tbody>
+          <thead><tr><th>Username</th><th>Items</th><th>Method</th><th>EMS fee</th><th>Dom. fee</th><th>Total</th><th>Tracking #</th><th>Details</th><th></th></tr></thead>
+          <tbody id="shipping-queue-tbody"><tr><td colspan="9" style="text-align:center;color:var(--text3);padding:20px;">No shipping requests yet.</td></tr></tbody>
         </table></div></div>
       </div>
     </div>
@@ -5252,7 +5252,7 @@ function renderShippingQueueInner() {
   if (!tbody) return;
   const pending = (shippingRequests || []).filter(r => !r.shipped);
   if (!pending.length) {
-    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:20px;">No shipping requests.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:20px;">No shipping requests.</td></tr>';
     return;
   }
   tbody.innerHTML = pending.map(r => {
@@ -5262,8 +5262,7 @@ function renderShippingQueueInner() {
     const total = (ems + dom) > 0 ? (ems + dom).toFixed(2) : '—';
     return `<tr>
       <td style="font-weight:500;">${r.username}</td>
-      <td style="font-size:12px;color:var(--text2);">${items.map(it => it.label).join('<br>') || '—'}</td>
-      <td>${items.length}</td>
+      <td style="font-size:12px;color:var(--text2);white-space:nowrap;">${items.length} item${items.length !== 1 ? 's' : ''}</td>
       <td><span class="badge ${r.method === 'stamped' ? 'badge-pending' : 'badge-fcfs'}" style="font-size:10px;">${r.method === 'stamped' ? 'Stamped' : 'Tracked'}</span></td>
       <td><input type="number" placeholder="0.00" step="0.01" value="${r.ems_fee||''}" oninput="updateShipFee('${r.request_id}','ems',this.value)" style="width:72px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);"></td>
       <td><input type="number" placeholder="0.00" step="0.01" value="${r.dom_fee||''}" oninput="updateShipFee('${r.request_id}','dom',this.value)" style="width:72px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);"></td>
@@ -5295,18 +5294,39 @@ function updateShipFee(requestId, which, val) {
   if (el) el.textContent = (ems + dom) > 0 ? '$' + r.total_fee : '—';
 }
 
+// Packing-slip view of one request: address, then a receipt-style item list with
+// prices (from the claim/shop links; OT-set cards and legacy items show no price),
+// then the shipping fees once entered.
 function viewShippingAddress(requestId) {
   const r = shippingRequests.find(x => x.request_id === requestId);
   if (!r) return;
   const addr = [r.full_name, r.address1, r.address2, [r.city, r.state, r.postal].filter(Boolean).join(', '), r.country, r.notes ? ('Notes: ' + r.notes) : ''].filter(Boolean).join('\n');
+  const items = r.items || [];
+  const line = (label, right, bold) => `<div style="display:flex;gap:10px;justify-content:space-between;align-items:baseline;padding:3px 0;${bold?'font-weight:600;':''}">
+    <span style="font-size:12px;color:${bold?'var(--text)':'var(--text2)'};min-width:0;">${label}</span>
+    <span style="font-size:12px;font-family:var(--mono);flex:none;color:${bold?'var(--text)':'var(--text2)'};">${right}</span>
+  </div>`;
+  let itemsHtml = items.map(it => line(it.label, it.ot ? 'OT set' : (it.price != null ? '$' + it.price.toFixed(2) : '—'))).join('');
+  const priced = items.filter(it => it.price != null);
+  if (priced.length) {
+    const sum = priced.reduce((a, it) => a + it.price, 0);
+    itemsHtml += `<div style="border-top:0.5px solid var(--border);margin-top:4px;">${line('Items total (already paid)', '$' + sum.toFixed(2), true)}</div>`;
+  }
+  const ems = parseFloat(r.ems_fee) || 0, dom = parseFloat(r.dom_fee) || 0;
+  const feesHtml = (ems || dom) ? `<div style="margin-top:12px;">
+    ${ems ? line('EMS fee', '$' + ems.toFixed(2)) : ''}
+    ${dom ? line('Domestic shipping', '$' + dom.toFixed(2)) : ''}
+    <div style="border-top:0.5px solid var(--border);margin-top:4px;">${line('Shipping to collect', '$' + (ems + dom).toFixed(2), true)}</div>
+  </div>` : '';
   showModal(`
-    <div style="font-size:16px;font-weight:500;margin-bottom:4px;">Shipping address</div>
+    <div style="font-size:16px;font-weight:500;margin-bottom:4px;">Shipping request</div>
     <div style="font-size:13px;font-weight:500;margin-bottom:8px;">${r.username}
       <span class="badge ${r.method === 'stamped' ? 'badge-pending' : 'badge-fcfs'}" style="font-size:10px;margin-left:6px;">${r.method === 'stamped' ? 'Stamped' : 'Tracked'}</span>
       ${r.tracking_number ? `<span style="font-size:12px;font-weight:400;margin-left:6px;">${trackingLink(r.tracking_number)}</span>` : ''}</div>
     <div style="font-size:13px;color:var(--text2);white-space:pre-line;margin-bottom:16px;">${addr || 'No address.'}</div>
-    <div style="font-size:13px;font-weight:500;margin-bottom:6px;">Items:</div>
-    <div style="font-size:12px;color:var(--text2);">${(r.items||[]).map(it => '• ' + it.label).join('<br>') || '—'}</div>
+    <div style="font-size:13px;font-weight:500;margin-bottom:4px;">Items (${items.length})</div>
+    <div style="max-height:45vh;overflow-y:auto;">${itemsHtml || '<div style="font-size:12px;color:var(--text3);">—</div>'}</div>
+    ${feesHtml}
     <button class="btn btn-ghost" onclick="closeModal()" style="margin-top:20px;width:100%;justify-content:center;">Close</button>`);
 }
 
@@ -5532,7 +5552,8 @@ const db = {
   },
   async getShipping() {  // admin: full requests incl. addresses + items
     const data = await selectAll(() => sb.from('shipping_requests')
-      .select('*, shipping_request_items(id, go_id, description, qty, claim_id, shop_order_id)').order('created_at').order('id'));
+      .select('*, shipping_request_items(id, go_id, description, qty, claim_id, shop_order_id,' +
+        ' claims(qty, is_ot, price_override, sub_items(price)), shop_orders(qty, unit_price))').order('created_at').order('id'));
     return { requests: data.map(r => ({
       request_id: r.id, username: r.username, full_name: r.full_name,
       address1: r.address1, address2: r.address2 || '', city: r.city, state: r.state,
@@ -5542,8 +5563,19 @@ const db = {
       shipped: r.shipped, created_at: r.created_at,
       method: r.method || 'tracked', tracking_number: r.tracking_number || '',
       items: JSON.stringify((r.shipping_request_items || [])
-        .map(i => ({ type: i.claim_id ? 'claim' : i.shop_order_id ? 'shop' : 'item',
-                     id: i.claim_id || i.shop_order_id || i.id, label: i.description })))
+        .map(i => {
+          // Per-item value for the receipt view: claim price (override-aware) or
+          // shop line total; OT-set cards and legacy unlinked items price as null.
+          let price = null, ot = false;
+          if (i.claims) {
+            if (i.claims.is_ot) ot = true;
+            else price = parseFloat(i.claims.price_override != null ? i.claims.price_override : (i.claims.sub_items || {}).price) || 0;
+          } else if (i.shop_orders) {
+            price = (parseFloat(i.shop_orders.unit_price) || 0) * (parseInt(i.shop_orders.qty) || 1);
+          }
+          return { type: i.claim_id ? 'claim' : i.shop_order_id ? 'shop' : 'item',
+                   id: i.claim_id || i.shop_order_id || i.id, label: i.description, price, ot };
+        }))
     })) };
   },
   async submitClaim(payload) {
