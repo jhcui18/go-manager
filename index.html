@@ -4579,7 +4579,10 @@ function saveListing(listingId) {
     const local = listings.find(x => x.listing_id === listingId);
     const prevImage = local ? (local.image_url || '') : '';
     if (local) Object.assign(local, data);
-    db.saveListing(data).then(() => {
+    db.saveListing(data).then(r => {
+      // Adopt the server's variant rows (real ids) so buyer orders from this
+      // session carry valid variant_ids.
+      if (local && r && Array.isArray(r.variants)) { local.variants = r.variants; renderAdminListings(); renderShopPage(); }
       // Image replaced? Clear the old uploaded copy from Storage so stale files
       // don't pile up (removeItemImage ignores non-bucket URLs). Only after the
       // save lands — a failed save must keep the old image reachable.
@@ -4592,7 +4595,11 @@ function saveListing(listingId) {
     // refresh used to target the temp id and silently update nothing.
     db.saveListing(data).then(r => {
       const local = listings.find(x => x.listing_id === tempId);
-      if (local && r && r.listing_id) { local.listing_id = r.listing_id; renderAdminListings(); }
+      if (local && r && r.listing_id) {
+        local.listing_id = r.listing_id;
+        if (Array.isArray(r.variants)) local.variants = r.variants;
+        renderAdminListings();
+      }
     }).catch(() => toast('Couldn’t save the listing — please try again.'));
   }
   closeModal();
@@ -5792,14 +5799,35 @@ const db = {
       if (r.error) throw r.error;
       listingId = r.data.id;
     }
-    const del = await sb.from('listing_variants').delete().eq('listing_id', listingId);
-    if (del.error) throw del.error;
-    if (variants.length) {
-      const ins = await sb.from('listing_variants')
-        .insert(variants.map(v => ({ listing_id: listingId, name: v.name, qty: parseInt(v.qty) || 0 })));
-      if (ins.error) throw ins.error;
+    // Sync variants by name IN PLACE — never delete-and-reinsert: shop_orders
+    // reference variant rows by id (restrictive FK), so wiping them fails the
+    // moment a listing has orders, and would orphan order->variant links anyway.
+    const existing = dbThrow(await sb.from('listing_variants').select('id, name, qty').eq('listing_id', listingId));
+    const byName = {}; existing.forEach(v => { byName[v.name.trim().toLowerCase()] = v; });
+    const keep = new Set();
+    for (const v of variants) {
+      const key = String(v.name || '').trim().toLowerCase();
+      if (!key || keep.has((byName[key] || {}).id)) continue;
+      const ex = byName[key];
+      if (ex) {
+        keep.add(ex.id);
+        dbThrow(await sb.from('listing_variants').update({ name: v.name, qty: parseInt(v.qty) || 0 }).eq('id', ex.id));
+      } else {
+        const ins = await sb.from('listing_variants')
+          .insert({ listing_id: listingId, name: v.name, qty: parseInt(v.qty) || 0 }).select('id').single();
+        if (ins.error) throw ins.error;
+        keep.add(ins.data.id);
+      }
     }
-    return { ok: true, listing_id: listingId };
+    for (const v of existing) {
+      if (keep.has(v.id)) continue;
+      const del = await sb.from('listing_variants').delete().eq('id', v.id);
+      // A removed variant that has orders can't be deleted — zero its stock instead
+      // (sold out for buyers, order history intact).
+      if (del.error) dbThrow(await sb.from('listing_variants').update({ qty: 0 }).eq('id', v.id));
+    }
+    const fresh = dbThrow(await sb.from('listing_variants').select('id, name, qty').eq('listing_id', listingId));
+    return { ok: true, listing_id: listingId, variants: fresh };
   },
   async deleteListing(listingId) {
     const r = await sb.from('listings').delete().eq('id', listingId);
