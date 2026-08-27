@@ -5329,7 +5329,11 @@ function shipReceiptHtml(items, emsFee, domFee) {
     <span style="font-size:12px;font-family:var(--mono);flex:none;color:${bold?'var(--text)':'var(--text2)'};">${right}</span>
   </div>`;
   const pv = (it) => (it.price != null && isFinite(parseFloat(it.price))) ? parseFloat(it.price) : null;
-  let itemsHtml = (items || []).map(it => line(it.label, it.ot ? 'OT set' : (pv(it) != null ? '$' + pv(it).toFixed(2) : '—'))).join('');
+  let itemsHtml = (items || []).map(it => {
+    const q = parseInt(it.qty) || 1;
+    return line(it.label + (q > 1 ? ` <span style="color:var(--text3);">×${q}</span>` : ''),
+                it.ot ? 'OT set' : (pv(it) != null ? '$' + pv(it).toFixed(2) : '—'));
+  }).join('');
   const priced = (items || []).map(pv).filter(v => v != null);
   if (priced.length) {
     const sum = priced.reduce((a, v) => a + v, 0);
@@ -5596,17 +5600,20 @@ const db = {
       method: r.method || 'tracked', tracking_number: r.tracking_number || '',
       items: JSON.stringify((r.shipping_request_items || [])
         .map(i => {
-          // Per-item value for the receipt view: claim price (override-aware) or
-          // shop line total; OT-set cards and legacy unlinked items price as null.
-          let price = null, ot = false;
+          // Per-line value for the receipt view (unit x qty): claim price
+          // override-aware, shop line total; OT-set cards and legacy unlinked
+          // items price as null. qty rides along for the "xN" on the line.
+          let price = null, ot = false, qty = parseInt(i.qty) || 1;
           if (i.claims) {
+            qty = parseInt(i.claims.qty) || 1;
             if (i.claims.is_ot) ot = true;
-            else price = parseFloat(i.claims.price_override != null ? i.claims.price_override : (i.claims.sub_items || {}).price) || 0;
+            else price = (parseFloat(i.claims.price_override != null ? i.claims.price_override : (i.claims.sub_items || {}).price) || 0) * qty;
           } else if (i.shop_orders) {
-            price = (parseFloat(i.shop_orders.unit_price) || 0) * (parseInt(i.shop_orders.qty) || 1);
+            qty = parseInt(i.shop_orders.qty) || 1;
+            price = (parseFloat(i.shop_orders.unit_price) || 0) * qty;
           }
           return { type: i.claim_id ? 'claim' : i.shop_order_id ? 'shop' : 'item',
-                   id: i.claim_id || i.shop_order_id || i.id, label: i.description, price, ot };
+                   id: i.claim_id || i.shop_order_id || i.id, label: i.description, price, ot, qty };
         }))
     })) };
   },
