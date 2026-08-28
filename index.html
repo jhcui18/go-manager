@@ -1972,7 +1972,7 @@ function doLookupRenderInner(u) {
       const normalClaims = g.claims.filter(c => c.assigned_vers !== 'OT');
       if (otClaims.length) {
         const c0 = otClaims.find(c => c.claim_status !== 'dropped') || otClaims[0];
-        rows.push({ go_id:g.go_id, go:g.go, item:g.item, detail:'OT'+otClaims.length+' full set', qty:1, price:(g.meta && g.meta.otPrice)||0,
+        rows.push({ go_id:g.go_id, go:g.go, item:g.item, detail:'OT'+otClaims.length+' full set', qty:1, price:effOtSetPrice(otClaims, g.meta && g.meta.otPrice),
           claim:(c0.claim_status==='dropped')?'Not fulfilled':((c0.claim_status==='secured')?'Secured':'Pending'), payment:c0.payment_status, fulfillment:c0.fulfillment,
           due: effectivePayBy(g.go_id, g.meta && g.meta.id) });
       }
@@ -1994,7 +1994,7 @@ function doLookupRenderInner(u) {
             const isOT = membersToCheck.length && membersToCheck.every(m => { const s = set.slots[m]; return s && sameUser(s.user, u) && s.ot; });
             if (isOT) {
               const s0 = set.slots[membersToCheck[0]];
-              rows.push({ go_id:go.id, go:go.name, item:si.name, detail:'OT'+membersToCheck.length+' full set', qty:1, price:si.otPrice||0, claim:(s0.claim_status==='dropped')?'Not fulfilled':((s0.claim_status==='secured')?'Secured':'Pending'), payment:s0.payment, fulfillment:s0.fulfillment, due: effectivePayBy(go.id, si.id) });
+              rows.push({ go_id:go.id, go:go.name, item:si.name, detail:'OT'+membersToCheck.length+' full set', qty:1, price:effOtSetPrice(membersToCheck.map(m => set.slots[m]), si.otPrice), claim:(s0.claim_status==='dropped')?'Not fulfilled':((s0.claim_status==='secured')?'Secured':'Pending'), payment:s0.payment, fulfillment:s0.fulfillment, due: effectivePayBy(go.id, si.id) });
               return;
             }
             membersToCheck.forEach(member => {
