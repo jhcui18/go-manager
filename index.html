@@ -4179,7 +4179,10 @@ function openEditClaimModal(goId, siId, setIdx, member) {
       </select>
       <div class="field-hint">Not fulfilled: kept in history but not ordered/charged — the joiner sees "Not fulfilled".</div>
     </div>
-    ${slot.ot ? '' : `<div class="field"><label>Price override (USD)</label>
+    ${slot.ot ? `<div class="field"><label>OT set price override (USD)</label>
+      <input type="number" step="0.01" min="0" id="ec-override" value="${slot.price_override != null ? slot.price_override : ''}" placeholder="${(si.otPrice||0).toFixed(2)} (set price)">
+      <div class="field-hint">Blank = set price. Applies to this joiner's whole OT set — all its cards update together.</div>
+    </div>` : `<div class="field"><label>Price override (USD)</label>
       <input type="number" step="0.01" min="0" id="ec-override" value="${slot.price_override != null ? slot.price_override : ''}" placeholder="${(si.price||0).toFixed(2)} (item price)">
       <div class="field-hint">Blank = item price. Changes what this claim is worth everywhere (owed, credit, totals).</div>
     </div>`}
@@ -4223,6 +4226,16 @@ async function saveClaimEdit(goId, siId, setIdx, member) {
   }
   slot.user = newUser; slot.payment = newPayment; slot.fulfillment = newFulfillment;
   slot.claim_status = newStatus; slot.price_override = newOverride;
+  // An OT override is the SET's price — spread it to the group's other cards so
+  // the stored max is unambiguous (mirrors migration 022).
+  if (slot.ot) {
+    for (const m of (si.members || [])) {
+      const sib = set.slots[m];
+      if (!sib || !sib.ot || sib === slot) continue;
+      sib.price_override = newOverride;
+      if (sib.claim_id) db.updateClaim({ claim_id: sib.claim_id, price_override: newOverride }).catch(() => toast("Couldn't sync the set price to every card — reopen and re-save."));
+    }
+  }
   if (newMember !== member) { set.slots[newMember] = slot; set.slots[member] = null; }
   closeModal();
   renderDetailContent();
@@ -4917,6 +4930,13 @@ function effClaimPrice(ref, basePrice) {
   const o = ref && ref.price_override;
   return (o != null && o !== '' && isFinite(parseFloat(o))) ? parseFloat(o) : (parseFloat(basePrice) || 0);
 }
+// OT set price: max override across the group's rows, else the item's OT price
+// (mirrors apply_balance/go_money since 022).
+function effOtSetPrice(rows, baseOtPrice) {
+  const ovs = (rows || []).map(r => r && r.price_override)
+    .filter(v => v != null && v !== '' && isFinite(parseFloat(v))).map(v => parseFloat(v));
+  return ovs.length ? Math.max(...ovs) : (parseFloat(baseOtPrice) || 0);
+}
 function ownedUnitsFromClaims(claims, siMeta) {
   const units = [];
   // group set-based claims by sub_item + set_num
@@ -4940,7 +4960,7 @@ function ownedUnitsFromClaims(claims, siMeta) {
     }
   });
   Object.values(sets).forEach(s => {
-    if (s.ot.length) units.push({ value: parseFloat(s.meta.otPrice) || 0, ids: s.ot.map(c => c.claim_id).filter(Boolean), paid: s.ot.every(c => c.payment_status === 'paid') });
+    if (s.ot.length) units.push({ value: effOtSetPrice(s.ot, s.meta.otPrice), ids: s.ot.map(c => c.claim_id).filter(Boolean), paid: s.ot.every(c => c.payment_status === 'paid') });
     s.normal.forEach(c => units.push({ value: effClaimPrice(c, s.meta.price), ids: [c.claim_id].filter(Boolean), paid: c.payment_status === 'paid' }));
   });
   return units;
@@ -4972,7 +4992,7 @@ function paymentOwedUnits(username, goId) {
         });
         // OT full set → one unit at the flat OT price, covering all its (secured) slots.
         if (otSlots.length) {
-          units.push({ ids: otSlots.map(s => s.claim_id).filter(Boolean), value: si.otPrice||0, kind: 'slot', refs: otSlots, paid: otSlots.every(s => s.payment === 'paid') });
+          units.push({ ids: otSlots.map(s => s.claim_id).filter(Boolean), value: effOtSetPrice(otSlots, si.otPrice), kind: 'slot', refs: otSlots, paid: otSlots.every(s => s.payment === 'paid') });
         }
         normalSlots.forEach(slot => units.push({ ids: [slot.claim_id].filter(Boolean), value: effClaimPrice(slot, si.price), kind: 'slot', refs: [slot], paid: slot.payment === 'paid' }));
       });
