@@ -661,8 +661,9 @@ function setsSummary(si) {
     const dropped = si.sets.reduce((a, s) => a + Object.values(s.slots).filter(v => v && v.claim_status === 'dropped').length, 0);
     return `${real} set${real !== 1 ? 's' : ''} · ${secured} secured` + (dropped ? ` · ${dropped} dropped` : '');
   }
-  const n = (si.claims || []).reduce((a, c) => a + (c.qty || 1), 0);
-  return `${n} claimed`;
+  const n = (si.claims || []).filter(c => c.claim_status !== 'dropped').reduce((a, c) => a + (c.qty || 1), 0);
+  const nd = (si.claims || []).filter(c => c.claim_status === 'dropped').length;
+  return `${n} claimed` + (nd ? ` · ${nd} dropped` : '');
 }
 function toggleAdminSI(siId) {
   adminOpenSI[siId] = !adminOpenSI[siId];
@@ -2847,6 +2848,12 @@ function renderDetailContentInner() {
             ${hasMemberCol ? `<td style="font-size:12px;color:var(--text2);">${memberOrVer||'—'}</td>` : ''}
             ${hasVerCol ? `<td style="font-size:12px;color:var(--text2);">${(c.assignedVers||[]).join(' + ')}</td>` : ''}
             <td>${(() => {
+              // Dropped claims used to masquerade as "Unsecured" here — the joiner saw
+              // "Not fulfilled" while the admin table gave no hint.
+              if (c.claim_status === 'dropped') return `<div style="display:flex;align-items:center;gap:4px;">
+                <span class="badge badge-dropped">Not fulfilled</span>
+                ${c.claim_id ? `<button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 6px;" onclick="restoreClaim('${go.id}','fcfs','${si.id}',null,null,'${c.claim_id}')">Restore</button>` : ''}
+              </div>`;
               const sec = !c.claim_status || c.claim_status === 'secured';
               return c.claim_id
                 ? `<span class="badge ${sec?'badge-secured':'badge-pending'}" style="cursor:pointer;" title="Click to secure/unsecure" onclick="toggleClaimSecure('${c.claim_id}','${go.id}','${si.id}')">${sec?'Secured':'Unsecured'}</span>`
