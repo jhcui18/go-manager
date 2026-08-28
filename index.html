@@ -2362,7 +2362,11 @@ async function submitShippingRequest(username) {
   toast('Shipping request submitted!');
 }
 
+let payment_submitting = false;
 async function submitGoPayment(goId, lookedUpUser) {
+  // Double-click guard: two rapid taps used to fire two submissions before the
+  // server's duplicate check could see either. The button also disables below.
+  if (payment_submitting) return;
   // Use the username bound to THIS panel when it was rendered, not the live
   // lookup-input (which may have been edited after the panels rendered) — that
   // mismatch was pairing a panel's transaction_id with the wrong buyer.
@@ -2389,9 +2393,14 @@ async function submitGoPayment(goId, lookedUpUser) {
     status: 'pending',
     created_at: new Date().toISOString()
   };
+  const btn = document.querySelector(`#lookup-go-blocks button[onclick^="submitGoPayment('${goId}'"]`);
+  payment_submitting = true;
+  if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
   let res = null;
   try { res = await db.submitPayment(proof); } catch (e) {}
+  payment_submitting = false;
   if (!res || !res.ok) {
+    if (btn) { btn.disabled = false; btn.textContent = 'I paid'; }
     // Server-side transaction-id checks (migration 012): name the problem.
     const err = res && res.error;
     toast(err === 'txid_other_user' ? 'This transaction ID matches another account’s confirmed payment — double-check the ID, or message me.'
@@ -2402,9 +2411,8 @@ async function submitGoPayment(goId, lookedUpUser) {
   }
   addPaymentProof(proof);
   toast('Payment submitted — the manager will confirm it.');
-  // Disable the button to prevent double-submit until next lookup refresh
-  const btn = document.querySelector(`#lookup-go-blocks button[onclick^="submitGoPayment('${goId}'"]`);
-  if (btn) { btn.disabled = true; btn.textContent = 'Submitted ✓'; }
+  // Stays disabled until the next lookup refresh
+  if (btn) { btn.textContent = 'Submitted ✓'; }
 }
 
 let creditApplyInFlight = false;
@@ -5252,8 +5260,11 @@ const _submitPaymentForm = async () => {
     created_at: new Date().toISOString()
   };
   if (!String(proof.transaction_id).trim()) { toast('Please paste your transaction ID — payments can’t be confirmed without one.'); return; }
+  if (payment_submitting) return;
+  payment_submitting = true;
   let res = null;
   try { res = await db.submitPayment(proof); } catch (e) {}
+  payment_submitting = false;
   if (!res || !res.ok) { toast("Couldn't submit your payment — please try again."); return; }
   addPaymentProof(proof);
   toast('Payment submitted! We\'ll confirm within 24 hours.');
