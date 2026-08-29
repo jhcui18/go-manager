@@ -367,6 +367,18 @@
         <div class="section-label">Active group orders</div>
         <div id="admin-go-list"></div>
       </div>
+      <div class="admin-section">
+        <div class="section-label">Blocked joiners</div>
+        <div class="card">
+          <div style="font-size:12px;color:var(--text2);margin-bottom:10px;">Blocked joiners can't submit new claims or shop orders. They can still pay what they owe and request shipping for paid items.</div>
+          <div style="display:flex;gap:8px;margin-bottom:10px;">
+            <input type="text" id="block-user-input" placeholder="@username" style="flex:1;">
+            <input type="text" id="block-reason-input" placeholder="Reason (optional)" style="flex:1;">
+            <button class="btn btn-sm" onclick="addBlockedUser()">Block</button>
+          </div>
+          <div id="blocked-users-list" style="font-size:13px;color:var(--text3);">Loading…</div>
+        </div>
+      </div>
     </div>
 
     <div class="admin-tabpanel" id="admin-tabpanel-shop" style="display:none;">
@@ -1051,7 +1063,9 @@ function submitShopOrder(listingId) {
     } else {
       toast('Could not place order.');
     }
-  }).catch(() => toast('Could not place order.'));
+  }).catch(e => toast(String((e && e.message) || '').includes('blocked')
+    ? 'You are not able to order right now — please contact the admin.'
+    : 'Could not place order.'));
 }
 
 // ── CLAIM PAGE ───────────────────────────────────────────────────────────────
@@ -1876,7 +1890,11 @@ async function submitClaimWithRetry(claims, attempts = 3) {
   for (let i = 0; i < attempts; i++) {
     let res;
     try { res = await db.submitClaim({ claims }); }
-    catch (e) { return { ok: false, message: 'Network error — your claim may not have been saved. Please check My orders, then retry if it is missing.' }; }
+    catch (e) {
+      // Blocklist trigger (023) rejects the insert with 'blocked'.
+      if (String((e && e.message) || '').includes('blocked')) return { ok: false, message: 'You are not able to join right now — please contact the admin.' };
+      return { ok: false, message: 'Network error — your claim may not have been saved. Please check My orders, then retry if it is missing.' };
+    }
     if (res && res.ok) return res;
     if (res && res.ok === false && res.error === 'busy' && i < attempts - 1) {
       await new Promise(r => setTimeout(r, 400 * (i + 1)));  // brief backoff, then retry
@@ -3451,9 +3469,50 @@ function updateAdminTabDots() {
   set('payments', pay > 0, pay + ' payment' + (pay !== 1 ? 's' : '') + ' waiting for confirmation');
   set('shipping', ship > 0, ship + ' shipping request' + (ship !== 1 ? 's' : '') + ' to send');
 }
+// ── Blocked joiners (migration 023) ──────────────────────────────────────────
+let blockedUsers = [];
+async function loadBlockedUsers() {
+  try {
+    blockedUsers = dbThrow(await sb.from('blocked_users').select('username, reason, created_at').order('created_at'));
+  } catch (e) { blockedUsers = []; }
+  renderBlockedUsers();
+}
+function renderBlockedUsers() {
+  const el = document.getElementById('blocked-users-list');
+  if (!el) return;
+  if (!blockedUsers.length) { el.innerHTML = 'No one is blocked.'; return; }
+  el.innerHTML = blockedUsers.map(b => `
+    <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:0.5px solid var(--border);">
+      <span style="font-weight:500;color:var(--text);">${b.username}</span>
+      ${b.reason ? `<span style="font-size:12px;">${b.reason}</span>` : ''}
+      <span style="font-size:11px;margin-left:auto;">${fmtDate(b.created_at)}</span>
+      <button class="btn btn-sm btn-ghost" style="font-size:11px;padding:2px 8px;" onclick="removeBlockedUser('${b.username}')">Unblock</button>
+    </div>`).join('');
+}
+async function addBlockedUser() {
+  const raw = (document.getElementById('block-user-input') || {}).value || '';
+  const u = raw.trim().replace(/^@/, '').toLowerCase();
+  if (!u) { toast('Enter a username to block.'); return; }
+  const reason = ((document.getElementById('block-reason-input') || {}).value || '').trim();
+  try {
+    dbThrow(await sb.from('blocked_users').upsert({ username: u, reason: reason || null }));
+  } catch (e) { toast("Couldn't block — please try again."); return; }
+  document.getElementById('block-user-input').value = '';
+  document.getElementById('block-reason-input').value = '';
+  toast('@' + u + ' blocked from new claims and orders.');
+  loadBlockedUsers();
+}
+async function removeBlockedUser(u) {
+  if (!confirm('Unblock @' + u + '? They can claim and order again.')) return;
+  try { dbThrow(await sb.from('blocked_users').delete().eq('username', u)); }
+  catch (e) { toast("Couldn't unblock — please try again."); return; }
+  toast('@' + u + ' unblocked.');
+  loadBlockedUsers();
+}
 function showAdminTab(name) {
   adminActiveTab = name;
   updateAdminTabDots();
+  if (name === 'gos') loadBlockedUsers();
   ['gos','shop','store','payments','shipping'].forEach(t => {
     const panel = document.getElementById('admin-tabpanel-' + t);
     if (panel) panel.style.display = t === name ? 'block' : 'none';
