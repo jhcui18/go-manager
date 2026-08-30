@@ -4901,6 +4901,8 @@ function deleteStoreOrderEntry(orderId) {
   toast('Store order deleted.');
 }
 
+let shopArchiveOpen = false;   // Shipped orders live in a collapsed archive section
+function toggleShopArchive() { shopArchiveOpen = !shopArchiveOpen; renderShopOrders(); }
 function renderShopOrders() {
   const tbody = document.getElementById('shop-orders-tbody');
   if (!tbody) return;
@@ -4908,7 +4910,7 @@ function renderShopOrders() {
     tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px;">No shop orders.</td></tr>';
     return;
   }
-  tbody.innerHTML = shopOrders.map(o => {
+  const rowHtml = (o) => {
     const amt = (parseFloat(o.unit_price)||0) * (parseInt(o.qty)||1);
     const nf = shopNextFulfillment(o.fulfillment);
     const pf = shopPrevFulfillment(o.fulfillment);
@@ -4925,7 +4927,17 @@ function renderShopOrders() {
         <button class="btn btn-sm btn-ghost" style="font-size:11px;padding:3px 8px;color:var(--red-400);" title="Delete order (returns stock)" onclick="deleteShopOrder('${o.order_id}')">×</button>
       </div></td>
     </tr>`;
-  }).join('');
+  };
+  const active = shopOrders.filter(o => o.fulfillment !== 'Shipped');
+  const shipped = shopOrders.filter(o => o.fulfillment === 'Shipped');
+  let html = active.map(rowHtml).join('')
+    || '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:14px;">No open shop orders.</td></tr>';
+  if (shipped.length) {
+    html += `<tr><td colspan="6" style="padding:8px;cursor:pointer;user-select:none;color:var(--text3);font-size:12px;" onclick="toggleShopArchive()">
+      ${shopArchiveOpen ? '▾' : '▸'} Shipped archive (${shipped.length})</td></tr>`;
+    if (shopArchiveOpen) html += shipped.map(rowHtml).join('');
+  }
+  tbody.innerHTML = html;
 }
 
 function deleteShopOrder(orderId) {
