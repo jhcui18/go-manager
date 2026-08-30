@@ -5383,15 +5383,42 @@ function renderShippingQueue() {
   updateAdminTabDots();
   return withScrollLock(renderShippingQueueInner);
 }
+let shipArchiveOpen = false;   // shipped requests live in a collapsed archive section
+function toggleShipArchive() { shipArchiveOpen = !shipArchiveOpen; renderShippingQueue(); }
+function unshipRequest(requestId) {
+  const r = shippingRequests.find(x => x.request_id === requestId);
+  if (!r) return;
+  if (!confirm('Move ' + r.username + "'s request back to the queue? Item fulfillment stays Shipped — adjust per item if needed.")) return;
+  r.shipped = false;
+  db.updateShipping({ request_id: r.request_id, ems_fee: r.ems_fee || '', dom_fee: r.dom_fee || '', total_fee: r.total_fee || '', tracking_number: r.tracking_number || '', shipped: false })
+    .catch(() => toast("Couldn't unship — please retry."));
+  renderShippingQueue();
+}
 function renderShippingQueueInner() {
   const tbody = document.getElementById('shipping-queue-tbody');
   if (!tbody) return;
   const pending = (shippingRequests || []).filter(r => !r.shipped);
-  if (!pending.length) {
+  const shipped = (shippingRequests || []).filter(r => r.shipped);
+  if (!pending.length && !shipped.length) {
     tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:20px;">No shipping requests.</td></tr>';
     return;
   }
-  tbody.innerHTML = pending.map(r => {
+  // Archived (shipped) rows are read-only: fees and tracking as text, View + Unship.
+  const shippedRow = (r) => {
+    const items = r.items || [];
+    const total = parseFloat(r.total_fee) || ((parseFloat(r.ems_fee) || 0) + (parseFloat(r.dom_fee) || 0));
+    return `<tr style="opacity:0.75;">
+      <td style="font-weight:500;">${r.username}</td>
+      <td style="font-size:12px;color:var(--text2);white-space:nowrap;">${items.length} item${items.length !== 1 ? 's' : ''}</td>
+      <td><span class="badge ${r.method === 'stamped' ? 'badge-pending' : 'badge-fcfs'}" style="font-size:10px;">${r.method === 'stamped' ? 'Stamped' : 'Tracked'}</span></td>
+      <td colspan="2"><span class="badge badge-secured" style="font-size:10px;">Shipped</span></td>
+      <td style="font-family:var(--mono);">${total > 0 ? '$' + total.toFixed(2) : '—'}</td>
+      <td style="font-size:12px;">${r.tracking_number ? trackingLink(r.tracking_number) : '—'}</td>
+      <td><button class="btn btn-sm btn-ghost" onclick="viewShippingAddress('${r.request_id}')">View</button></td>
+      <td><button class="btn btn-sm btn-ghost" style="font-size:11px;" onclick="unshipRequest('${r.request_id}')">Unship</button></td>
+    </tr>`;
+  };
+  let html = pending.map(r => {
     const items = r.items || [];
     const ems = parseFloat(r.ems_fee) || 0;
     const dom = parseFloat(r.dom_fee) || 0;
@@ -5407,7 +5434,14 @@ function renderShippingQueueInner() {
       <td><button class="btn btn-sm btn-ghost" onclick="viewShippingAddress('${r.request_id}')">View</button></td>
       <td><button class="btn btn-sm btn-primary" onclick="markShipped('${r.request_id}')">Mark shipped</button></td>
     </tr>`;
-  }).join('');
+  }).join('')
+    || '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:14px;">Queue clear — nothing waiting to ship.</td></tr>';
+  if (shipped.length) {
+    html += `<tr><td colspan="9" style="padding:8px;cursor:pointer;user-select:none;color:var(--text3);font-size:12px;" onclick="toggleShipArchive()">
+      ${shipArchiveOpen ? '▾' : '▸'} Shipped (${shipped.length})</td></tr>`;
+    if (shipArchiveOpen) html += shipped.map(shippedRow).join('');
+  }
+  tbody.innerHTML = html;
 }
 
 // Tracking number persists as soon as it's typed (onchange), not only at "Mark
