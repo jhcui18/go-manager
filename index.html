@@ -278,7 +278,7 @@
     <div class="section-label">Payment</div>
     <ul style="list-style:none;display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--text2);">
       <li>You only pay for your <span style="font-weight:500;color:var(--text);">secured</span> items — unsecured spots aren't charged.</li>
-      <li>Send payment using one of the four methods below, then <span style="font-weight:500;color:var(--text);">paste your transaction ID</span> on the website (My orders → Pay) so I can confirm it.</li>
+      <li>Send payment using one of the four methods below, then <span style="font-weight:500;color:var(--text);">paste your transaction ID</span> on the website (My orders → Pay) so I can confirm it. Zelle doesn't show a transaction ID — leave it blank or use your name.</li>
       <li>Paying for more than one GO at once? Send a single transfer and paste the <span style="font-weight:500;color:var(--text);">same transaction ID</span> on each GO's payment.</li>
       <li>If you pay more than your secured total, the extra becomes <span style="font-weight:500;color:var(--text);">credit</span> toward your other or future secured claims in this GO.</li>
       <li>If a claim isn't secured by the time the GO closes, you'll be <span style="font-weight:500;color:var(--text);">refunded</span> for it.</li>
@@ -2400,7 +2400,8 @@ async function submitGoPayment(goId, lookedUpUser) {
   const txid = (document.getElementById('pay-txid-'+goId)||{}).value || '';
   if (amount <= 0) { toast('Enter the amount you paid.'); return; }
   if (!method) { toast('Please select the payment method you used.'); return; }
-  if (!txid.trim()) { toast('Please paste your transaction ID — payments can’t be confirmed without one.'); return; }
+  // Zelle has no visible transaction id — blank (or a name) is fine there (025).
+  if (!txid.trim() && method !== 'Zelle') { toast('Please paste your transaction ID — payments can’t be confirmed without one.'); return; }
   const proof = {
     payment_id: 'pay_' + Date.now(),
     username: u,
@@ -5299,7 +5300,7 @@ function openEditProofModal(id) {
       <div class="field"><label>Amount</label><input type="number" id="ep-amount" value="${p.amount||0}" step="0.01"></div>
       <div class="field"><label>Method</label>
         <select id="ep-method">
-          ${['PayPal','Venmo','Zelle','Wise'].map(m=>`<option ${p.method===m?'selected':''}>${m}</option>`).join('')}
+          ${(() => { const ms = ['PayPal','Venmo','Zelle','Wise','Refund']; if (p.method && !ms.includes(p.method)) ms.push(p.method); return ms.map(m=>`<option ${p.method===m?'selected':''}>${m}</option>`).join(''); })()}
         </select>
       </div>
     </div>
@@ -5358,7 +5359,7 @@ const _submitPaymentForm = async () => {
     status: 'pending',
     created_at: new Date().toISOString()
   };
-  if (!String(proof.transaction_id).trim()) { toast('Please paste your transaction ID — payments can’t be confirmed without one.'); return; }
+  if (!String(proof.transaction_id).trim() && proof.method !== 'Zelle') { toast('Please paste your transaction ID — payments can’t be confirmed without one.'); return; }
   if (payment_submitting) return;
   payment_submitting = true;
   let res = null;
