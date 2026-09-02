@@ -720,9 +720,11 @@ function claimCollapsible(goId, si, inner) {
   // never expand an item they aren't claiming, and per-item deadlines were
   // effectively hidden inside the cards.
   const closed = isPobClosed(allGOs[goId], si);
-  const dateLine = closed
-    ? '<span class="badge badge-waitlist" style="font-size:10px;padding:2px 7px;">Closed</span>'
-    : (si.deadline ? `<span style="font-size:11px;color:var(--red-400);">closes ${fmtDate(si.deadline)}</span>` : '');
+  const bits = [];
+  if (closed) bits.push('<span class="badge badge-waitlist" style="font-size:10px;padding:2px 7px;">Closed</span>');
+  else if (si.deadline) bits.push(`<span style="font-size:11px;color:var(--red-400);">closes ${fmtDate(si.deadline)}</span>`);
+  if (si.payDue) bits.push(`<span style="font-size:11px;color:var(--text3);">pay by ${fmtDate(si.payDue)}</span>`);
+  const dateLine = bits.join(' <span style="color:var(--border2);">·</span> ');
   return `<div style="margin-bottom:10px;">
     <div style="display:flex;align-items:center;gap:8px;padding:12px 4px;cursor:pointer;user-select:none;border-bottom:0.5px solid var(--border);" onclick="toggleClaimSI('${goId}','${si.id}')">
       <span id="clm-chev-${si.id}" style="width:12px;flex:none;color:var(--text3);">${open ? '▾' : '▸'}</span>
