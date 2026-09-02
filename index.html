@@ -737,8 +737,13 @@ function claimCollapsible(goId, si, inner) {
 }
 function fmtDate(val) {
   if (!val) return '';
-  // Already a clean YYYY-MM-DD string
-  if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val)) return val;
+  // Clean YYYY-MM-DD, or a UTC-midnight timestamp (how admin-entered calendar
+  // dates come back from timestamptz columns): take the date part verbatim —
+  // local-time conversion would slide it back a day for US timezones.
+  if (typeof val === 'string') {
+    const m = /^(\d{4}-\d{2}-\d{2})([T ]00:00(:00(\.0+)?)?(\+00(:00)?|Z)?)?$/.exec(val);
+    if (m) return m[1];
+  }
   const d = new Date(val);
   if (isNaN(d)) return String(val).slice(0, 10);
   const y = d.getFullYear();
@@ -1926,6 +1931,12 @@ async function doLookup() {
   }
   showLoadingOverlay(false);
   myLookupClaims = (jr && jr.claims) || [];
+  // Seed the per-POB pay-due map from the claims themselves: on the buyer lazy
+  // path no board ever loads, so effectivePayBy() would otherwise only see the
+  // GO-level deadline — and most GOs keep dates per POB with none at GO level.
+  myLookupClaims.forEach(c => {
+    if (c.sub_item_pay_due) subItemPayDue[c.go_id + '|' + c.sub_item_id] = fmtDate(c.sub_item_pay_due);
+  });
   // These responses are scoped to ONE user. For an admin they must be MERGED into the
   // global stores, never assigned over them — the admin's Payments tab, Shop orders and
   // Shipping queue read the same globals, and replacing them with one user's rows made
@@ -5558,7 +5569,7 @@ sb.auth.onAuthStateChange((_event, session) => {
 // Maps normalized rows into the EXACT legacy shapes the render code consumes.
 const CLAIM_SELECT = 'id, sub_item_id, username, email, qty, is_ot, assigned_version,' +
   ' status, payment_status, fulfillment, price_override, created_at, updated_at,' +
-  ' members(name), versions(name), sets(set_no), sub_items!inner(go_id, name, gos(name))';
+  ' members(name), versions(name), sets(set_no), sub_items!inner(go_id, name, pay_due, gos(name))';
 
 function claimRowToLegacy(c) {
   return {
@@ -5577,6 +5588,7 @@ function claimRowToLegacy(c) {
     payment_status: c.payment_status,
     fulfillment: c.fulfillment || '',
     price_override: c.price_override != null ? parseFloat(c.price_override) : null,
+    sub_item_pay_due: (c.sub_items && c.sub_items.pay_due) || null,
     created_at: c.created_at,
     updated_at: c.updated_at
   };
