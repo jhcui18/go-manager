@@ -283,6 +283,7 @@
       <li>If you pay more than your secured total, the extra becomes <span style="font-weight:500;color:var(--text);">credit</span> toward your other or future secured claims in this GO.</li>
       <li>If a claim isn't secured by the time the GO closes, you'll be <span style="font-weight:500;color:var(--text);">refunded</span> for it.</li>
       <li>Payment is due by the date posted on the website — check your items under <span style="font-weight:500;color:var(--text);">My orders</span>, and note that some items have their own due dates. If you need an extension, message me in advance — otherwise your spot may be released.</li>
+      <li>If your claim is secured <span style="font-weight:500;color:var(--text);">after</span> the payment due date has passed (items can close before payment is due, and spots can secure late), payment is due <span style="font-weight:500;color:var(--text);">as soon as possible</span>.</li>
       <li>No backing out without a replacement.</li>
     </ul>
   </div>
@@ -609,6 +610,13 @@ let subItemPayDue = {}; // 'goId|siId' -> payment due date ("Pay by") string (di
 function subItemPayByDate(goId, siId) { return subItemPayDue[goId + '|' + siId] || ''; }
 // Effective pay-by for a My-orders row: the POB's own due date, else the GO-level
 // payment deadline. Display-only — the admin's per-POB input keeps using the raw value.
+// A YYYY-MM-DD date that's already behind us (local calendar).
+function payDatePast(d) {
+  if (!d) return false;
+  const t = new Date();
+  const today = t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0');
+  return fmtDate(d) < today;
+}
 function effectivePayBy(goId, siId) {
   const own = subItemPayByDate(goId, siId);
   if (own) return own;
@@ -723,7 +731,9 @@ function claimCollapsible(goId, si, inner) {
   const bits = [];
   if (closed) bits.push('<span class="badge badge-waitlist" style="font-size:10px;padding:2px 7px;">Closed</span>');
   else if (si.deadline) bits.push(`<span style="font-size:11px;color:var(--red-400);">closes ${fmtDate(si.deadline)}</span>`);
-  if (si.payDue) bits.push(`<span style="font-size:11px;color:var(--text3);">pay by ${fmtDate(si.payDue)}</span>`);
+  if (si.payDue) bits.push(payDatePast(si.payDue)
+    ? '<span style="font-size:11px;color:var(--red-400);font-weight:500;">pay asap once secured</span>'
+    : `<span style="font-size:11px;color:var(--text3);">pay by ${fmtDate(si.payDue)}</span>`);
   const dateLine = bits.join(' <span style="color:var(--border2);">·</span> ');
   return `<div style="margin-bottom:10px;">
     <div style="display:flex;align-items:center;gap:8px;padding:12px 4px;cursor:pointer;user-select:none;border-bottom:0.5px solid var(--border);" onclick="toggleClaimSI('${goId}','${si.id}')">
@@ -2183,7 +2193,7 @@ function renderMyOrderGoBlock(g, goRows, u, summary) {
     <td>${r.qty}</td>
     <td style="font-family:var(--mono);font-size:12px;">${r.price > 0 ? '$' + (r.price * r.qty).toFixed(2) : '—'}</td>
     <td><span class="badge ${r.claim==='Secured'?'badge-secured':r.claim==='Not fulfilled'?'badge-dropped':'badge-pending'}">${r.claim}</span></td>
-    <td><span class="badge ${r.payment==='paid'?'badge-paid':'badge-unpaid'}">${r.payment==='paid'?'Paid':'Unpaid'}</span>${(r.claim==='Secured' && r.payment!=='paid' && r.due) ? `<div style="font-size:10px;color:var(--red-400);margin-top:2px;">Pay by ${r.due}</div>` : ''}</td>
+    <td><span class="badge ${r.payment==='paid'?'badge-paid':'badge-unpaid'}">${r.payment==='paid'?'Paid':'Unpaid'}</span>${(r.claim==='Secured' && r.payment!=='paid' && r.due) ? `<div style="font-size:10px;color:var(--red-400);margin-top:2px;font-weight:${payDatePast(r.due)?'600':'400'};">${payDatePast(r.due) ? 'Payment due now' : 'Pay by ' + r.due}</div>` : ''}</td>
     <td><span class="badge ${fulfillBadge(r.fulfillment)}">${r.fulfillment}</span></td>
   </tr>`).join('');
   const summaryLine = `Paid $${s.paid.toFixed(2)} · Owed $${s.owed.toFixed(2)}`
