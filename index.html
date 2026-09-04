@@ -3913,7 +3913,10 @@ function renderEditSubItems() {
         <div class="field" style="margin-top:8px;margin-bottom:0;"><label>Order size — cards per batch (blank = full sets)</label>
           <input type="number" id="edit-si-batchsize-${si.id}" min="0" step="1" value="${isBatch(si) ? batchSize(si) : ''}">
           <div class="field-hint">Set e.g. 8 or 16 to order in batches of any members (repeats OK).</div>
-        </div>` : `<div style="font-size:11px;color:var(--text3);">Random ver — no member list needed.</div>`}`;
+        </div>` : `<div class="field" style="margin-bottom:0;"><label>Random ver — convert to member version (optional)</label>
+          <textarea id="edit-si-convert-${si.id}" placeholder="One member per line — leave empty to stay random" style="min-height:60px;font-family:var(--mono);font-size:12px;"></textarea>
+          <div class="field-hint">Filling this switches the item to member selection. Existing claims keep no member — assign one per claim via Edit if needed.</div>
+        </div>`}`;
     }
     const claimCount = getSubItemClaimCount(si);
     inner += imgFieldHtml('edit-si-img-' + si.id, si.imageUrl || '');
@@ -4113,6 +4116,15 @@ async function saveGOEdits() {
       if (membersEl) {
         const newMembers = membersEl.value.split('\n').map(m => m.trim()).filter(Boolean);
         if (newMembers.length) si.members = newMembers;
+      }
+    } else if (si.kind === 'random') {
+      // Merch random → member conversion: entering members flips the kind. Existing
+      // claims stay claims-based with no member (assignable per claim afterwards);
+      // save_go updates the kind and inserts the member rows by name.
+      const convertEl = document.getElementById('edit-si-convert-' + si.id);
+      if (convertEl) {
+        const newMembers = convertEl.value.split('\n').map(m => m.trim()).filter(Boolean);
+        if (newMembers.length) { si.kind = 'member'; si.members = newMembers; }
       }
     } else if (si.kind !== 'single') {
       // versioned album (incl. legacy/undefined-kind items) — save versions if the box was rendered
