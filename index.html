@@ -699,7 +699,7 @@ function expandAllAdmin(open) {
   renderDetailContent();
 }
 // Small GOs render expanded — with only a few POBs, collapsing is just extra taps.
-const CLAIM_AUTO_OPEN_MAX = 4;
+const CLAIM_AUTO_OPEN_MAX = 0;   // always start collapsed — joiners expand what they want
 function isClaimSIOpen(goId, siId) {
   const k = goId + '|' + siId;
   if (claimOpenSI[k] !== undefined) return !!claimOpenSI[k];
