@@ -3049,15 +3049,33 @@ function setSubItemPayDue(goId, siId, value) {
   renderDetailContent();
   toast(si.payDue ? ('Payment due: ' + fmtDate(si.payDue)) : 'Payment due cleared.');
 }
-function toggleSubItemClosed(goId, siId) {
-  const si = allGOs[goId].subItems.find(s => s.id === siId);
+async function toggleSubItemClosed(goId, siId) {
+  const go = allGOs[goId];
+  const si = go.subItems.find(s => s.id === siId);
   if (!si) return;
+  let toDrop = [];
+  if (!si.closed) {
+    // Closing drops this POB's unsecured claims (unpaid only — paid-but-unsecured
+    // claims are money already taken and need manual handling, same as GO close).
+    const { droppable, paid } = collectUnsecured({ subItems: [si] });
+    toDrop = droppable;
+    const kept = paid.length ? ` ${paid.length} paid-but-unsecured claim${paid.length !== 1 ? 's' : ''} will be KEPT — resolve those manually.` : '';
+    if (!confirm(`Close ${si.name}?` +
+      (toDrop.length ? ` ${toDrop.length} unsecured claim${toDrop.length !== 1 ? 's' : ''} will be dropped.` : ' No unsecured claims to drop.') + kept)) return;
+  }
   si.closed = !si.closed;
   closedSubItems[goId + '|' + siId] = si.closed ? true : undefined;
   if (!si.closed) delete closedSubItems[goId + '|' + siId];
   persistWrite(db.setSubItemFlag(siId, { closed: !!si.closed }), si.closed ? 'Close POB' : 'Reopen POB');
-  renderDetailContent();
-  toast(si.closed ? 'POB closed — no new claims (except leftover secured spots).' : 'POB reopened.');
+  for (const ref of toDrop) {
+    applyClaimStatusRef(go, ref, 'dropped');
+    if (ref.claimId) { try { await db.updateClaim({ claim_id: ref.claimId, claim_status: 'dropped' }); } catch (e) {} }
+  }
+  if (toDrop.length) saveLocal();
+  renderDetailContent(); renderAdminGOList(); renderOrdersList();
+  toast(si.closed
+    ? ('POB closed' + (toDrop.length ? ` — ${toDrop.length} unsecured claim${toDrop.length !== 1 ? 's' : ''} dropped.` : ' — no new claims (except leftover secured spots).'))
+    : 'POB reopened.');
 }
 
 function secureSet(goId, siId, setIdx) {
@@ -5410,6 +5428,18 @@ function renderShippingQueue() {
 }
 let shipArchiveOpen = false;   // shipped requests live in a collapsed archive section
 function toggleShipArchive() { shipArchiveOpen = !shipArchiveOpen; renderShippingQueue(); }
+// Delete a request entirely (items cascade). Its items become requestable again
+// on the joiner's side; per-item fulfillment is untouched.
+async function deleteShippingRequest(requestId) {
+  const r = shippingRequests.find(x => x.request_id === requestId);
+  if (!r) return;
+  if (!confirm('Delete ' + r.username + "'s shipping request? Its items can be requested again; item statuses are unchanged.")) return;
+  try { await db.deleteShipping(requestId); }
+  catch (e) { toast("Couldn't delete the request — please retry."); return; }
+  shippingRequests = shippingRequests.filter(x => x.request_id !== requestId);
+  renderShippingQueue();
+  toast('Shipping request deleted.');
+}
 function unshipRequest(requestId) {
   const r = shippingRequests.find(x => x.request_id === requestId);
   if (!r) return;
@@ -5440,7 +5470,10 @@ function renderShippingQueueInner() {
       <td style="font-family:var(--mono);">${total > 0 ? '$' + total.toFixed(2) : '—'}</td>
       <td style="font-size:12px;">${r.tracking_number ? trackingLink(r.tracking_number) : '—'}</td>
       <td><button class="btn btn-sm btn-ghost" onclick="viewShippingAddress('${r.request_id}')">View</button></td>
-      <td><button class="btn btn-sm btn-ghost" style="font-size:11px;" onclick="unshipRequest('${r.request_id}')">Unship</button></td>
+      <td><div style="display:flex;gap:4px;align-items:center;">
+        <button class="btn btn-sm btn-ghost" style="font-size:11px;" onclick="unshipRequest('${r.request_id}')">Unship</button>
+        <button class="btn btn-sm btn-ghost" style="font-size:12px;padding:3px 7px;color:var(--red-400);" title="Delete this request" onclick="deleteShippingRequest('${r.request_id}')">×</button>
+      </div></td>
     </tr>`;
   };
   let html = pending.map(r => {
@@ -5457,7 +5490,10 @@ function renderShippingQueueInner() {
       <td style="font-family:var(--mono);font-weight:500;" id="ship-total-${r.request_id}">${total !== '—' ? '$'+total : '—'}</td>
       <td><input type="text" placeholder="Paste number" value="${r.tracking_number||''}" onchange="saveShipTracking('${r.request_id}',this.value)" style="width:130px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);"></td>
       <td><button class="btn btn-sm btn-ghost" onclick="viewShippingAddress('${r.request_id}')">View</button></td>
-      <td><button class="btn btn-sm btn-primary" onclick="markShipped('${r.request_id}')">Mark shipped</button></td>
+      <td><div style="display:flex;gap:4px;align-items:center;">
+        <button class="btn btn-sm btn-primary" onclick="markShipped('${r.request_id}')">Mark shipped</button>
+        <button class="btn btn-sm btn-ghost" style="font-size:12px;padding:3px 7px;color:var(--red-400);" title="Delete this request" onclick="deleteShippingRequest('${r.request_id}')">×</button>
+      </div></td>
     </tr>`;
   }).join('')
     || '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:14px;">Queue clear — nothing waiting to ship.</td></tr>';
@@ -6053,6 +6089,11 @@ const db = {
   async markShipmentItems(claimIds, orderIds) {
     if (claimIds.length) dbThrow(await sb.from('claims').update({ fulfillment: 'Shipped' }).in('id', claimIds));
     if (orderIds.length) dbThrow(await sb.from('shop_orders').update({ fulfillment: 'Shipped' }).in('id', orderIds));
+    return { ok: true };
+  },
+  async deleteShipping(requestId) {
+    const r = await sb.from('shipping_requests').delete().eq('id', requestId);
+    if (r.error) throw r.error;
     return { ok: true };
   },
   async updateShipping(d) {
