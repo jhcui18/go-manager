@@ -4366,6 +4366,9 @@ async function removeSetClaim(goId, siId, setIdx, member) {
     try { await db.deleteClaim(slot.claim_id); } catch(e) {}
   }
   si.sets[setIdx].slots[member] = null;
+  // Cascade-backfill like the board's × does — this modal path skipped it and
+  // left permanent holes (later claims stayed in higher sets).
+  await compactMemberColumn(si, member);
   saveLocal();
   closeModal();
   renderDetailContent();
