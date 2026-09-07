@@ -2756,7 +2756,13 @@ function renderDetailContentInner() {
         html += `<div class="card" style="margin-bottom:10px;${b.ordered?'border-color:var(--teal-100);':''}">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
             <div style="font-size:13px;font-weight:500;">Batch ${b.num} — ${b.items.length}/${bn}${b.full?' ✓':' (filling)'}</div>
-            <button class="btn btn-sm" onclick="secureBatch('${go.id}','${si.id}',${b.num})">${b.ordered?'Unsecure batch':'Secure batch'}</button>
+            <div style="display:flex;gap:6px;align-items:center;">
+              ${b.ordered ? groupFulfillControlsHtml(
+                b.items.filter(c => c.claim_status === 'secured'),
+                `batchFulfillAll('${go.id}','${si.id}',${b.num},'prev')`,
+                `batchFulfillAll('${go.id}','${si.id}',${b.num},'next')`) : ''}
+              <button class="btn btn-sm" onclick="secureBatch('${go.id}','${si.id}',${b.num})">${b.ordered?'Unsecure batch':'Secure batch'}</button>
+            </div>
           </div>
           <div class="member-grid">`;
         b.items.forEach(c => {
@@ -2833,6 +2839,10 @@ function renderDetailContentInner() {
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
             <div style="font-size:13px;font-weight:500;">Set ${admSetNo} — ${filled}/${total}</div>
             <div style="display:flex;gap:6px;align-items:center;">
+              ${isSecured ? groupFulfillControlsHtml(
+                si.members.map(m => set.slots[m]).filter(sl => sl && sl.claim_status === 'secured'),
+                `setFulfillAll('${go.id}','${si.id}',${setIdx},'prev')`,
+                `setFulfillAll('${go.id}','${si.id}',${setIdx},'next')`) : ''}
               ${isSecured ? `<span class="badge badge-secured" style="cursor:pointer;" title="Click to unsecure" onclick="unsecureSet('${go.id}','${si.id}',${setIdx})">Secured ✕</span>` : ''}
               ${!isSecured ? `<button class="btn btn-sm" style="color:${reachedMin?'var(--teal-600)':'var(--text3)'};border-color:var(--border2);" title="${reachedMin?'Secure this set':'Below '+admThr+' — secure early'}" onclick="secureSet('${go.id}','${si.id}',${setIdx})">${reachedMin?'Secure':'Secure early'}</button>` : ''}
             </div>
@@ -3078,6 +3088,49 @@ async function toggleSubItemClosed(goId, siId) {
     : 'POB reopened.');
 }
 
+// Group fulfillment: advance/rewind every SECURED claim of a set/batch at once.
+// The group's stage = the LOWEST member stage (mixed groups level up together).
+function groupFulfillStage(refs) {
+  const idxs = refs.map(r => Math.max(0, FULFILLMENT.indexOf(r.fulfillment)));
+  return idxs.length ? Math.min(...idxs) : -1;
+}
+async function groupFulfill(refs, dir) {
+  const cur = groupFulfillStage(refs);
+  if (cur < 0) { toast('No secured claims in this group.'); return; }
+  const target = dir === 'prev' ? cur - 1 : cur + 1;
+  if (target < 0 || target >= FULFILLMENT.length) return;
+  const nf = FULFILLMENT[target];
+  let failed = false;
+  for (const r of refs) {
+    r.fulfillment = nf;
+    if (r.claim_id) { try { await db.updateClaim({ claim_id: r.claim_id, fulfillment: nf }); } catch (e) { failed = true; } }
+  }
+  saveLocal();
+  renderDetailContent(); renderOrdersList();
+  toast(failed ? "Some updates didn't save — refresh (↺) and retry." : 'Group set to ' + nf + '.');
+}
+async function setFulfillAll(goId, siId, setIdx, dir) {
+  const si = allGOs[goId].subItems.find(s => s.id === siId);
+  const set = si && si.sets[setIdx];
+  if (!set) return;
+  await groupFulfill((si.members || []).map(m => set.slots[m]).filter(sl => sl && sl.claim_status === 'secured'), dir);
+}
+async function batchFulfillAll(goId, siId, batchNum, dir) {
+  const si = allGOs[goId].subItems.find(s => s.id === siId);
+  const b = si && goBatches(si).find(x => x.num === batchNum);
+  if (!b) return;
+  await groupFulfill(b.items.filter(c => c.claim_status === 'secured'), dir);
+}
+// Header controls: current group stage badge + prev/next arrows.
+function groupFulfillControlsHtml(refs, onPrev, onNext) {
+  const cur = groupFulfillStage(refs);
+  if (cur < 0) return '';
+  const curName = FULFILLMENT[cur];
+  const nf = nextFulfillment(curName), pf = prevFulfillment(curName);
+  return `<span class="badge ${fulfillBadge(curName)}" style="font-size:10px;">${curName}</span>
+    ${pf ? `<button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 6px;" title="Whole group back to ${pf}" onclick="${onPrev}">←</button>` : ''}
+    ${nf ? `<button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 6px;" title="Whole group to ${nf}" onclick="${onNext}">→ ${nf}</button>` : ''}`;
+}
 function secureSet(goId, siId, setIdx) {
   const si = allGOs[goId].subItems.find(s => s.id === siId);
   si.sets[setIdx].status = 'secured';
