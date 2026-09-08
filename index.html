@@ -4404,7 +4404,12 @@ async function saveClaimEdit(goId, siId, setIdx, member) {
       if (sib.claim_id) db.updateClaim({ claim_id: sib.claim_id, price_override: newOverride }).catch(() => toast("Couldn't sync the set price to every card — reopen and re-save."));
     }
   }
-  if (newMember !== member) { set.slots[newMember] = slot; set.slots[member] = null; }
+  if (newMember !== member) {
+    set.slots[newMember] = slot; set.slots[member] = null;
+    // The freed slot backfills server-side (repack trigger, 029); mirror it
+    // locally so the board doesn't show a phantom hole until the next refresh.
+    await compactMemberColumn(si, member);
+  }
   closeModal();
   renderDetailContent();
   renderAdminGOList();
