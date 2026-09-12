@@ -2125,11 +2125,11 @@ function myOrderRowActions(r) {
   const ids = (r.claim_ids || []).filter(Boolean), oids = (r.order_ids || []).filter(Boolean);
   if (!ids.length && !oids.length) return '';
   const label = (r.item + (r.detail ? ' · ' + r.detail : '')).replace(/'/g, "\\'");
-  const link = (text, fn, color) => `<div style="margin-top:3px;"><a href="#" style="font-size:11px;color:${color};text-decoration:none;" onclick="event.preventDefault();${fn}">${text}</a></div>`;
+  const btn = (text, fn, extra) => `<button class="btn btn-sm" style="font-size:11px;padding:3px 9px;white-space:nowrap;border-color:var(--text3);color:var(--text2);${extra || ''}" onclick="${fn}">${text}</button>`;
   if (r.claim === 'Not fulfilled' && ids.length)
-    return link('Delete', `deleteMyDroppedRows('${ids.join(',')}','${label}')`, 'var(--red-400)');
+    return btn('Delete', `deleteMyDroppedRows('${ids.join(',')}','${label}')`, 'color:var(--red-400);border-color:var(--red-400);');
   if (isShippedRow(r))
-    return link(r.archived ? 'Unarchive' : 'Archive', `setMyRowsArchived('${ids.join(',')}','${oids.join(',')}',${r.archived ? 'false' : 'true'})`, 'var(--text3)');
+    return btn(r.archived ? 'Unarchive' : 'Archive', `setMyRowsArchived('${ids.join(',')}','${oids.join(',')}',${r.archived ? 'false' : 'true'})`);
   return '';
 }
 function myOrdersUser() { return (document.getElementById('result-username') || {}).textContent || ''; }
@@ -2172,7 +2172,7 @@ function renderMyOrderArchive(archivedRows, u) {
     <td>${r.item}</td>
     <td style="color:var(--text2);">${r.detail}</td>
     <td>${r.qty}</td>
-    <td><span class="badge ${fulfillBadge(r.fulfillment)}">${r.fulfillment}</span>${myOrderRowActions(r)}</td>
+    <td><div style="display:flex;align-items:center;gap:6px;"><span class="badge ${fulfillBadge(r.fulfillment)}">${r.fulfillment}</span>${myOrderRowActions(r)}</div></td>
   </tr>`).join('');
   el.innerHTML = `<div class="card" style="margin-top:12px;">
     <div style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;color:var(--text2);" onclick="toggleMyOrderArchive()">
@@ -2270,9 +2270,9 @@ function renderMyOrderGoBlock(g, goRows, u, summary) {
     <td style="color:var(--text2);">${r.detail}</td>
     <td>${r.qty}</td>
     <td style="font-family:var(--mono);font-size:12px;">${r.price > 0 ? '$' + (r.price * r.qty).toFixed(2) : '—'}</td>
-    <td><span class="badge ${r.claim==='Secured'?'badge-secured':r.claim==='Not fulfilled'?'badge-dropped':'badge-pending'}">${r.claim}</span>${r.claim==='Not fulfilled' ? myOrderRowActions(r) : ''}</td>
+    <td><div style="display:flex;align-items:center;gap:6px;"><span class="badge ${r.claim==='Secured'?'badge-secured':r.claim==='Not fulfilled'?'badge-dropped':'badge-pending'}">${r.claim}</span>${r.claim==='Not fulfilled' ? myOrderRowActions(r) : ''}</div></td>
     <td><span class="badge ${r.payment==='paid'?'badge-paid':'badge-unpaid'}">${r.payment==='paid'?'Paid':'Unpaid'}</span>${(r.claim==='Secured' && r.payment!=='paid' && r.due) ? `<div style="font-size:10px;color:var(--red-400);margin-top:2px;font-weight:${payDatePast(r.due)?'600':'400'};">${payDatePast(r.due) ? 'Payment due now' : 'Pay by ' + r.due}</div>` : ''}</td>
-    <td><span class="badge ${fulfillBadge(r.fulfillment)}">${r.fulfillment}</span>${isShippedRow(r) ? myOrderRowActions(r) : ''}</td>
+    <td><div style="display:flex;align-items:center;gap:6px;"><span class="badge ${fulfillBadge(r.fulfillment)}">${r.fulfillment}</span>${isShippedRow(r) ? myOrderRowActions(r) : ''}</div></td>
   </tr>`).join('');
   const emptyNote = goRows.length ? '' : `<div style="font-size:12px;color:var(--text3);margin:4px 0 8px;">All items in this GO are archived — see Archived at the bottom of the page.</div>`;
   const summaryLine = `Paid $${s.paid.toFixed(2)} · Owed $${s.owed.toFixed(2)}`
