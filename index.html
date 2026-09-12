@@ -193,6 +193,7 @@
     </div>
     <div id="lookup-go-blocks"></div>
     <div id="lookup-ship-panel"></div>
+    <div id="lookup-archive"></div>
   </div>
 </div>
 
@@ -2007,7 +2008,8 @@ function doLookupRenderInner(u) {
         const detail = c.member_or_version || c.assigned_vers || '';
         rows.push({ go_id:c.go_id, go:c.go_name, item:(meta && meta.name) || c.sub_item_name, detail, qty: parseInt(c.qty)||1, price: effClaimPrice(c, meta && meta.price),
           claim:(c.claim_status==='dropped')?'Not fulfilled':((c.claim_status && c.claim_status !== 'secured') ? 'Pending' : 'Secured'),
-          payment:c.payment_status, fulfillment:c.fulfillment, due: effectivePayBy(c.go_id, c.sub_item_id) });
+          payment:c.payment_status, fulfillment:c.fulfillment, due: effectivePayBy(c.go_id, c.sub_item_id),
+          claim_ids:[c.claim_id], archived: !!c.archived });
       }
     });
     Object.values(setGroups).forEach(g => {
@@ -2017,12 +2019,13 @@ function doLookupRenderInner(u) {
         const c0 = otClaims.find(c => c.claim_status !== 'dropped') || otClaims[0];
         rows.push({ go_id:g.go_id, go:g.go, item:g.item, detail:'OT'+otClaims.length+' full set', qty:1, price:effOtSetPrice(otClaims, g.meta && g.meta.otPrice),
           claim:(c0.claim_status==='dropped')?'Not fulfilled':((c0.claim_status==='secured')?'Secured':'Pending'), payment:c0.payment_status, fulfillment:c0.fulfillment,
-          due: effectivePayBy(g.go_id, g.meta && g.meta.id) });
+          due: effectivePayBy(g.go_id, g.meta && g.meta.id),
+          claim_ids: otClaims.map(c => c.claim_id).filter(Boolean), archived: otClaims.every(c => c.archived) });
       }
       normalClaims.forEach(c => {
         rows.push({ go_id:g.go_id, go:g.go, item:g.item, detail:c.member_or_version, qty:1, price:effClaimPrice(c, g.meta && g.meta.price),
           claim:(c.claim_status==='dropped')?'Not fulfilled':((c.claim_status==='secured')?'Secured':'Pending'), payment:c.payment_status, fulfillment:c.fulfillment,
-          due: effectivePayBy(g.go_id, g.meta && g.meta.id) });
+          due: effectivePayBy(g.go_id, g.meta && g.meta.id), claim_ids:[c.claim_id], archived: !!c.archived });
       });
     });
   } else {
@@ -2064,7 +2067,8 @@ function doLookupRenderInner(u) {
     rows.push({
       go_id: 'shop', go: 'Shop', item: o.listing_name, detail: o.variant || '',
       qty: parseInt(o.qty) || 1, price: parseFloat(o.unit_price) || 0,
-      claim: 'Secured', payment: o.payment_status, fulfillment: o.fulfillment
+      claim: 'Secured', payment: o.payment_status, fulfillment: o.fulfillment,
+      order_ids: [o.order_id], archived: !!o.archived
     });
   });
   // Buyer-mode owed/credit: computed from flat claims (ownedUnitsFromClaims) rather than
@@ -2080,7 +2084,7 @@ function doLookupRenderInner(u) {
         return { paid, securedValue, owed: Math.max(0, securedValue - paid), credit: Math.max(0, paid - securedValue), pendingSubmitted };
       }
     : (goId) => goPaymentSummary(u, goId);
-  const activeRows = rows.filter(r => r.claim !== 'Not fulfilled');
+  const activeRows = rows.filter(r => r.claim !== 'Not fulfilled' && !r.archived);
   document.getElementById('result-count').textContent = activeRows.length + ' active claim' + (activeRows.length!==1?'s':'');
   document.getElementById('lookup-form').style.display = 'none';
   document.getElementById('lookup-result').style.display = 'block';
@@ -2090,7 +2094,9 @@ function doLookupRenderInner(u) {
     if (!rows.length) {
       blocksEl.innerHTML = `<div class="card"><div style="text-align:center;color:var(--text3);padding:20px;">No claims found for ${u}.</div></div>`;
     } else {
-      const goList = [...new Map(rows.map(r => [r.go_id, { go_id: r.go_id, go: r.go }])).values()];
+      // A GO whose rows are all archived drops out of the list unless money is still owed on it.
+      const goList = [...new Map(rows.map(r => [r.go_id, { go_id: r.go_id, go: r.go }])).values()]
+        .filter(g => rows.some(r => r.go_id === g.go_id && !r.archived) || getSummary(g.go_id).owed > 0);
       goList.sort((a, b) => {
         if (a.go_id === 'shop') return 1;
         if (b.go_id === 'shop') return -1;
@@ -2106,10 +2112,81 @@ function doLookupRenderInner(u) {
         <div style="font-size:15px;font-weight:500;color:var(--teal-700);">👛 Account balance: <span style="font-family:var(--mono);">$${balance.toFixed(2)}</span></div>
         <div style="font-size:12px;color:var(--text3);margin-top:4px;">From overpayments/credit — use it on any GO you owe on below.</div>
       </div>` : '';
-      blocksEl.innerHTML = totalCard + balanceCard + goList.map(g => renderMyOrderGoBlock(g, rows.filter(r => r.go_id === g.go_id), u, getSummary(g.go_id))).join('');
+      blocksEl.innerHTML = totalCard + balanceCard + goList.map(g => renderMyOrderGoBlock(g, rows.filter(r => r.go_id === g.go_id && !r.archived), u, getSummary(g.go_id))).join('');
     }
   }
   renderShipPanel(u);
+  renderMyOrderArchive(rows.filter(r => r.archived), u);
+}
+
+// ── My orders: joiner tidy-up (Delete a Not-fulfilled claim · Archive a Shipped item) ──
+const isShippedRow = r => r.fulfillment === 'Shipped' || r.fulfillment === 'Dispatched';
+function myOrderRowActions(r) {
+  const ids = (r.claim_ids || []).filter(Boolean), oids = (r.order_ids || []).filter(Boolean);
+  if (!ids.length && !oids.length) return '';
+  const label = (r.item + (r.detail ? ' · ' + r.detail : '')).replace(/'/g, "\\'");
+  const link = (text, fn, color) => `<div style="margin-top:3px;"><a href="#" style="font-size:11px;color:${color};text-decoration:none;" onclick="event.preventDefault();${fn}">${text}</a></div>`;
+  if (r.claim === 'Not fulfilled' && ids.length)
+    return link('Delete', `deleteMyDroppedRows('${ids.join(',')}','${label}')`, 'var(--red-400)');
+  if (isShippedRow(r))
+    return link(r.archived ? 'Unarchive' : 'Archive', `setMyRowsArchived('${ids.join(',')}','${oids.join(',')}',${r.archived ? 'false' : 'true'})`, 'var(--text3)');
+  return '';
+}
+function myOrdersUser() { return (document.getElementById('result-username') || {}).textContent || ''; }
+async function deleteMyDroppedRows(idsCsv, label) {
+  const ids = idsCsv.split(',').filter(Boolean);
+  if (!ids.length) return;
+  if (!confirm(`Delete your Not-fulfilled claim for ${label}? It disappears from your orders for good.`)) return;
+  const u = myOrdersUser();
+  showLoadingOverlay(true, 'Deleting…');
+  try { await db.deleteMyDroppedClaims(ids, u); }
+  catch (e) { showLoadingOverlay(false); toast("Couldn't delete — " + (e && e.message ? e.message : 'please retry.')); return; }
+  showLoadingOverlay(false);
+  toast('Claim deleted.');
+  await doLookup();   // refetch: the set column may have repacked server-side
+}
+async function setMyRowsArchived(claimCsv, orderCsv, archived) {
+  const cids = claimCsv.split(',').filter(Boolean), oids = orderCsv.split(',').filter(Boolean);
+  if (!cids.length && !oids.length) return;
+  const u = myOrdersUser();
+  try { await db.setMyArchived(cids, oids, u, archived); }
+  catch (e) { toast("Couldn't " + (archived ? 'archive' : 'unarchive') + " — " + (e && e.message ? e.message : 'please retry.')); return; }
+  myLookupClaims.forEach(c => { if (cids.includes(c.claim_id)) c.archived = archived; });
+  shopOrders.forEach(o => { if (oids.includes(o.order_id)) o.archived = archived; });
+  toast(archived ? 'Archived.' : 'Restored to your orders.');
+  doLookupRender(u);
+}
+let myOrderArchiveOpen = false;   // archived (shipped) rows live in a collapsed card at the bottom
+function toggleMyOrderArchive() {
+  myOrderArchiveOpen = !myOrderArchiveOpen;
+  const body = document.getElementById('myo-archive-body'), chev = document.getElementById('myo-archive-chev');
+  if (body) body.style.display = myOrderArchiveOpen ? 'block' : 'none';
+  if (chev) chev.textContent = myOrderArchiveOpen ? '▾' : '▸';
+}
+function renderMyOrderArchive(archivedRows, u) {
+  const el = document.getElementById('lookup-archive');
+  if (!el) return;
+  if (!archivedRows.length) { el.innerHTML = ''; return; }
+  const trs = archivedRows.map(r => `<tr>
+    <td style="color:var(--text2);">${r.go}</td>
+    <td>${r.item}</td>
+    <td style="color:var(--text2);">${r.detail}</td>
+    <td>${r.qty}</td>
+    <td><span class="badge ${fulfillBadge(r.fulfillment)}">${r.fulfillment}</span>${myOrderRowActions(r)}</td>
+  </tr>`).join('');
+  el.innerHTML = `<div class="card" style="margin-top:12px;">
+    <div style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;color:var(--text2);" onclick="toggleMyOrderArchive()">
+      <span id="myo-archive-chev" style="width:12px;color:var(--text3);">${myOrderArchiveOpen ? '▾' : '▸'}</span>
+      <div style="font-weight:500;font-size:14px;flex:1;">Archived (${archivedRows.length})</div>
+      <div style="font-size:12px;color:var(--text3);">shipped items you hid</div>
+    </div>
+    <div id="myo-archive-body" style="display:${myOrderArchiveOpen ? 'block' : 'none'};margin-top:12px;">
+      <div class="table-wrap"><table>
+        <thead><tr><th>GO</th><th>Item</th><th>Version/Member</th><th>Qty</th><th>Fulfillment</th></tr></thead>
+        <tbody>${trs}</tbody>
+      </table></div>
+    </div>
+  </div>`;
 }
 
 let myOrderGoOpen = {};  // go_id -> bool; default OPEN (a missing key renders expanded)
@@ -2193,10 +2270,11 @@ function renderMyOrderGoBlock(g, goRows, u, summary) {
     <td style="color:var(--text2);">${r.detail}</td>
     <td>${r.qty}</td>
     <td style="font-family:var(--mono);font-size:12px;">${r.price > 0 ? '$' + (r.price * r.qty).toFixed(2) : '—'}</td>
-    <td><span class="badge ${r.claim==='Secured'?'badge-secured':r.claim==='Not fulfilled'?'badge-dropped':'badge-pending'}">${r.claim}</span></td>
+    <td><span class="badge ${r.claim==='Secured'?'badge-secured':r.claim==='Not fulfilled'?'badge-dropped':'badge-pending'}">${r.claim}</span>${r.claim==='Not fulfilled' ? myOrderRowActions(r) : ''}</td>
     <td><span class="badge ${r.payment==='paid'?'badge-paid':'badge-unpaid'}">${r.payment==='paid'?'Paid':'Unpaid'}</span>${(r.claim==='Secured' && r.payment!=='paid' && r.due) ? `<div style="font-size:10px;color:var(--red-400);margin-top:2px;font-weight:${payDatePast(r.due)?'600':'400'};">${payDatePast(r.due) ? 'Payment due now' : 'Pay by ' + r.due}</div>` : ''}</td>
-    <td><span class="badge ${fulfillBadge(r.fulfillment)}">${r.fulfillment}</span></td>
+    <td><span class="badge ${fulfillBadge(r.fulfillment)}">${r.fulfillment}</span>${isShippedRow(r) ? myOrderRowActions(r) : ''}</td>
   </tr>`).join('');
+  const emptyNote = goRows.length ? '' : `<div style="font-size:12px;color:var(--text3);margin:4px 0 8px;">All items in this GO are archived — see Archived at the bottom of the page.</div>`;
   const summaryLine = `Paid $${s.paid.toFixed(2)} · Owed $${s.owed.toFixed(2)}`
     + (s.pendingSubmitted > 0 ? ` · $${s.pendingSubmitted.toFixed(2)} awaiting confirmation` : '');
   const handles = PAYMENT_METHODS.map(p => `<span class="tag">${p.method}${p.note ? ' ' + p.note : ''}: ${p.handle}</span>`).join(' ');
@@ -2231,10 +2309,10 @@ function renderMyOrderGoBlock(g, goRows, u, summary) {
       <div style="font-size:13px;">${rightBadge}</div>
     </div>
     <div id="myo-body-${g.go_id}" style="display:${open ? 'block' : 'none'};margin-top:12px;">
-      <div class="table-wrap"><table>
+      ${goRows.length ? `<div class="table-wrap"><table>
         <thead><tr><th>Item</th><th>Version/Member</th><th>Qty</th><th>Price</th><th>Claim</th><th>Payment</th><th>Fulfillment</th></tr></thead>
         <tbody>${claimRows}</tbody>
-      </table></div>
+      </table></div>` : emptyNote}
       <div style="font-size:12px;color:var(--text3);margin:10px 0;">${summaryLine}</div>
       ${myPaymentsSection(u, g.go_id)}
       ${deadlineNote}${form}${creditNote}${balanceControl}
@@ -5690,7 +5768,7 @@ sb.auth.onAuthStateChange((_event, session) => {
 // ── Supabase data layer ────────────────────────────────────────────────────
 // Maps normalized rows into the EXACT legacy shapes the render code consumes.
 const CLAIM_SELECT = 'id, sub_item_id, username, email, qty, is_ot, assigned_version,' +
-  ' status, payment_status, fulfillment, price_override, created_at, updated_at,' +
+  ' status, payment_status, fulfillment, price_override, archived, created_at, updated_at,' +
   ' members(name), versions(name), sets(set_no), sub_items!inner(go_id, name, pay_due, gos(name))';
 
 function claimRowToLegacy(c) {
@@ -5711,6 +5789,7 @@ function claimRowToLegacy(c) {
     fulfillment: c.fulfillment || '',
     price_override: c.price_override != null ? parseFloat(c.price_override) : null,
     sub_item_pay_due: (c.sub_items && c.sub_items.pay_due) || null,
+    archived: !!c.archived,
     created_at: c.created_at,
     updated_at: c.updated_at
   };
@@ -5732,7 +5811,8 @@ function shopOrderToLegacy(o) {
     variant: (o.listing_variants && o.listing_variants.name) || '',
     username: o.username, email: o.email || '', qty: o.qty,
     unit_price: o.unit_price, payment_status: o.payment_status,
-    fulfillment: o.fulfillment || '', created_at: o.created_at, updated_at: o.updated_at
+    fulfillment: o.fulfillment || '', archived: !!o.archived,
+    created_at: o.created_at, updated_at: o.updated_at
   };
 }
 function goRowToLegacy(g) {
@@ -5968,6 +6048,20 @@ const db = {
       }
     }
     return { ok: true };
+  },
+  // Joiner-side (My orders). Both RPCs re-check ownership + state server-side.
+  async deleteMyDroppedClaims(claimIds, username) {
+    const { data, error } = await sb.rpc('delete_my_dropped_claims',
+      { p_claim_ids: claimIds, p_username: String(username || '').trim().replace(/^@/, '') });
+    if (error) throw error;
+    return data;
+  },
+  async setMyArchived(claimIds, orderIds, username, archived) {
+    const { data, error } = await sb.rpc('set_my_archived',
+      { p_claim_ids: claimIds || [], p_order_ids: orderIds || [],
+        p_username: String(username || '').trim().replace(/^@/, ''), p_archived: !!archived });
+    if (error) throw error;
+    return data;
   },
   async deleteClaim(claimId) {
     const r = await sb.from('claims').delete().eq('id', claimId);
