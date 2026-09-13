@@ -527,6 +527,9 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
 const FULFILLMENT = ['Pending','Ordered','On the way','Ready','Shipped'];
+// EMS (Korea → me) is charged per photocard. A request's EMS fee is pre-filled
+// as cards × this when the admin hasn't entered one; shop orders never count.
+const EMS_PER_CARD = 0.65;
 // Single source of truth for the manager's payment handles (mirrors the Rules page).
 const PAYMENT_METHODS = [
   { method: 'PayPal', handle: '@jinghanc',          note: 'F&F (no note)' },
@@ -5629,14 +5632,16 @@ function renderShippingQueueInner() {
   };
   let html = pending.map(r => {
     const items = r.items || [];
+    const cards = items.reduce((a, it) => a + (parseInt(it.cards) || 0), 0);
+    autoFillEms(r, cards);
     const ems = parseFloat(r.ems_fee) || 0;
     const dom = parseFloat(r.dom_fee) || 0;
     const total = (ems + dom) > 0 ? (ems + dom).toFixed(2) : '—';
     return `<tr>
       <td style="font-weight:500;">${r.username}</td>
-      <td style="font-size:12px;color:var(--text2);white-space:nowrap;">${items.length} item${items.length !== 1 ? 's' : ''}</td>
+      <td style="font-size:12px;color:var(--text2);white-space:nowrap;">${items.length} item${items.length !== 1 ? 's' : ''}${cards ? `<div style="font-size:11px;color:var(--text3);">${cards} card${cards !== 1 ? 's' : ''}</div>` : ''}</td>
       <td><span class="badge ${r.method === 'stamped' ? 'badge-pending' : 'badge-fcfs'}" style="font-size:10px;">${r.method === 'stamped' ? 'Stamped' : 'Tracked'}</span></td>
-      <td><input type="number" placeholder="0.00" step="0.01" value="${r.ems_fee||''}" oninput="updateShipFee('${r.request_id}','ems',this.value)" style="width:72px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);"></td>
+      <td><input type="number" placeholder="0.00" step="0.01" value="${r.ems_fee||''}" oninput="updateShipFee('${r.request_id}','ems',this.value)" style="width:72px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);">${cards ? `<div style="font-size:10px;color:var(--text3);margin-top:2px;white-space:nowrap;">${cards} × $${EMS_PER_CARD.toFixed(2)}</div>` : ''}</td>
       <td><input type="number" placeholder="0.00" step="0.01" value="${r.dom_fee||''}" oninput="updateShipFee('${r.request_id}','dom',this.value)" style="width:72px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);"></td>
       <td style="font-family:var(--mono);font-weight:500;" id="ship-total-${r.request_id}">${total !== '—' ? '$'+total : '—'}</td>
       <td><input type="text" placeholder="Paste number" value="${r.tracking_number||''}" onchange="saveShipTracking('${r.request_id}',this.value)" style="width:130px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);"></td>
@@ -5664,6 +5669,17 @@ function saveShipTracking(requestId, val) {
   r.tracking_number = val.trim();
   db.updateShipping({ request_id: r.request_id, ems_fee: r.ems_fee || '', dom_fee: r.dom_fee || '', total_fee: r.total_fee || '', tracking_number: r.tracking_number, shipped: !!r.shipped })
     .catch(() => toast("Couldn't save the tracking number — please retry."));
+}
+// Pre-fill a blank EMS fee as cards × EMS_PER_CARD and persist it so the joiner's
+// receipt shows it right away. Runs once per request per page load; the admin's
+// own edits (updateShipFee) always win.
+function autoFillEms(r, cards) {
+  if (!cards || r._emsAuto || parseFloat(r.ems_fee) > 0) return;
+  r._emsAuto = true;
+  r.ems_fee = (cards * EMS_PER_CARD).toFixed(2);
+  r.total_fee = ((parseFloat(r.ems_fee) || 0) + (parseFloat(r.dom_fee) || 0)).toFixed(2);
+  db.updateShipping({ request_id: r.request_id, ems_fee: r.ems_fee, dom_fee: r.dom_fee || '', total_fee: r.total_fee, tracking_number: r.tracking_number || '', shipped: !!r.shipped })
+    .catch(() => {});
 }
 function updateShipFee(requestId, which, val) {
   const r = shippingRequests.find(x => x.request_id === requestId);
@@ -5948,7 +5964,7 @@ const db = {
   async getShipping() {  // admin: full requests incl. addresses + items
     const data = await selectAll(() => sb.from('shipping_requests')
       .select('*, shipping_request_items(id, go_id, description, qty, claim_id, shop_order_id,' +
-        ' claims(qty, is_ot, price_override, sub_items(price)), shop_orders(qty, unit_price))').order('created_at').order('id'));
+        ' claims(qty, is_ot, price_override, sub_items(price, name, gos(type), members(id))), shop_orders(qty, unit_price))').order('created_at').order('id'));
     return { requests: data.map(r => ({
       request_id: r.id, username: r.username, full_name: r.full_name,
       address1: r.address1, address2: r.address2 || '', city: r.city, state: r.state,
@@ -5962,17 +5978,23 @@ const db = {
           // Per-line value for the receipt view (unit x qty): claim price
           // override-aware, shop line total; OT-set cards and legacy unlinked
           // items price as null. qty rides along for the "xN" on the line.
-          let price = null, ot = false, qty = parseInt(i.qty) || 1;
+          let price = null, ot = false, qty = parseInt(i.qty) || 1, cards = 0;
           if (i.claims) {
             qty = parseInt(i.claims.qty) || 1;
             if (i.claims.is_ot) ot = true;
             else price = (parseFloat(i.claims.price_override != null ? i.claims.price_override : (i.claims.sub_items || {}).price) || 0) * qty;
+            // Photocards for the EMS fee: any claim in a photocard-type GO, or a
+            // POB whose name says photocard (e.g. merch "Offline Benefit Photocard").
+            // An OT full set is one card per member. Shop orders are never cards.
+            const si = i.claims.sub_items || {};
+            const isCard = ((si.gos || {}).type === 'photocard') || /photocard/i.test(si.name || '');
+            if (isCard) cards = ot ? ((si.members || []).length || 1) : qty;
           } else if (i.shop_orders) {
             qty = parseInt(i.shop_orders.qty) || 1;
             price = (parseFloat(i.shop_orders.unit_price) || 0) * qty;
           }
           return { type: i.claim_id ? 'claim' : i.shop_order_id ? 'shop' : 'item',
-                   id: i.claim_id || i.shop_order_id || i.id, label: i.description, price, ot, qty };
+                   id: i.claim_id || i.shop_order_id || i.id, label: i.description, price, ot, qty, cards };
         }))
     })) };
   },
