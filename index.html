@@ -3175,12 +3175,13 @@ function groupFulfillStage(refs) {
   const idxs = refs.map(r => Math.max(0, FULFILLMENT.indexOf(r.fulfillment)));
   return idxs.length ? Math.min(...idxs) : -1;
 }
-async function groupFulfill(refs, dir) {
+async function groupFulfill(refs, dir, ctx) {   // ctx: {goId, si} for the Ready-time EMS prompt
   const cur = groupFulfillStage(refs);
   if (cur < 0) { toast('No secured claims in this group.'); return; }
   const target = dir === 'prev' ? cur - 1 : cur + 1;
   if (target < 0 || target >= FULFILLMENT.length) return;
   const nf = FULFILLMENT[target];
+  if (nf === 'Ready' && ctx) ensureEmsFee(ctx.goId, ctx.si);
   let failed = false;
   for (const r of refs) {
     r.fulfillment = nf;
@@ -3194,13 +3195,13 @@ async function setFulfillAll(goId, siId, setIdx, dir) {
   const si = allGOs[goId].subItems.find(s => s.id === siId);
   const set = si && si.sets[setIdx];
   if (!set) return;
-  await groupFulfill((si.members || []).map(m => set.slots[m]).filter(sl => sl && sl.claim_status === 'secured'), dir);
+  await groupFulfill((si.members || []).map(m => set.slots[m]).filter(sl => sl && sl.claim_status === 'secured'), dir, { goId, si });
 }
 async function batchFulfillAll(goId, siId, batchNum, dir) {
   const si = allGOs[goId].subItems.find(s => s.id === siId);
   const b = si && goBatches(si).find(x => x.num === batchNum);
   if (!b) return;
-  await groupFulfill(b.items.filter(c => c.claim_status === 'secured'), dir);
+  await groupFulfill(b.items.filter(c => c.claim_status === 'secured'), dir, { goId, si });
 }
 // Header controls: current group stage badge + prev/next arrows.
 function groupFulfillControlsHtml(refs, onPrev, onNext) {
@@ -3369,12 +3370,34 @@ async function confirmDropUnsecured(goId) {
   toast(droppable.length + ' unsecured claim' + (droppable.length !== 1 ? 's' : '') + ' dropped.');
 }
 
+// Photocards ship at a flat EMS_PER_CARD; anything else needs a per-unit EMS cost.
+// Same rule as the shipping queue's card count (db.getShipping).
+function isCardSubItem(go, si) {
+  return (go && go.type === 'photocard') || /photocard/i.test((si && si.name) || '');
+}
+// First time a non-card POB reaches Ready, ask for its per-unit EMS cost and save it
+// on the POB (sub_items.ems_fee). Cancel = not saved, asked again next time.
+function ensureEmsFee(goId, si) {
+  const go = allGOs[goId];
+  if (!go || !si || isCardSubItem(go, si)) return;
+  if (si.emsFee != null && isFinite(si.emsFee)) return;
+  const raw = prompt(`EMS cost per unit for "${si.name}" (USD)?\nUsed to pre-fill shipping fees — photocards are $${EMS_PER_CARD.toFixed(2)} each automatically.`, '');
+  if (raw == null) return;
+  const v = parseFloat(String(raw).replace(/[^0-9.]/g, ''));
+  if (!isFinite(v) || v < 0) { toast('EMS not saved — enter a number like 3.50.'); return; }
+  si.emsFee = v;
+  saveLocal();
+  persistWrite(db.setSubItemFlag(si.id, { ems_fee: v }), 'Save EMS cost');
+  toast(`EMS for ${si.name}: $${v.toFixed(2)} per unit.`);
+}
+
 function advanceSetFulfill(goId, siId, setIdx, member, dir) {
   const si = allGOs[goId].subItems.find(s => s.id === siId);
   const slot = si.sets[setIdx].slots[member];
   if (!slot) return;
   const nf = dir === 'prev' ? prevFulfillment(slot.fulfillment) : nextFulfillment(slot.fulfillment);
   if (nf) {
+    if (nf === 'Ready') ensureEmsFee(goId, si);
     slot.fulfillment = nf;
     if (slot.claim_id) db.updateClaim({ claim_id: slot.claim_id, fulfillment: nf });
     renderDetailContent();
@@ -3387,6 +3410,7 @@ function advanceFCFSFulfill(goId, siId, claimIdx, dir) {
   const claim = si.claims[claimIdx];
   const nf = dir === 'prev' ? prevFulfillment(claim.fulfillment) : nextFulfillment(claim.fulfillment);
   if (nf) {
+    if (nf === 'Ready') ensureEmsFee(goId, si);
     claim.fulfillment = nf;
     if (claim.claim_id) db.updateClaim({ claim_id: claim.claim_id, fulfillment: nf });
     renderDetailContent();
@@ -3400,6 +3424,7 @@ function advanceBatchFulfill(goId, siId, claimId, dir) {
   if (!claim) return;
   const nf = dir === 'prev' ? prevFulfillment(claim.fulfillment) : nextFulfillment(claim.fulfillment);
   if (nf) {
+    if (nf === 'Ready') ensureEmsFee(goId, si);
     claim.fulfillment = nf;
     if (claim.claim_id) db.updateClaim({ claim_id: claim.claim_id, fulfillment: nf });
     renderDetailContent();
@@ -4007,6 +4032,10 @@ function renderEditSubItems() {
       inner += `<div class="field-row" style="margin-bottom:8px;">
           <div class="field" style="margin-bottom:0;"><label>Name</label><input type="text" id="edit-si-name-${si.id}" value="${si.name}"></div>
           <div class="field" style="margin-bottom:0;"><label>Price (USD)</label><input type="number" id="edit-si-price-${si.id}" value="${si.price || 0}" step="0.01" style="width:100%;"><div class="field-hint">Applies to all claims (old and new).</div></div>
+        </div>
+        <div class="field" style="margin-top:8px;margin-bottom:0;"><label>EMS per unit (USD)</label>
+          <input type="number" id="edit-si-ems-${si.id}" value="${si.emsFee != null ? si.emsFee : ''}" step="0.01" min="0" placeholder="asked when first marked Ready">
+          <div class="field-hint">Pre-fills shipping fees. Photocards are $${EMS_PER_CARD.toFixed(2)} each automatically — leave blank for those.</div>
         </div>`;
       if (si.kind === 'member') {
         inner += `<div class="field" style="margin-bottom:0;"><label>Members (one per line)</label>
@@ -4033,6 +4062,10 @@ function renderEditSubItems() {
       inner += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
           <div class="field" style="margin-bottom:0;"><label>Item name</label><input type="text" id="edit-si-name-${si.id}" value="${si.name}"></div>
           <div class="field" style="margin-bottom:0;"><label>Price (USD)</label><input type="number" id="edit-si-price-${si.id}" value="${si.price||0}" step="0.01" style="width:100%;"><div class="field-hint">Applies to all claims (old and new).</div></div>
+        </div>
+        <div class="field" style="margin-top:8px;margin-bottom:0;"><label>EMS per unit (USD)</label>
+          <input type="number" id="edit-si-ems-${si.id}" value="${si.emsFee != null ? si.emsFee : ''}" step="0.01" min="0" placeholder="asked when first marked Ready">
+          <div class="field-hint">Pre-fills shipping fees. Photocards are $${EMS_PER_CARD.toFixed(2)} each automatically — leave blank for those.</div>
         </div>
         ${si.kind === 'member' ? `<div class="field" style="margin-bottom:0;"><label>Members (one per line)</label>
           <textarea id="edit-si-members-${si.id}" style="min-height:70px;font-family:var(--mono);font-size:12px;">${(si.members||[]).join('\n')}</textarea>
@@ -4207,6 +4240,15 @@ async function saveGOEdits() {
     if (priceEl) si.price = parseFloat(priceEl.value) || si.price;
     const otPriceEl = document.getElementById('edit-si-otprice-' + si.id);
     if (otPriceEl) si.otPrice = parseFloat(otPriceEl.value) || 0;
+    const emsEl = document.getElementById('edit-si-ems-' + si.id);
+    if (emsEl) {
+      const v = emsEl.value.trim() === '' ? null : parseFloat(emsEl.value);
+      const cur = (si.emsFee != null && isFinite(si.emsFee)) ? si.emsFee : null;
+      if ((v == null ? null : (isFinite(v) && v >= 0 ? v : cur)) !== cur) {
+        si.emsFee = v;
+        persistWrite(db.setSubItemFlag(si.id, { ems_fee: v }), 'Save EMS cost');
+      }
+    }
     // Batch-mode toggle for photocard / album-member POBs (converts the in-memory shape).
     const canBatch = go.type === 'photocard' || (si.kind === 'member' && go.type === 'album') || (si.kind === 'member-set' && go.type === 'merch');
     if (canBatch) {
@@ -5633,7 +5675,11 @@ function renderShippingQueueInner() {
   let html = pending.map(r => {
     const items = r.items || [];
     const cards = items.reduce((a, it) => a + (parseInt(it.cards) || 0), 0);
-    autoFillEms(r, cards);
+    const extraEms = items.reduce((a, it) => a + (parseFloat(it.ems) || 0), 0);
+    const unpriced = items.filter(it => it.type === 'claim' && !it.cards && it.ems == null).length;
+    autoFillEms(r, cards, extraEms);
+    const emsBasis = [cards ? `${cards} × $${EMS_PER_CARD.toFixed(2)}` : '', extraEms ? `+ $${extraEms.toFixed(2)} items` : ''].filter(Boolean).join(' ')
+      + (unpriced ? `<div style="color:var(--amber-800);">${unpriced} item${unpriced !== 1 ? 's' : ''} without EMS</div>` : '');
     const ems = parseFloat(r.ems_fee) || 0;
     const dom = parseFloat(r.dom_fee) || 0;
     const total = (ems + dom) > 0 ? (ems + dom).toFixed(2) : '—';
@@ -5641,7 +5687,7 @@ function renderShippingQueueInner() {
       <td style="font-weight:500;">${r.username}</td>
       <td style="font-size:12px;color:var(--text2);white-space:nowrap;">${items.length} item${items.length !== 1 ? 's' : ''}${cards ? `<div style="font-size:11px;color:var(--text3);">${cards} card${cards !== 1 ? 's' : ''}</div>` : ''}</td>
       <td><span class="badge ${r.method === 'stamped' ? 'badge-pending' : 'badge-fcfs'}" style="font-size:10px;">${r.method === 'stamped' ? 'Stamped' : 'Tracked'}</span></td>
-      <td><input type="number" placeholder="0.00" step="0.01" value="${r.ems_fee||''}" oninput="updateShipFee('${r.request_id}','ems',this.value)" style="width:72px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);">${cards ? `<div style="font-size:10px;color:var(--text3);margin-top:2px;white-space:nowrap;">${cards} × $${EMS_PER_CARD.toFixed(2)}</div>` : ''}</td>
+      <td><input type="number" placeholder="0.00" step="0.01" value="${r.ems_fee||''}" oninput="updateShipFee('${r.request_id}','ems',this.value)" style="width:72px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);">${emsBasis ? `<div style="font-size:10px;color:var(--text3);margin-top:2px;white-space:nowrap;">${emsBasis}</div>` : ''}</td>
       <td><input type="number" placeholder="0.00" step="0.01" value="${r.dom_fee||''}" oninput="updateShipFee('${r.request_id}','dom',this.value)" style="width:72px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);"></td>
       <td style="font-family:var(--mono);font-weight:500;" id="ship-total-${r.request_id}">${total !== '—' ? '$'+total : '—'}</td>
       <td><input type="text" placeholder="Paste number" value="${r.tracking_number||''}" onchange="saveShipTracking('${r.request_id}',this.value)" style="width:130px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);"></td>
@@ -5670,13 +5716,15 @@ function saveShipTracking(requestId, val) {
   db.updateShipping({ request_id: r.request_id, ems_fee: r.ems_fee || '', dom_fee: r.dom_fee || '', total_fee: r.total_fee || '', tracking_number: r.tracking_number, shipped: !!r.shipped })
     .catch(() => toast("Couldn't save the tracking number — please retry."));
 }
-// Pre-fill a blank EMS fee as cards × EMS_PER_CARD and persist it so the joiner's
+// Pre-fill a blank EMS fee as cards × EMS_PER_CARD + each non-card item's per-unit
+// EMS (sub_items.ems_fee × qty) and persist it so the joiner's
 // receipt shows it right away. Runs once per request per page load; the admin's
 // own edits (updateShipFee) always win.
-function autoFillEms(r, cards) {
-  if (!cards || r._emsAuto || parseFloat(r.ems_fee) > 0) return;
+function autoFillEms(r, cards, extraEms) {
+  const fee = (cards || 0) * EMS_PER_CARD + (parseFloat(extraEms) || 0);
+  if (!(fee > 0) || r._emsAuto || parseFloat(r.ems_fee) > 0) return;
   r._emsAuto = true;
-  r.ems_fee = (cards * EMS_PER_CARD).toFixed(2);
+  r.ems_fee = fee.toFixed(2);
   r.total_fee = ((parseFloat(r.ems_fee) || 0) + (parseFloat(r.dom_fee) || 0)).toFixed(2);
   db.updateShipping({ request_id: r.request_id, ems_fee: r.ems_fee, dom_fee: r.dom_fee || '', total_fee: r.total_fee, tracking_number: r.tracking_number || '', shipped: !!r.shipped })
     .catch(() => {});
@@ -5841,7 +5889,7 @@ function goRowToLegacy(g) {
         sub_item_id: si.id, name: si.name, kind: si.kind,
         members: (si.members || []).slice().sort((a, b) => a.position - b.position).map(m => m.name),
         versions: (si.versions || []).slice().sort((a, b) => a.position - b.position).map(v => v.name),
-        price: si.price, ot_price: si.ot_price,
+        price: si.price, ot_price: si.ot_price, ems_fee: si.ems_fee,
         // Batch mode round-trips through the legacy negative-min_secure sentinel
         // so isBatch() and every render branch stay untouched.
         min_secure: si.order_mode === 'batch' ? -(si.batch_size || 0)
@@ -5869,7 +5917,7 @@ const db = {
   async getGOsList() {
     const data = dbThrow(await sb.from('gos')
       .select('id, name, artist, type, status, deadline, payment_deadline, min_secure, created_at,' +
-        ' sub_items(id, name, kind, order_mode, batch_size, price, ot_price, min_secure,' +
+        ' sub_items(id, name, kind, order_mode, batch_size, price, ot_price, ems_fee, min_secure,' +
         ' image_url, position, closed, deadline, pay_due, members(name, position), versions(name, position))')
       .order('created_at'));
     return { gos: data.map(goRowToLegacy) };
@@ -5964,7 +6012,7 @@ const db = {
   async getShipping() {  // admin: full requests incl. addresses + items
     const data = await selectAll(() => sb.from('shipping_requests')
       .select('*, shipping_request_items(id, go_id, description, qty, claim_id, shop_order_id,' +
-        ' claims(qty, is_ot, price_override, sub_items(price, name, gos(type), members(id))), shop_orders(qty, unit_price))').order('created_at').order('id'));
+        ' claims(qty, is_ot, price_override, sub_items(price, name, ems_fee, gos(type), members(id))), shop_orders(qty, unit_price))').order('created_at').order('id'));
     return { requests: data.map(r => ({
       request_id: r.id, username: r.username, full_name: r.full_name,
       address1: r.address1, address2: r.address2 || '', city: r.city, state: r.state,
@@ -5978,7 +6026,7 @@ const db = {
           // Per-line value for the receipt view (unit x qty): claim price
           // override-aware, shop line total; OT-set cards and legacy unlinked
           // items price as null. qty rides along for the "xN" on the line.
-          let price = null, ot = false, qty = parseInt(i.qty) || 1, cards = 0;
+          let price = null, ot = false, qty = parseInt(i.qty) || 1, cards = 0, ems = null;
           if (i.claims) {
             qty = parseInt(i.claims.qty) || 1;
             if (i.claims.is_ot) ot = true;
@@ -5988,13 +6036,16 @@ const db = {
             // An OT full set is one card per member. Shop orders are never cards.
             const si = i.claims.sub_items || {};
             const isCard = ((si.gos || {}).type === 'photocard') || /photocard/i.test(si.name || '');
-            if (isCard) cards = ot ? ((si.members || []).length || 1) : qty;
+            const units = ot ? ((si.members || []).length || 1) : qty;
+            if (isCard) cards = units;
+            // Non-card: per-unit EMS entered on the POB (null = admin never entered one).
+            else if (si.ems_fee != null && si.ems_fee !== '') ems = (parseFloat(si.ems_fee) || 0) * units;
           } else if (i.shop_orders) {
             qty = parseInt(i.shop_orders.qty) || 1;
             price = (parseFloat(i.shop_orders.unit_price) || 0) * qty;
           }
           return { type: i.claim_id ? 'claim' : i.shop_order_id ? 'shop' : 'item',
-                   id: i.claim_id || i.shop_order_id || i.id, label: i.description, price, ot, qty, cards };
+                   id: i.claim_id || i.shop_order_id || i.id, label: i.description, price, ot, qty, cards, ems };
         }))
     })) };
   },
@@ -6410,10 +6461,11 @@ async function syncFromBackend(silent) {
           }
         }
 
-        const imgById = {};
+        const imgById = {}, emsById = {};
         (go.subItems || []).forEach(si => {
           if (!si || !si.sub_item_id || !si.name) return; // skip blank/ghost sub-item rows
           imgById[si.sub_item_id] = si.image_url || '';
+          emsById[si.sub_item_id] = (si.ems_fee != null && si.ems_fee !== '') ? parseFloat(si.ems_fee) : null;
           let members = parseMembers(si.members);
           // Fallback: if members empty in Sheets, reconstruct from now-remapped claims
           if (!members.length) {
@@ -6463,7 +6515,7 @@ async function syncFromBackend(silent) {
             }
           }
         });
-        rebuilt.subItems.forEach(s => { s.imageUrl = imgById[s.id] || ''; });
+        rebuilt.subItems.forEach(s => { s.imageUrl = imgById[s.id] || ''; s.emsFee = emsById[s.id] != null ? emsById[s.id] : null; });
         rebuilt.subItems.forEach(s => { s.closed = isSubItemClosed(go.go_id, s.id); });
         rebuilt.subItems.forEach(s => { s.deadline = subItemDeadline(go.go_id, s.id); });
         rebuilt.subItems.forEach(s => { s.payDue = subItemPayByDate(go.go_id, s.id); });
