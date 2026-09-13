@@ -5687,8 +5687,8 @@ function renderShippingQueueInner() {
       <td style="font-weight:500;">${r.username}</td>
       <td style="font-size:12px;color:var(--text2);white-space:nowrap;">${items.length} item${items.length !== 1 ? 's' : ''}${cards ? `<div style="font-size:11px;color:var(--text3);">${cards} card${cards !== 1 ? 's' : ''}</div>` : ''}</td>
       <td><span class="badge ${r.method === 'stamped' ? 'badge-pending' : 'badge-fcfs'}" style="font-size:10px;">${r.method === 'stamped' ? 'Stamped' : 'Tracked'}</span></td>
-      <td><input type="number" placeholder="0.00" step="0.01" value="${r.ems_fee||''}" oninput="updateShipFee('${r.request_id}','ems',this.value)" style="width:72px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);">${emsBasis ? `<div style="font-size:10px;color:var(--text3);margin-top:2px;white-space:nowrap;">${emsBasis}</div>` : ''}</td>
-      <td><input type="number" placeholder="0.00" step="0.01" value="${r.dom_fee||''}" oninput="updateShipFee('${r.request_id}','dom',this.value)" style="width:72px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);"></td>
+      <td><input type="number" placeholder="0.00" step="0.01" value="${r.ems_fee||''}" oninput="updateShipFee('${r.request_id}','ems',this.value)" onchange="saveShipFees('${r.request_id}')" style="width:72px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);">${emsBasis ? `<div style="font-size:10px;color:var(--text3);margin-top:2px;white-space:nowrap;">${emsBasis}</div>` : ''}</td>
+      <td><input type="number" placeholder="0.00" step="0.01" value="${r.dom_fee||''}" oninput="updateShipFee('${r.request_id}','dom',this.value)" onchange="saveShipFees('${r.request_id}')" style="width:72px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);"></td>
       <td style="font-family:var(--mono);font-weight:500;" id="ship-total-${r.request_id}">${total !== '—' ? '$'+total : '—'}</td>
       <td><input type="text" placeholder="Paste number" value="${r.tracking_number||''}" onchange="saveShipTracking('${r.request_id}',this.value)" style="width:130px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);"></td>
       <td><button class="btn btn-sm btn-ghost" onclick="viewShippingAddress('${r.request_id}')">View</button></td>
@@ -5729,6 +5729,8 @@ function autoFillEms(r, cards, extraEms) {
   db.updateShipping({ request_id: r.request_id, ems_fee: r.ems_fee, dom_fee: r.dom_fee || '', total_fee: r.total_fee, tracking_number: r.tracking_number || '', shipped: !!r.shipped })
     .catch(() => {});
 }
+// Fee inputs save themselves: debounced while typing, immediately on blur/change.
+const shipFeeSaveTimers = {};
 function updateShipFee(requestId, which, val) {
   const r = shippingRequests.find(x => x.request_id === requestId);
   if (!r) return;
@@ -5738,6 +5740,15 @@ function updateShipFee(requestId, which, val) {
   r.total_fee = (ems + dom).toFixed(2);
   const el = document.getElementById('ship-total-' + requestId);
   if (el) el.textContent = (ems + dom) > 0 ? '$' + r.total_fee : '—';
+  clearTimeout(shipFeeSaveTimers[requestId]);
+  shipFeeSaveTimers[requestId] = setTimeout(() => saveShipFees(requestId), 600);
+}
+function saveShipFees(requestId) {
+  clearTimeout(shipFeeSaveTimers[requestId]);
+  const r = shippingRequests.find(x => x.request_id === requestId);
+  if (!r) return;
+  db.updateShipping({ request_id: r.request_id, ems_fee: r.ems_fee || '', dom_fee: r.dom_fee || '', total_fee: (parseFloat(r.total_fee) > 0 ? r.total_fee : ''), tracking_number: r.tracking_number || '', shipped: !!r.shipped })
+    .catch(() => toast("Couldn't save the shipping fee — please retry."));
 }
 
 // Receipt body shared by the admin packing slip and the joiner's Your-shipments
