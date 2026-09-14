@@ -2326,16 +2326,29 @@ function renderMyOrderGoBlock(g, goRows, u, summary) {
 // A buyer's items that are Paid AND Ready and not already in a shipping request.
 function shipEligibleItems(username) {
   const items = [];
+  const seen = {};
+  // Buyer path first: My orders loads this user's flat claims (myLookupClaims) and
+  // never the GO boards, so allGOs holds no claims there — reading only allGOs made
+  // the Request-shipping box stay empty for paid + Ready items.
+  (myLookupClaims || []).forEach(c => {
+    if (!c.claim_id || seen[c.claim_id] || !sameUser(c.username, username)) return;
+    if (c.claim_status === 'dropped' || c.payment_status !== 'paid' || c.fulfillment !== 'Ready') return;
+    seen[c.claim_id] = true;
+    const detail = c.member_or_version || (c.assigned_vers && c.assigned_vers !== 'OT' ? c.assigned_vers : '');
+    items.push({ type: 'claim', id: c.claim_id, label: (c.go_name || '') + ' — ' + (c.sub_item_name || '') + (detail ? ' ' + detail : '') });
+  });
   Object.values(allGOs).forEach(go => {
     (go.subItems || []).forEach(si => {
       if (si.sets) si.sets.forEach(set => (si.members || []).forEach(m => {
         const slot = set.slots[m];
-        if (slot && sameUser(slot.user, username) && slot.payment === 'paid' && slot.fulfillment === 'Ready' && slot.claim_id) {
+        if (slot && sameUser(slot.user, username) && slot.payment === 'paid' && slot.fulfillment === 'Ready' && slot.claim_id && !seen[slot.claim_id]) {
+          seen[slot.claim_id] = true;
           items.push({ type: 'claim', id: slot.claim_id, label: go.name + ' — ' + si.name + ' ' + m });
         }
       }));
       if (si.claims) si.claims.forEach(c => {
-        if (sameUser(c.user, username) && c.payment === 'paid' && c.fulfillment === 'Ready' && c.claim_id) {
+        if (sameUser(c.user, username) && c.payment === 'paid' && c.fulfillment === 'Ready' && c.claim_id && !seen[c.claim_id]) {
+          seen[c.claim_id] = true;
           items.push({ type: 'claim', id: c.claim_id, label: go.name + ' — ' + si.name + (c.member ? (' ' + c.member) : '') });
         }
       });
