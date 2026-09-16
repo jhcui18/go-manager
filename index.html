@@ -6036,7 +6036,7 @@ const db = {
   async getShipping() {  // admin: full requests incl. addresses + items
     const data = await selectAll(() => sb.from('shipping_requests')
       .select('*, shipping_request_items(id, go_id, description, qty, claim_id, shop_order_id,' +
-        ' claims(qty, is_ot, price_override, sub_items(price, name, ems_fee, gos(type), members(id))), shop_orders(qty, unit_price))').order('created_at').order('id'));
+        ' claims(qty, is_ot, price_override, sub_items(price, name, ems_fee, gos(type))), shop_orders(qty, unit_price))').order('created_at').order('id'));
     return { requests: data.map(r => ({
       request_id: r.id, username: r.username, full_name: r.full_name,
       address1: r.address1, address2: r.address2 || '', city: r.city, state: r.state,
@@ -6057,10 +6057,13 @@ const db = {
             else price = (parseFloat(i.claims.price_override != null ? i.claims.price_override : (i.claims.sub_items || {}).price) || 0) * qty;
             // Photocards for the EMS fee: any claim in a photocard-type GO, or a
             // POB whose name says photocard (e.g. merch "Offline Benefit Photocard").
-            // An OT full set is one card per member. Shop orders are never cards.
+            // Units = claim qty. An OT full set is stored as one claim PER MEMBER
+            // (qty 1 each, set and batch alike), so it already sums to one card per
+            // member — never multiply by the member count (that over-charged an OT8
+            // as 64 cards). Shop orders are never cards.
             const si = i.claims.sub_items || {};
             const isCard = ((si.gos || {}).type === 'photocard') || /photocard/i.test(si.name || '');
-            const units = ot ? ((si.members || []).length || 1) : qty;
+            const units = qty;
             if (isCard) cards = units;
             // Non-card: per-unit EMS entered on the POB (null = admin never entered one).
             else if (si.ems_fee != null && si.ems_fee !== '') ems = (parseFloat(si.ems_fee) || 0) * units;
