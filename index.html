@@ -768,6 +768,11 @@ function fmtDate(val) {
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
+// The stage a GROUP is at = its least-advanced card (an OT set is Ready only when every card is).
+function lowestFulfillment(list) {
+  const idxs = (list || []).map(c => FULFILLMENT.indexOf(c.fulfillment)).filter(i => i >= 0);
+  return idxs.length ? FULFILLMENT[Math.min(...idxs)] : null;
+}
 function nextFulfillment(f) { const i = FULFILLMENT.indexOf(f); return i < FULFILLMENT.length-1 ? FULFILLMENT[i+1] : null; }
 function prevFulfillment(f) { const i = FULFILLMENT.indexOf(f); return i > 0 ? FULFILLMENT[i-1] : null; }
 const SHOP_FULFILLMENT = ['Pending','Ready','Shipped'];
@@ -2021,7 +2026,8 @@ function doLookupRenderInner(u) {
       if (otClaims.length) {
         const c0 = otClaims.find(c => c.claim_status !== 'dropped') || otClaims[0];
         rows.push({ go_id:g.go_id, go:g.go, item:g.item, detail:'OT'+otClaims.length+' full set', qty:1, price:effOtSetPrice(otClaims, g.meta && g.meta.otPrice),
-          claim:(c0.claim_status==='dropped')?'Not fulfilled':((c0.claim_status==='secured')?'Secured':'Pending'), payment:c0.payment_status, fulfillment:c0.fulfillment,
+          claim:(c0.claim_status==='dropped')?'Not fulfilled':((c0.claim_status==='secured')?'Secured':'Pending'), payment:c0.payment_status,
+          fulfillment: lowestFulfillment(otClaims.filter(c => c.claim_status !== 'dropped')) || c0.fulfillment,
           due: effectivePayBy(g.go_id, g.meta && g.meta.id),
           claim_ids: otClaims.map(c => c.claim_id).filter(Boolean), archived: otClaims.every(c => c.archived) });
       }
@@ -2330,6 +2336,20 @@ function shipEligibleItems(username) {
   // Buyer path first: My orders loads this user's flat claims (myLookupClaims) and
   // never the GO boards, so allGOs holds no claims there — reading only allGOs made
   // the Request-shipping box stay empty for paid + Ready items.
+  // OT sets ship as one unit: one checkbox, all cards, and only once EVERY card is paid + Ready.
+  const otGroups = {};
+  (myLookupClaims || []).forEach(c => {
+    if (!c.claim_id || !sameUser(c.username, username) || c.claim_status === 'dropped') return;
+    if (c.assigned_vers !== 'OT') return;
+    const key = c.sub_item_id + '|' + (c.set_num === undefined || c.set_num === null ? '' : c.set_num);
+    (otGroups[key] = otGroups[key] || { go: c.go_name || '', item: c.sub_item_name || '', parts: [] })
+      .parts.push({ id: c.claim_id, label: (c.go_name || '') + ' — ' + (c.sub_item_name || '') + ' ' + (c.member_or_version || ''), ready: c.payment_status === 'paid' && c.fulfillment === 'Ready' });
+  });
+  Object.values(otGroups).forEach(g => {
+    g.parts.forEach(pt => { seen[pt.id] = true; });   // never listed card-by-card
+    if (!g.parts.length || !g.parts.every(pt => pt.ready)) return;
+    items.push({ type: 'claim', id: g.parts[0].id, parts: g.parts, label: g.go + ' — ' + g.item + ' OT' + g.parts.length + ' full set' });
+  });
   (myLookupClaims || []).forEach(c => {
     if (!c.claim_id || seen[c.claim_id] || !sameUser(c.username, username)) return;
     if (c.claim_status === 'dropped' || c.payment_status !== 'paid' || c.fulfillment !== 'Ready') return;
@@ -2339,13 +2359,22 @@ function shipEligibleItems(username) {
   });
   Object.values(allGOs).forEach(go => {
     (go.subItems || []).forEach(si => {
-      if (si.sets) si.sets.forEach(set => (si.members || []).forEach(m => {
-        const slot = set.slots[m];
-        if (slot && sameUser(slot.user, username) && slot.payment === 'paid' && slot.fulfillment === 'Ready' && slot.claim_id && !seen[slot.claim_id]) {
-          seen[slot.claim_id] = true;
-          items.push({ type: 'claim', id: slot.claim_id, label: go.name + ' — ' + si.name + ' ' + m });
+      if (si.sets) si.sets.forEach(set => {
+        const ot = (si.members || []).filter(m => set.slots[m] && set.slots[m].ot && sameUser(set.slots[m].user, username) && set.slots[m].claim_status !== 'dropped' && set.slots[m].claim_id);
+        if (ot.length) {
+          const parts = ot.map(m => ({ id: set.slots[m].claim_id, label: go.name + ' — ' + si.name + ' ' + m, ready: set.slots[m].payment === 'paid' && set.slots[m].fulfillment === 'Ready' }));
+          const fresh = parts.filter(pt => !seen[pt.id]);
+          parts.forEach(pt => { seen[pt.id] = true; });
+          if (fresh.length === parts.length && parts.every(pt => pt.ready)) items.push({ type: 'claim', id: parts[0].id, parts, label: go.name + ' — ' + si.name + ' OT' + parts.length + ' full set' });
         }
-      }));
+        (si.members || []).forEach(m => {
+          const slot = set.slots[m];
+          if (slot && sameUser(slot.user, username) && slot.payment === 'paid' && slot.fulfillment === 'Ready' && slot.claim_id && !seen[slot.claim_id]) {
+            seen[slot.claim_id] = true;
+            items.push({ type: 'claim', id: slot.claim_id, label: go.name + ' — ' + si.name + ' ' + m });
+          }
+        });
+      });
       if (si.claims) si.claims.forEach(c => {
         if (sameUser(c.user, username) && c.payment === 'paid' && c.fulfillment === 'Ready' && c.claim_id && !seen[c.claim_id]) {
           seen[c.claim_id] = true;
@@ -2361,7 +2390,7 @@ function shipEligibleItems(username) {
   });
   const requested = {};
   (shippingRequests || []).forEach(r => (r.items || []).forEach(it => { requested[it.id] = true; }));
-  return items.filter(it => !requested[it.id]);
+  return items.filter(it => !(it.parts || [{ id: it.id }]).some(pt => requested[pt.id]));
 }
 
 // Tracking link with carrier auto-detected from the number format — official
@@ -2471,7 +2500,8 @@ async function submitShippingRequest(username) {
   const eligible = shipEligibleItems(username);
   if (!eligible.length) { toast('No items ready to ship.'); return; }
   const checkedIds = new Set([...document.querySelectorAll('.ship-item-cb:checked')].map(cb => cb.value));
-  const items = eligible.filter(it => checkedIds.has(it.id));
+  const items = eligible.filter(it => checkedIds.has(it.id))
+    .flatMap(it => it.parts ? it.parts.map(pt => ({ type: it.type, id: pt.id, label: pt.label })) : [it]);
   if (!items.length) { toast('Pick at least one item to ship.'); return; }
   const g = id => (document.getElementById(id) || {}).value || '';
   const full_name = g('ship-fullname').trim();
@@ -2871,11 +2901,15 @@ function renderDetailContentInner() {
               <button class="btn btn-sm btn-ghost" style="font-size:10px;padding:1px 6px;" title="Mark not fulfilled — kept in history, not ordered/charged" onclick="dropBatchClaim('${go.id}','${si.id}','${c.claim_id}')">Drop</button>
               <button class="btn btn-sm btn-ghost" style="font-size:11px;padding:1px 6px;color:var(--red-400);" title="Remove this claim" onclick="removeBatchClaim('${go.id}','${si.id}','${c.claim_id}')">×</button>
             </div>
-            ${sec ? `<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
-              <span class="badge ${fulfillBadge(c.fulfillment)}" style="font-size:10px;">${c.fulfillment}</span>
-              ${prevFulfillment(c.fulfillment) ? `<button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 6px;" title="Back to ${prevFulfillment(c.fulfillment)}" onclick="advanceBatchFulfill('${go.id}','${si.id}','${c.claim_id}','prev')">←</button>` : ''}
-              ${nextFulfillment(c.fulfillment) ? `<button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 6px;" onclick="advanceBatchFulfill('${go.id}','${si.id}','${c.claim_id}')">→ ${nextFulfillment(c.fulfillment)}</button>` : ''}
-            </div>` : ''}
+            ${sec ? (() => {
+              const grp = c.ot ? otBatchClaims(b, c.user) : null;
+              const stage = grp ? FULFILLMENT[Math.max(0, groupFulfillStage(grp))] : c.fulfillment;
+              const fn = (dir) => grp ? `otBatchFulfill('${go.id}','${si.id}',${b.num},'${c.claim_id}'${dir ? ",'prev'" : ''})` : `advanceBatchFulfill('${go.id}','${si.id}','${c.claim_id}'${dir ? ",'prev'" : ''})`;
+              return `<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
+              <span class="badge ${fulfillBadge(stage)}" style="font-size:10px;" title="${grp ? 'OT set — all ' + grp.length + ' cards move together' : ''}">${stage}${grp ? ' · OT' : ''}</span>
+              ${prevFulfillment(stage) ? `<button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 6px;" title="${grp ? 'Whole OT set back to ' : 'Back to '}${prevFulfillment(stage)}" onclick="${fn(true)}">←</button>` : ''}
+              ${nextFulfillment(stage) ? `<button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 6px;" title="${grp ? 'Whole OT set to ' + nextFulfillment(stage) : ''}" onclick="${fn(false)}">→ ${nextFulfillment(stage)}</button>` : ''}
+            </div>`; })() : ''}
           </div>`;
         });
         html += `</div></div>`;
@@ -2959,10 +2993,14 @@ function renderDetailContentInner() {
             <span class="badge ${slot.claim_status==='secured'?'badge-secured':'badge-pending'}" style="font-size:10px;cursor:pointer;" title="Click to secure/unsecure this claim" onclick="toggleSlotSecure('${go.id}','${si.id}',${setIdx},'${member}')">${slot.claim_status==='secured'?'Secured':'Secure?'}</span>
             <button class="btn btn-sm btn-ghost" style="font-size:11px;padding:1px 6px;color:var(--red-400);" title="Remove this claim" onclick="removeSlotClaim('${go.id}','${si.id}',${setIdx},'${member}')">×</button>
           </div>`) : '';
+          // An OT set is one purchase: its cards show the GROUP stage (lowest card) and the
+          // arrows move every card of the set together (otSetFulfill), never one card.
+          const otGroup = (taken && slot.ot) ? otSetSlots(si, set, slot.user) : null;
+          const stage = otGroup ? FULFILLMENT[Math.max(0, groupFulfillStage(otGroup))] : (taken ? slot.fulfillment : '');
           const fulfillHtml = (taken && slot.claim_status === 'secured') ? `<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
-            <span class="badge ${fulfillBadge(slot.fulfillment)}" style="font-size:10px;">${slot.fulfillment}</span>
-            ${prevFulfillment(slot.fulfillment) ? `<button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 6px;" title="Back to ${prevFulfillment(slot.fulfillment)}" onclick="advanceSetFulfill('${go.id}','${si.id}',${setIdx},'${member}','prev')">←</button>` : ''}
-            ${nextFulfillment(slot.fulfillment) ? `<button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 6px;" onclick="advanceSetFulfill('${go.id}','${si.id}',${setIdx},'${member}')">→ ${nextFulfillment(slot.fulfillment)}</button>` : ''}
+            <span class="badge ${fulfillBadge(stage)}" style="font-size:10px;" title="${otGroup ? 'OT set — all ' + otGroup.length + ' cards move together' : ''}">${stage}${otGroup ? ' · OT' : ''}</span>
+            ${prevFulfillment(stage) ? `<button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 6px;" title="${otGroup ? 'Whole OT set back to ' : 'Back to '}${prevFulfillment(stage)}" onclick="${otGroup ? `otSetFulfill('${go.id}','${si.id}',${setIdx},'${member}','prev')` : `advanceSetFulfill('${go.id}','${si.id}',${setIdx},'${member}','prev')`}">←</button>` : ''}
+            ${nextFulfillment(stage) ? `<button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 6px;" title="${otGroup ? 'Whole OT set to ' + nextFulfillment(stage) : ''}" onclick="${otGroup ? `otSetFulfill('${go.id}','${si.id}',${setIdx},'${member}')` : `advanceSetFulfill('${go.id}','${si.id}',${setIdx},'${member}')`}">→ ${nextFulfillment(stage)}</button>` : ''}
             <button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 6px;" onclick="openEditClaimModal('${go.id}','${si.id}',${setIdx},'${member}')">Edit</button>
           </div>` : '';
           html += `<div style="background:${bg};border-radius:8px;padding:8px 10px;border:0.5px solid ${border};">
@@ -3209,6 +3247,27 @@ async function setFulfillAll(goId, siId, setIdx, dir) {
   const set = si && si.sets[setIdx];
   if (!set) return;
   await groupFulfill((si.members || []).map(m => set.slots[m]).filter(sl => sl && sl.claim_status === 'secured'), dir, { goId, si });
+}
+// OT groups: every card of one buyer's OT set in a set / batch (dropped cards excluded).
+function otSetSlots(si, set, user) {
+  return (si.members || []).map(m => set.slots[m]).filter(sl => sl && sl.ot && sameUser(sl.user, user) && sl.claim_status !== 'dropped');
+}
+function otBatchClaims(b, user) {
+  return (b.items || []).filter(c => c.ot && sameUser(c.user, user) && c.claim_status !== 'dropped');
+}
+async function otSetFulfill(goId, siId, setIdx, member, dir) {
+  const si = allGOs[goId].subItems.find(s => s.id === siId);
+  const set = si && si.sets[setIdx];
+  const slot = set && set.slots[member];
+  if (!slot) return;
+  await groupFulfill(otSetSlots(si, set, slot.user).filter(sl => sl.claim_status === 'secured'), dir, { goId, si });
+}
+async function otBatchFulfill(goId, siId, batchNum, claimId, dir) {
+  const si = allGOs[goId].subItems.find(s => s.id === siId);
+  const b = si && goBatches(si).find(x => x.num === batchNum);
+  const c = b && b.items.find(x => x.claim_id === claimId);
+  if (!c) return;
+  await groupFulfill(otBatchClaims(b, c.user).filter(x => x.claim_status === 'secured'), dir, { goId, si });
 }
 async function batchFulfillAll(goId, siId, batchNum, dir) {
   const si = allGOs[goId].subItems.find(s => s.id === siId);
