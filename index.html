@@ -1733,7 +1733,7 @@ function submitClaim(goId) {
   const usernameEl = document.getElementById('claim-username-' + goId);
   const username = usernameEl ? usernameEl.value.trim() : '';
   if (!username) { toast('Please enter your username.'); return; }
-  const u = (username.startsWith('@') ? username : '@' + username).toLowerCase();
+  const u = ('@' + username.replace(/^[@\s]+/, '')).toLowerCase();   // "@@handle" (autofill + typed @) -> "@handle"
   const go = allGOs[goId];
   const claimsToWrite = [];
   let placed = false;
@@ -1935,14 +1935,14 @@ async function submitClaimWithRetry(claims, attempts = 3) {
 let myLookupClaims = []; // buyer My Orders: this user's flat claims from db.getMyOrders
 async function doLookup() {
   const raw = (document.getElementById('lookup-input') || {}).value || '';
-  const u = raw.trim().startsWith('@') ? raw.trim() : '@' + raw.trim();
+  const u = '@' + raw.trim().replace(/^[@\s]+/, '');
   if (!raw.trim()) { toast('Enter your username.'); return; }
   // Buyer lazy path: pull just this user's claims + payments/shop/shipping.
   // Also used for admin — admin no longer has allGOs claims loaded at login (Finding 2).
   showLoadingOverlay(true, 'Looking up your orders…');
   let jr, pr, so, sh;
   try {
-    const mo = await db.getMyOrders(raw.trim());
+    const mo = await db.getMyOrders(u);
     if (!mo || mo.claims === undefined) throw new Error('orders load failed');
     jr = { claims: mo.claims }; pr = { payments: mo.payments };
     so = { shop_orders: mo.shop_orders }; sh = { requests: mo.shipping };
@@ -3083,7 +3083,7 @@ async function logSetClaim(goId, siId) {
   const member = document.getElementById('log-m-' + siId).value;
   const qty = parseInt(document.getElementById('log-q-' + siId).value) || 1;
   if (!username || !member) { toast('Enter username and member.'); return; }
-  const u = (username.startsWith('@') ? username : '@' + username).toLowerCase();
+  const u = ('@' + username.replace(/^[@\s]+/, '')).toLowerCase();
   const closed = isPobClosed(go, si);
   let n = qty;
   if (closed) {
