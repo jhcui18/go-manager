@@ -2604,7 +2604,7 @@ async function payWithBalance(u, goId) {
   showLoadingOverlay(false);
   if (rejected) { toast("Couldn't apply balance — please try again or contact the admin."); return; }
   const covered = res.paid_claim_ids || [];
-  if ((!res.spent || res.spent <= 0.001) && !covered.length) { toast('Balance too small for any item on this GO.'); return; }
+  if ((!res.spent || res.spent <= 0.001) && !covered.length) { toast('Nothing owed on this GO to apply balance to.'); return; }
   // Reconstruct the local ledger rows from the server's sources + target, using
   // its server-generated transaction id, so My Orders reflects what was written
   // without a second round-trip.
@@ -5487,7 +5487,10 @@ function computeBalanceApply(u, goId) {
   const paidUnitsValue = units.filter(un => un.paid).reduce((a, un) => a + un.value, 0);
   const loose = Math.max(0, (myGoSummary(u, goId).paid || 0) - paidUnitsValue);
   const { spent, paidIds } = applyStoreCredit(units, balance + loose);   // only the newly-covered items
-  const fromBalance = Math.max(0, spent - loose);
+  // Partial application (mirrors apply_balance 033): draw the balance up to what this
+  // GO still owes, even when that completes no single item — it lowers Owed.
+  const unpaidTotal = units.filter(un => !un.paid).reduce((a, un) => a + un.value, 0);
+  const fromBalance = Math.min(balance, Math.max(0, unpaidTotal - loose));
   const sources = drawSources(perGo, fromBalance);
   return { balance, spent: fromBalance, covered: spent, paidIds, unpaidIds: [], sources };
 }
