@@ -799,7 +799,12 @@ function toast(msg) {
 // Creation time for a GO, taken from the trailing Date.now() in its id
 // (createGO builds id as `<name-slug>-<timestamp>`). Legacy ids without a
 // trailing number sort last.
+// Creation time of a GO (ms). Reads createdAt off the GO (or looks it up in allGOs by
+// id); the trailing-digits fallback is the pre-Supabase id convention ("go_1723…").
 function goCreatedTs(go) {
+  const full = (go && go.createdAt) ? go : (go && allGOs[go.id]) || go;
+  const t = full && full.createdAt ? Date.parse(full.createdAt) : NaN;
+  if (!isNaN(t)) return t;
   const m = /(\d+)$/.exec(go && go.id || '');
   return m ? parseInt(m[1], 10) : 0;
 }
@@ -872,8 +877,8 @@ function renderOrdersList() {
   (ordersArtistFilter === 'all' ? keys : [ordersArtistFilter]).forEach(key => {
     const g = groups[key];
     html += `<div class="artist-header">${g.label}</div>`;
-    // Open GOs: soonest deadline first (joiners decide what to claim next).
-    g.open.sort((a, b) => new Date(a.deadline || '9999-12-31') - new Date(b.deadline || '9999-12-31'));
+    // Open GOs: newest created first (the freshly posted GO sits at the top).
+    g.open.sort((a, b) => goCreatedTs(b) - goCreatedTs(a));
     g.open.forEach(go => { html += goCardHtml(go); visibleGOs.push(go); });
     // Closed GOs tucked under a per-artist toggle, newest first when expanded.
     if (g.closed.length) {
@@ -6088,6 +6093,7 @@ function goRowToLegacy(g) {
   return {
     go_id: g.id, name: g.name, artist: g.artist || '', type: g.type, status: g.status,
     deadline: g.deadline, payment_deadline: g.payment_deadline, min_secure: g.min_secure,
+    created_at: g.created_at,
     subItems: (g.sub_items || [])
       .slice().sort((a, b) => a.position - b.position)
       .map(si => ({
@@ -6700,6 +6706,7 @@ async function syncFromBackend(silent) {
           id: go.go_id, name: go.name || '', artist: go.artist || '', type: go.type || 'photocard',
           deadline: fmtDate(go.deadline), paymentDeadline: fmtDate(go.payment_deadline), status: go.status || 'open',
           minSecure: parseInt(go.min_secure) || 7,   // the ONE GO-level secure threshold for its set POBs
+          createdAt: go.created_at || '',
           subItems: []
         };
         // Remap orphaned claims to the correct current sub-item (handles re-created sub-item IDs)
