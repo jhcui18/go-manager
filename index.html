@@ -78,6 +78,11 @@
   .closed-toggle { font-size:12px;font-weight:500;color:var(--text3);padding:6px 2px;margin-bottom:12px;cursor:pointer;user-select:none; }
   .closed-toggle:hover { color:var(--text); }
   .table-wrap { overflow-x:auto; }
+  /* Shipping queue: the joiner column and the actions column stay put while the fee/tracking
+     columns scroll underneath — no more scrolling to the far right to find View/Edit. */
+  .ship-queue th:first-child, .ship-queue td:first-child { position:sticky;left:0;background:var(--surface);z-index:1;box-shadow:2px 0 0 var(--border); }
+  .ship-queue th:last-child, .ship-queue td:last-child { position:sticky;right:0;background:var(--surface);z-index:1;box-shadow:-2px 0 0 var(--border); }
+  .ship-queue tr:hover td:first-child, .ship-queue tr:hover td:last-child { background:var(--bg); }
   table { width:100%;border-collapse:collapse;font-size:13px; }
   th { text-align:left;font-size:11px;font-weight:500;color:var(--text3);padding:8px 12px;border-bottom:0.5px solid var(--border);letter-spacing:.05em;text-transform:uppercase; }
   td { padding:10px 12px;border-bottom:0.5px solid var(--border);vertical-align:middle; }
@@ -427,9 +432,9 @@
           <div class="admin-section-title" style="margin:0;">Shipping queue</div>
           <button class="btn btn-sm" onclick="refreshShippingQueue()">↺ Refresh</button>
         </div>
-        <div class="card"><div class="table-wrap"><table>
-          <thead><tr><th>Username</th><th>Items</th><th>Method</th><th>EMS fee</th><th>Dom. fee</th><th>Total</th><th>Tracking #</th><th>Details</th><th></th></tr></thead>
-          <tbody id="shipping-queue-tbody"><tr><td colspan="9" style="text-align:center;color:var(--text3);padding:20px;">No shipping requests yet.</td></tr></tbody>
+        <div class="card"><div class="table-wrap"><table class="ship-queue">
+          <thead><tr><th>Username</th><th>Items</th><th>Method</th><th>EMS fee</th><th>Dom. fee</th><th>Total</th><th>Tracking #</th><th>Actions</th></tr></thead>
+          <tbody id="shipping-queue-tbody"><tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px;">No shipping requests yet.</td></tr></tbody>
         </table></div></div>
       </div>
     </div>
@@ -5741,7 +5746,7 @@ function renderShippingQueueInner() {
   const pending = (shippingRequests || []).filter(r => !r.shipped);
   const shipped = (shippingRequests || []).filter(r => r.shipped);
   if (!pending.length && !shipped.length) {
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:20px;">No shipping requests.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px;">No shipping requests.</td></tr>';
     return;
   }
   // Archived (shipped) rows are read-only: fees and tracking as text, View + Unship.
@@ -5755,8 +5760,8 @@ function renderShippingQueueInner() {
       <td colspan="2"><span class="badge badge-secured" style="font-size:10px;">Shipped</span></td>
       <td style="font-family:var(--mono);">${total > 0 ? '$' + total.toFixed(2) : '—'}</td>
       <td style="font-size:12px;">${r.tracking_number ? trackingLink(r.tracking_number) : '—'}</td>
-      <td><button class="btn btn-sm btn-ghost" onclick="viewShippingAddress('${r.request_id}')">View</button></td>
-      <td><div style="display:flex;gap:4px;align-items:center;">
+      <td><div style="display:flex;gap:4px;align-items:center;white-space:nowrap;">
+        <button class="btn btn-sm btn-ghost" onclick="viewShippingAddress('${r.request_id}')">View</button>
         <button class="btn btn-sm btn-ghost" style="font-size:11px;" onclick="unshipRequest('${r.request_id}')">Unship</button>
         <button class="btn btn-sm btn-ghost" style="font-size:12px;padding:3px 7px;color:var(--red-400);" title="Delete this request" onclick="deleteShippingRequest('${r.request_id}')">×</button>
       </div></td>
@@ -5787,16 +5792,17 @@ function renderShippingQueueInner() {
       <td><input type="number" placeholder="0.00" step="0.01" value="${r.dom_fee||''}" oninput="updateShipFee('${r.request_id}','dom',this.value)" onchange="saveShipFees('${r.request_id}')" style="width:72px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);"></td>
       <td style="font-family:var(--mono);font-weight:500;" id="ship-total-${r.request_id}">${total !== '—' ? '$'+total : '—'}</td>
       <td><input type="text" placeholder="Paste number" value="${r.tracking_number||''}" onchange="saveShipTracking('${r.request_id}',this.value)" style="width:130px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);"></td>
-      <td><div style="display:flex;gap:2px;"><button class="btn btn-sm btn-ghost" onclick="viewShippingAddress('${r.request_id}')">View</button><button class="btn btn-sm btn-ghost" title="Edit address, method or items" onclick="editShippingRequest('${r.request_id}')">Edit</button></div></td>
-      <td><div style="display:flex;gap:4px;align-items:center;">
+      <td><div style="display:flex;gap:4px;align-items:center;white-space:nowrap;">
+        <button class="btn btn-sm btn-ghost" onclick="viewShippingAddress('${r.request_id}')">View</button>
+        <button class="btn btn-sm btn-ghost" title="Edit address, method or items" onclick="editShippingRequest('${r.request_id}')">Edit</button>
         <button class="btn btn-sm btn-primary" onclick="markShipped('${r.request_id}')">Mark shipped</button>
         <button class="btn btn-sm btn-ghost" style="font-size:12px;padding:3px 7px;color:var(--red-400);" title="Delete this request" onclick="deleteShippingRequest('${r.request_id}')">×</button>
       </div></td>
     </tr>`;
   }).join('')
-    || '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:14px;">Queue clear — nothing waiting to ship.</td></tr>';
+    || '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:14px;">Queue clear — nothing waiting to ship.</td></tr>';
   if (shipped.length) {
-    html += `<tr><td colspan="9" style="padding:8px;cursor:pointer;user-select:none;color:var(--text3);font-size:12px;" onclick="toggleShipArchive()">
+    html += `<tr><td colspan="8" style="padding:8px;cursor:pointer;user-select:none;color:var(--text3);font-size:12px;" onclick="toggleShipArchive()">
       ${shipArchiveOpen ? '▾' : '▸'} Shipped (${shipped.length})</td></tr>`;
     if (shipArchiveOpen) html += shipped.map(shippedRow).join('');
   }
