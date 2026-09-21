@@ -5766,7 +5766,7 @@ function renderShippingQueueInner() {
       <td><input type="number" placeholder="0.00" step="0.01" value="${r.dom_fee||''}" oninput="updateShipFee('${r.request_id}','dom',this.value)" onchange="saveShipFees('${r.request_id}')" style="width:72px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);"></td>
       <td style="font-family:var(--mono);font-weight:500;" id="ship-total-${r.request_id}">${total !== '—' ? '$'+total : '—'}</td>
       <td><input type="text" placeholder="Paste number" value="${r.tracking_number||''}" onchange="saveShipTracking('${r.request_id}',this.value)" style="width:130px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);"></td>
-      <td><button class="btn btn-sm btn-ghost" onclick="viewShippingAddress('${r.request_id}')">View</button></td>
+      <td><div style="display:flex;gap:2px;"><button class="btn btn-sm btn-ghost" onclick="viewShippingAddress('${r.request_id}')">View</button><button class="btn btn-sm btn-ghost" title="Edit address, method or items" onclick="editShippingRequest('${r.request_id}')">Edit</button></div></td>
       <td><div style="display:flex;gap:4px;align-items:center;">
         <button class="btn btn-sm btn-primary" onclick="markShipped('${r.request_id}')">Mark shipped</button>
         <button class="btn btn-sm btn-ghost" style="font-size:12px;padding:3px 7px;color:var(--red-400);" title="Delete this request" onclick="deleteShippingRequest('${r.request_id}')">×</button>
@@ -5852,6 +5852,98 @@ function shipReceiptHtml(items, emsFee, domFee) {
     <div style="border-top:0.5px solid var(--border);margin-top:4px;">${line('Shipping to collect', '$' + (ems + dom).toFixed(2), true)}</div>
   </div>` : '';
   return { itemsHtml, feesHtml };
+}
+// ── Admin: edit a joiner's shipping request (address · method · items) ──
+// Current items grouped so an OT set is one line (all its rows removed together);
+// "Add" lists the joiner's other paid + Ready items not in any request.
+let shipEdit = null;   // { r, groups:[{key,label,row_ids}], removed:Set, eligible:[], added:Set }
+function shipEditGroups(items) {
+  const groups = [], ot = {};
+  (items || []).forEach(it => {
+    if (it.ot && it.set_id) {
+      if (!ot[it.set_id]) { ot[it.set_id] = { key: 'ot:' + it.set_id, label: '', row_ids: [], n: 0 }; groups.push(ot[it.set_id]); }
+      ot[it.set_id].row_ids.push(it.row_id); ot[it.set_id].n++;
+      ot[it.set_id].label = String(it.label || '').replace(/\s+\S+$/, '') + ' OT' + ot[it.set_id].n + ' full set';
+      return;
+    }
+    groups.push({ key: 'row:' + it.row_id, label: it.label + ((parseInt(it.qty) || 1) > 1 ? ' ×' + it.qty : ''), row_ids: [it.row_id] });
+  });
+  return groups;
+}
+async function editShippingRequest(requestId) {
+  const r = shippingRequests.find(x => x.request_id === requestId);
+  if (!r) return;
+  if (r.shipped) { toast('Unship the request first to edit it.'); return; }
+  shipEdit = { r, groups: shipEditGroups(r.items || []), removed: new Set(), eligible: null, added: new Set() };
+  renderShipEditModal();
+  try { shipEdit.eligible = await db.getShipEligibleForAdmin(r.username); }
+  catch (e) { shipEdit.eligible = []; toast("Couldn't load this joiner's other Ready items."); }
+  if (shipEdit && shipEdit.r === r) renderShipEditItems();
+}
+function shipEditItemsHtml() {
+  const e = shipEdit;
+  const cur = e.groups.map(g => `<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;${e.removed.has(g.key) ? 'opacity:.45;text-decoration:line-through;' : ''}">
+      <span style="flex:1;">${g.label}</span>
+      <button class="btn btn-sm btn-ghost" style="font-size:11px;padding:2px 8px;color:${e.removed.has(g.key) ? 'var(--text2)' : 'var(--red-400)'};" onclick="shipEditToggleRemove('${g.key}')">${e.removed.has(g.key) ? 'Keep' : 'Remove'}</button>
+    </label>`).join('') || '<div style="font-size:12px;color:var(--text3);">No items.</div>';
+  const add = e.eligible === null
+    ? '<div style="font-size:12px;color:var(--text3);">Loading their other Ready items…</div>'
+    : (e.eligible.length ? e.eligible.map(it => `<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;cursor:pointer;">
+        <input type="checkbox" ${e.added.has(it.key) ? 'checked' : ''} onchange="shipEditToggleAdd('${it.key}', this.checked)" style="width:16px;height:16px;flex:none;">
+        <span>${it.label}</span></label>`).join('')
+      : '<div style="font-size:12px;color:var(--text3);">No other paid + Ready items outside a request.</div>');
+  return `<div style="font-size:13px;font-weight:500;margin:14px 0 4px;">Items in this package</div>${cur}
+    <div style="font-size:13px;font-weight:500;margin:14px 0 4px;">Add items</div>${add}`;
+}
+function renderShipEditItems() { const el = document.getElementById('ship-edit-items'); if (el) el.innerHTML = shipEditItemsHtml(); }
+function shipEditToggleRemove(key) { if (!shipEdit) return; shipEdit.removed.has(key) ? shipEdit.removed.delete(key) : shipEdit.removed.add(key); renderShipEditItems(); }
+function shipEditToggleAdd(key, on) { if (!shipEdit) return; on ? shipEdit.added.add(key) : shipEdit.added.delete(key); }
+function shipEditSetMethod(m) {
+  if (!shipEdit) return; shipEdit.method = m;
+  const t = document.getElementById('se-m-tracked'), st = document.getElementById('se-m-stamped');
+  if (t) t.classList.toggle('selected', m === 'tracked'); if (st) st.classList.toggle('selected', m === 'stamped');
+}
+function renderShipEditModal() {
+  const r = shipEdit.r; shipEdit.method = r.method === 'stamped' ? 'stamped' : 'tracked';
+  const esc = v => String(v || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  const f = (id, label, val, ph) => `<div class="field" style="margin-bottom:8px;"><label>${label}</label><input type="text" id="${id}" value="${esc(val)}" placeholder="${ph || ''}"></div>`;
+  showModal(`
+    <div style="font-size:16px;font-weight:500;margin-bottom:2px;">Edit shipping request</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:12px;">${r.username}${r.created_at ? ' · ' + fmtDate(r.created_at) : ''}</div>
+    ${f('se-fullname', 'Full name', r.full_name)}
+    ${f('se-addr1', 'Address line 1', r.address1)}
+    ${f('se-addr2', 'Address line 2', r.address2, 'Apt, unit…')}
+    <div class="field-row">${f('se-city', 'City', r.city)}${f('se-state', 'State / Province', r.state)}</div>
+    <div class="field-row">${f('se-postal', 'Postal / ZIP', r.postal)}${f('se-country', 'Country', r.country)}</div>
+    <div class="field" style="margin-bottom:8px;"><label>Notes</label><textarea id="se-notes" style="min-height:50px;">${esc(r.notes)}</textarea></div>
+    <div class="section-label" style="margin-bottom:6px;">Shipping method</div>
+    <div style="display:flex;gap:8px;">
+      <div class="member-tile ${shipEdit.method === 'tracked' ? 'selected' : ''}" id="se-m-tracked" onclick="shipEditSetMethod('tracked')" style="flex:1;"><div class="member-tile-name">Tracked</div></div>
+      <div class="member-tile ${shipEdit.method === 'stamped' ? 'selected' : ''}" id="se-m-stamped" onclick="shipEditSetMethod('stamped')" style="flex:1;"><div class="member-tile-name">Stamped</div></div>
+    </div>
+    <div id="ship-edit-items" style="max-height:38vh;overflow-y:auto;">${shipEditItemsHtml()}</div>
+    <div style="display:flex;gap:8px;margin-top:20px;">
+      <button class="btn btn-ghost" style="flex:1;justify-content:center;" onclick="shipEdit=null;closeModal()">Cancel</button>
+      <button class="btn btn-primary" style="flex:1;justify-content:center;" onclick="saveShipEdit()">Save changes</button>
+    </div>`);
+}
+async function saveShipEdit() {
+  const e = shipEdit; if (!e) return;
+  const g = id => ((document.getElementById(id) || {}).value || '').trim();
+  const d = { request_id: e.r.request_id, full_name: g('se-fullname'), address1: g('se-addr1'), address2: g('se-addr2'),
+    city: g('se-city'), state: g('se-state'), postal: g('se-postal'), country: g('se-country'), notes: g('se-notes'), method: e.method };
+  if (!d.full_name || !d.address1 || !d.city) { toast('Name, address line 1 and city are required.'); return; }
+  d.remove_row_ids = e.groups.filter(gr => e.removed.has(gr.key)).flatMap(gr => gr.row_ids).filter(Boolean);
+  d.add_items = (e.eligible || []).filter(it => e.added.has(it.key)).flatMap(it => it.parts);
+  const keptRows = e.groups.filter(gr => !e.removed.has(gr.key)).length;
+  if (!keptRows && !d.add_items.length) { toast('A request needs at least one item — delete the request instead.'); return; }
+  showLoadingOverlay(true, 'Saving…');
+  try { await db.saveShippingEdit(d); }
+  catch (err) { showLoadingOverlay(false); toast("Couldn't save the request — " + (err && err.message ? err.message : 'please retry.')); return; }
+  showLoadingOverlay(false);
+  shipEdit = null; closeModal();
+  toast('Shipping request updated.');
+  refreshShippingQueue();   // reload items (labels, prices, card counts) from the database
 }
 // Packing-slip view of one request: address, then the shared receipt.
 function viewShippingAddress(requestId) {
@@ -6098,7 +6190,7 @@ const db = {
   async getShipping() {  // admin: full requests incl. addresses + items
     const data = await selectAll(() => sb.from('shipping_requests')
       .select('*, shipping_request_items(id, go_id, description, qty, claim_id, shop_order_id,' +
-        ' claims(qty, is_ot, price_override, sub_items(price, name, ems_fee, gos(type))), shop_orders(qty, unit_price))').order('created_at').order('id'));
+        ' claims(qty, is_ot, set_id, price_override, sub_items(price, name, ems_fee, gos(type))), shop_orders(qty, unit_price))').order('created_at').order('id'));
     return { requests: data.map(r => ({
       request_id: r.id, username: r.username, full_name: r.full_name,
       address1: r.address1, address2: r.address2 || '', city: r.city, state: r.state,
@@ -6134,7 +6226,8 @@ const db = {
             price = (parseFloat(i.shop_orders.unit_price) || 0) * qty;
           }
           return { type: i.claim_id ? 'claim' : i.shop_order_id ? 'shop' : 'item',
-                   id: i.claim_id || i.shop_order_id || i.id, label: i.description, price, ot, qty, cards, ems };
+                   id: i.claim_id || i.shop_order_id || i.id, label: i.description, price, ot, qty, cards, ems,
+                   row_id: i.id, set_id: (i.claims && i.claims.set_id) || null };
         }))
     })) };
   },
@@ -6423,6 +6516,50 @@ const db = {
   async deleteShipping(requestId) {
     const r = await sb.from('shipping_requests').delete().eq('id', requestId);
     if (r.error) throw r.error;
+    return { ok: true };
+  },
+  // Admin: a joiner's paid + Ready items not already in any shipping request.
+  // OT sets come back as one entry (parts = one row per card) once every card qualifies.
+  async getShipEligibleForAdmin(username) {
+    const u = String(username || '').trim().replace(/^@/, '').toLowerCase();
+    const [cl, so, rq] = await Promise.all([
+      selectAll(() => sb.from('claims').select('id, qty, is_ot, set_id, payment_status, fulfillment, status, members(name), versions(name), sub_items!inner(name, gos(name))')
+        .eq('username', u).eq('status', 'secured').order('created_at').order('id')),
+      sb.from('shop_orders').select('id, qty, payment_status, fulfillment, listings(name), listing_variants(name)').eq('username', u),
+      sb.from('shipping_requests').select('id, shipping_request_items(claim_id, shop_order_id)').eq('username', u)
+    ]);
+    const linked = {};
+    dbThrow(rq).forEach(r => (r.shipping_request_items || []).forEach(i => { if (i.claim_id) linked[i.claim_id] = true; if (i.shop_order_id) linked[i.shop_order_id] = true; }));
+    const ready = c => c.payment_status === 'paid' && c.fulfillment === 'Ready';
+    const items = [], ot = {};
+    cl.forEach(c => {
+      const go = (c.sub_items.gos && c.sub_items.gos.name) || '', pob = c.sub_items.name || '';
+      const who = (c.members && c.members.name) || (c.versions && c.versions.name) || '';
+      if (c.is_ot && c.set_id) {
+        (ot[c.set_id] = ot[c.set_id] || { go, pob, parts: [] }).parts.push({ claim_id: c.id, label: go + ' — ' + pob + ' ' + who, ok: ready(c) && !linked[c.id] });
+        return;
+      }
+      if (ready(c) && !linked[c.id]) items.push({ key: 'c:' + c.id, label: go + ' — ' + pob + (who ? ' ' + who : ''), parts: [{ claim_id: c.id, label: go + ' — ' + pob + (who ? ' ' + who : ''), qty: c.qty }] });
+    });
+    Object.values(ot).forEach(g => { if (g.parts.every(pt => pt.ok)) items.push({ key: 'ot:' + g.parts[0].claim_id, label: g.go + ' — ' + g.pob + ' OT' + g.parts.length + ' full set', parts: g.parts.map(pt => ({ claim_id: pt.claim_id, label: pt.label, qty: 1 })) }); });
+    dbThrow(so).forEach(o => {
+      if (!ready(o) || linked[o.id]) return;
+      const label = ((o.listings && o.listings.name) || '') + (o.listing_variants && o.listing_variants.name ? ' — ' + o.listing_variants.name : '');
+      items.push({ key: 's:' + o.id, label, parts: [{ shop_order_id: o.id, label, qty: o.qty }] });
+    });
+    return items;
+  },
+  // Admin: edit a request in place — address/method fields, drop item rows, add new linked rows.
+  async saveShippingEdit(d) {
+    dbThrow(await sb.from('shipping_requests').update({
+      full_name: d.full_name, address1: d.address1, address2: d.address2 || null, city: d.city,
+      state: d.state || null, postal: d.postal || null, country: d.country || null, notes: d.notes || null,
+      method: d.method === 'stamped' ? 'stamped' : 'tracked'
+    }).eq('id', d.request_id));
+    if ((d.remove_row_ids || []).length) dbThrow(await sb.from('shipping_request_items').delete().in('id', d.remove_row_ids).eq('request_id', d.request_id));
+    if ((d.add_items || []).length) dbThrow(await sb.from('shipping_request_items').insert(d.add_items.map(it => ({
+      request_id: d.request_id, go_id: null, description: it.label || '', qty: Math.max(1, parseInt(it.qty) || 1),
+      claim_id: it.claim_id || null, shop_order_id: it.shop_order_id || null }))));
     return { ok: true };
   },
   async updateShipping(d) {
