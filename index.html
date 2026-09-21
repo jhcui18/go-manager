@@ -1975,7 +1975,17 @@ async function doLookup() {
     paymentProofs = mergeById(paymentProofs, fetched, 'payment_id');
   }
   if (so && Array.isArray(so.shop_orders)) shopOrders = mergeById(shopOrders, so.shop_orders, 'order_id');
-  if (sh && Array.isArray(sh.requests)) shippingRequests = mergeById(shippingRequests, sh.requests, 'request_id');
+  // Shipping rows: for an admin, NEVER overwrite a queue row with the lean copy the
+  // joiner-side shipping_status view returns (no address, no card/EMS fields, no
+  // item row ids) — that made the queue show "without EMS" and broke Edit for any
+  // joiner the admin had looked up. Keep the rich row; only add ones not loaded yet.
+  if (sh && Array.isArray(sh.requests)) {
+    if (!isAdmin) shippingRequests = sh.requests;
+    else {
+      const have = {}; (shippingRequests || []).forEach(r => { if (r && r.request_id) have[r.request_id] = true; });
+      shippingRequests = (shippingRequests || []).concat(sh.requests.filter(r => r && r.request_id && !have[r.request_id]));
+    }
+  }
   doLookupRender(u);
 }
 
