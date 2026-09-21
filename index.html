@@ -5902,8 +5902,12 @@ function shipEditItemsHtml() {
         <input type="checkbox" ${e.added.has(it.key) ? 'checked' : ''} onchange="shipEditToggleAdd('${it.key}', this.checked)" style="width:16px;height:16px;flex:none;">
         <span>${it.label}</span></label>`).join('')
       : '<div style="font-size:12px;color:var(--text3);">No other paid + Ready items outside a request.</div>');
-  return `<div style="font-size:13px;font-weight:500;margin:14px 0 4px;">Items in this package</div>${cur}
-    <div style="font-size:13px;font-weight:500;margin:14px 0 4px;">Add items</div>${add}`;
+  const kept = e.groups.filter(g => !e.removed.has(g.key)).length;
+  const avail = e.eligible === null ? '…' : e.eligible.length;
+  return `<div style="font-size:13px;font-weight:500;margin:14px 0 4px;">Items in this package (${kept})</div>
+    <div style="max-height:22vh;overflow-y:auto;border:0.5px solid var(--border);border-radius:var(--radius);padding:2px 10px;">${cur}</div>
+    <div style="font-size:13px;font-weight:500;margin:14px 0 4px;">Add items <span style="color:var(--text3);font-weight:400;">(${avail} available — their other paid + Ready items)</span></div>
+    <div style="max-height:22vh;overflow-y:auto;border:0.5px solid var(--border);border-radius:var(--radius);padding:2px 10px;">${add}</div>`;
 }
 function renderShipEditItems() { const el = document.getElementById('ship-edit-items'); if (el) el.innerHTML = shipEditItemsHtml(); }
 function shipEditToggleRemove(key) { if (!shipEdit) return; shipEdit.removed.has(key) ? shipEdit.removed.delete(key) : shipEdit.removed.add(key); renderShipEditItems(); }
@@ -5931,7 +5935,7 @@ function renderShipEditModal() {
       <div class="member-tile ${shipEdit.method === 'tracked' ? 'selected' : ''}" id="se-m-tracked" onclick="shipEditSetMethod('tracked')" style="flex:1;"><div class="member-tile-name">Tracked</div></div>
       <div class="member-tile ${shipEdit.method === 'stamped' ? 'selected' : ''}" id="se-m-stamped" onclick="shipEditSetMethod('stamped')" style="flex:1;"><div class="member-tile-name">Stamped</div></div>
     </div>
-    <div id="ship-edit-items" style="max-height:38vh;overflow-y:auto;">${shipEditItemsHtml()}</div>
+    <div id="ship-edit-items">${shipEditItemsHtml()}</div>
     <div style="display:flex;gap:8px;margin-top:20px;">
       <button class="btn btn-ghost" style="flex:1;justify-content:center;" onclick="shipEdit=null;closeModal()">Cancel</button>
       <button class="btn btn-primary" style="flex:1;justify-content:center;" onclick="saveShipEdit()">Save changes</button>
