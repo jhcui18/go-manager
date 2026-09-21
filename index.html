@@ -5951,13 +5951,14 @@ async function saveShipEdit() {
   d.add_items = (e.eligible || []).filter(it => e.added.has(it.key)).flatMap(it => it.parts);
   const keptRows = e.groups.filter(gr => !e.removed.has(gr.key)).length;
   if (!keptRows && !d.add_items.length) { toast('A request needs at least one item — delete the request instead.'); return; }
+  d.reset_ems = !!(d.remove_row_ids.length || d.add_items.length);
   showLoadingOverlay(true, 'Saving…');
   try { await db.saveShippingEdit(d); }
   catch (err) { showLoadingOverlay(false); toast("Couldn't save the request — " + (err && err.message ? err.message : 'please retry.')); return; }
   showLoadingOverlay(false);
   shipEdit = null; closeModal();
-  toast('Shipping request updated.');
-  refreshShippingQueue();   // reload items (labels, prices, card counts) from the database
+  toast(d.reset_ems ? 'Shipping request updated — EMS recalculated from the new items.' : 'Shipping request updated.');
+  refreshShippingQueue();   // reload items (labels, prices, card counts) from the database; a blank EMS pre-fills
 }
 // Packing-slip view of one request: address, then the shared receipt.
 function viewShippingAddress(requestId) {
@@ -6571,6 +6572,14 @@ const db = {
       method: d.method === 'stamped' ? 'stamped' : 'tracked'
     }).eq('id', d.request_id));
     if ((d.remove_row_ids || []).length) dbThrow(await sb.from('shipping_request_items').delete().in('id', d.remove_row_ids).eq('request_id', d.request_id));
+    // Items changed → the EMS pre-fill is stale. Blank it so the queue recomputes
+    // (cards × EMS_PER_CARD + per-item EMS) from the NEW item list on reload and
+    // persists that; the domestic fee is the admin's own number and is kept.
+    if (d.reset_ems) {
+      const cur = dbThrow(await sb.from('shipping_requests').select('dom_fee').eq('id', d.request_id).single());
+      const dom = parseFloat(cur && cur.dom_fee) || 0;
+      dbThrow(await sb.from('shipping_requests').update({ ems_fee: null, total_fee: dom > 0 ? dom.toFixed(2) : null }).eq('id', d.request_id));
+    }
     if ((d.add_items || []).length) dbThrow(await sb.from('shipping_request_items').insert(d.add_items.map(it => ({
       request_id: d.request_id, go_id: null, description: it.label || '', qty: Math.max(1, parseInt(it.qty) || 1),
       claim_id: it.claim_id || null, shop_order_id: it.shop_order_id || null }))));
