@@ -5763,7 +5763,13 @@ function renderShippingQueueInner() {
     const extraEms = items.reduce((a, it) => a + (parseFloat(it.ems) || 0), 0);
     const unpriced = items.filter(it => it.type === 'claim' && !it.cards && it.ems == null).length;
     autoFillEms(r, cards, extraEms);
+    // Basis shown under the input; if the stored fee disagrees with the computed
+    // figure (items edited before the recalc, or a manual value), say so and offer
+    // a one-click apply — the basis alone read as "2 × $0.65" over a $0.65 box.
+    const expectedEms = cards * EMS_PER_CARD + extraEms;
+    const emsMismatch = expectedEms > 0.001 && parseFloat(r.ems_fee) > 0 && Math.abs(parseFloat(r.ems_fee) - expectedEms) > 0.005;
     const emsBasis = [cards ? `${cards} × $${EMS_PER_CARD.toFixed(2)}` : '', extraEms ? `+ $${extraEms.toFixed(2)} items` : ''].filter(Boolean).join(' ')
+      + (emsMismatch ? ` = <span style="color:var(--amber-800);">$${expectedEms.toFixed(2)}</span> <a href="#" style="color:var(--accent);" onclick="event.preventDefault();applyComputedEms('${r.request_id}',${expectedEms.toFixed(2)})">apply</a>` : '')
       + (unpriced ? `<div style="color:var(--amber-800);">${unpriced} item${unpriced !== 1 ? 's' : ''} without EMS</div>` : '');
     const ems = parseFloat(r.ems_fee) || 0;
     const dom = parseFloat(r.dom_fee) || 0;
@@ -5827,6 +5833,12 @@ function updateShipFee(requestId, which, val) {
   if (el) el.textContent = (ems + dom) > 0 ? '$' + r.total_fee : '—';
   clearTimeout(shipFeeSaveTimers[requestId]);
   shipFeeSaveTimers[requestId] = setTimeout(() => saveShipFees(requestId), 600);
+}
+// One-click: set the EMS fee to the computed figure shown in the basis line.
+function applyComputedEms(requestId, fee) {
+  updateShipFee(requestId, 'ems', Number(fee).toFixed(2));
+  saveShipFees(requestId);
+  renderShippingQueue();
 }
 function saveShipFees(requestId) {
   clearTimeout(shipFeeSaveTimers[requestId]);
