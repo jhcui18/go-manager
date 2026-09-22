@@ -5444,7 +5444,12 @@ function partialPaidMap(units, paidTotal) {
 }
 function paymentBadgeHtml(flag, partial, extra) {
   if (flag === 'paid') return `<span class="badge badge-paid" ${extra || ''}>Paid</span>`;
-  if (partial) return `<span class="badge badge-pending" ${extra || ''} title="$${partial.got.toFixed(2)} received of $${partial.of.toFixed(2)}">Partially paid</span><div style="font-size:10px;color:var(--text3);margin-top:2px;">$${partial.got.toFixed(2)} of $${partial.of.toFixed(2)}</div>`;
+  if (partial) {
+    const left = Math.max(0, partial.of - partial.got);
+    return `<span class="badge badge-pending" ${extra || ''} title="$${partial.got.toFixed(2)} received of $${partial.of.toFixed(2)}">Partially paid</span>
+      <div style="font-size:10px;color:var(--text3);margin-top:2px;">$${partial.got.toFixed(2)} of $${partial.of.toFixed(2)}</div>
+      <div style="font-size:10px;color:var(--red-400);font-weight:500;">$${left.toFixed(2)} left to pay</div>`;
+  }
   return `<span class="badge badge-unpaid" ${extra || ''}>Unpaid</span>`;
 }
 function goPaymentSummary(username, goId) {
