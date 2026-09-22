@@ -5446,8 +5446,12 @@ function paymentBadgeHtml(flag, partial, extra) {
   if (flag === 'paid') return `<span class="badge badge-paid" ${extra || ''}>Paid</span>`;
   if (partial) {
     const left = Math.max(0, partial.of - partial.got);
-    return `<span class="badge badge-pending" ${extra || ''} title="$${partial.got.toFixed(2)} received of $${partial.of.toFixed(2)}">Partially paid</span>
-      <div style="font-size:10px;color:var(--red-400);font-weight:500;margin-top:2px;">$${left.toFixed(2)} left to pay</div>`;
+    // `extra` may carry its own style= (admin badges do); merge ours in so the text sits centred in the shade.
+    const ex = String(extra || '');
+    const attrs = /style="/.test(ex) ? ex.replace(/style="/, 'style="line-height:1.3;white-space:nowrap;') : ex + ' style="line-height:1.3;white-space:nowrap;"';
+    return `<span class="badge badge-pending" ${attrs} title="$${partial.got.toFixed(2)} received of $${partial.of.toFixed(2)}">Partially paid</span>
+      <div style="font-size:10px;color:var(--text3);margin-top:2px;">$${partial.got.toFixed(2)} of $${partial.of.toFixed(2)}</div>
+      <div style="font-size:10px;color:var(--red-400);font-weight:500;">$${left.toFixed(2)} left to pay</div>`;
   }
   return `<span class="badge badge-unpaid" ${extra || ''}>Unpaid</span>`;
 }
