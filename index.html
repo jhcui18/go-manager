@@ -138,8 +138,10 @@
        opens), height capped to the visible viewport, tighter padding. */
     #modal-overlay { align-items:flex-start; padding:10px 0; }
     #modal-box { width:calc(100% - 20px); max-width:none; padding:18px 16px; max-height:calc(100dvh - 20px); max-height:calc(100vh - 20px); border-radius:14px; }
-    /* iOS zooms into inputs under 16px */
-    input, select, textarea { font-size:16px; }
+    /* iOS zooms into inputs under 16px; and no input may be wider than its box */
+    input, select, textarea { font-size:16px; min-width:0; max-width:100%; }
+    .block-row > input { flex:1 1 100%; }
+    .block-row > .btn { width:100%; justify-content:center; }
     /* Thumb-sized controls */
     .btn-sm { min-height:34px; padding:6px 12px; }
     .badge { min-height:22px; }
@@ -416,9 +418,9 @@
         <div class="section-label">Blocked joiners</div>
         <div class="card">
           <div style="font-size:12px;color:var(--text2);margin-bottom:10px;">Blocked joiners can't submit new claims or shop orders. They can still pay what they owe and request shipping for paid items.</div>
-          <div style="display:flex;gap:8px;margin-bottom:10px;">
-            <input type="text" id="block-user-input" placeholder="@username" style="flex:1;">
-            <input type="text" id="block-reason-input" placeholder="Reason (optional)" style="flex:1;">
+          <div class="block-row" style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+            <input type="text" id="block-user-input" placeholder="@username" style="flex:1 1 140px;min-width:0;">
+            <input type="text" id="block-reason-input" placeholder="Reason (optional)" style="flex:2 1 180px;min-width:0;">
             <button class="btn btn-sm" onclick="addBlockedUser()">Block</button>
           </div>
           <div id="blocked-users-list" style="font-size:13px;color:var(--text3);">Loading…</div>
