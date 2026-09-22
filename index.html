@@ -130,6 +130,33 @@
     .card-sm { padding:12px 14px; }
     .page-title { font-size:25px; }
     .go-card { padding:16px; }
+    /* The page must never be wider than the phone: a fixed modal centres on the LAYOUT
+       viewport, so any sideways overflow pushed every modal half off-screen. */
+    html, body { max-width:100%; overflow-x:hidden; }
+    /* Modals: nearly full width, top-anchored (keeps the title visible when the keyboard
+       opens), height capped to the visible viewport, tighter padding. */
+    #modal-overlay { align-items:flex-start; padding:10px 0; }
+    #modal-box { width:calc(100% - 20px); max-width:none; padding:18px 16px; max-height:calc(100dvh - 20px); max-height:calc(100vh - 20px); border-radius:14px; }
+    /* iOS zooms into inputs under 16px */
+    input, select, textarea { font-size:16px; }
+    /* Thumb-sized controls */
+    .btn-sm { min-height:34px; padding:6px 12px; }
+    .badge { min-height:22px; }
+    /* Admin GO detail: header rows wrap instead of running off the right edge */
+    .detail-head, .admin-section-title { flex-wrap:wrap; row-gap:6px; }
+    .admin-section-title > * { max-width:100%; }
+    .member-grid { grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); }
+    /* Shipping queue: one card per request instead of a 9-column table */
+    .ship-queue thead { display:none; }
+    .ship-queue tr { display:block; padding:10px 0 6px; border-bottom:1px solid var(--border); }
+    .ship-queue tr:hover td { background:transparent; }
+    .ship-queue td { display:flex; align-items:center; gap:10px; padding:4px 0; border:none; position:static !important; box-shadow:none !important; background:transparent !important; }
+    .ship-queue td::before { content:attr(data-label); font-size:11px; color:var(--text3); text-transform:uppercase; letter-spacing:.05em; flex:0 0 76px; }
+    .ship-queue td:first-child { font-size:15px; font-weight:500; }
+    .ship-queue td:first-child::before { display:none; }
+    .ship-queue td[colspan] { display:block; }
+    .ship-queue td[colspan]::before { display:none; }
+    .ship-queue td > div { flex-wrap:wrap; }
   }
 </style>
 </head>
@@ -480,7 +507,7 @@
       <button class="btn btn-ghost btn-sm" onclick="showAdminPanel('home')" style="padding:5px 8px;">← Back</button>
       <span style="font-size:13px;color:var(--text2);" id="detail-breadcrumb"></span>
     </div>
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+    <div class="detail-head" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:20px;">
       <p class="page-title" style="margin:0;" id="detail-go-title"></p>
       <div style="display:flex;gap:6px;align-items:center;">
         <div id="detail-badges"></div>
@@ -5795,13 +5822,13 @@ function renderShippingQueueInner() {
     const items = r.items || [];
     const total = parseFloat(r.total_fee) || ((parseFloat(r.ems_fee) || 0) + (parseFloat(r.dom_fee) || 0));
     return `<tr style="opacity:0.75;">
-      <td style="font-weight:500;">${r.username}</td>
-      <td style="font-size:12px;color:var(--text2);white-space:nowrap;">${items.length} item${items.length !== 1 ? 's' : ''}</td>
-      <td><span class="badge ${r.method === 'stamped' ? 'badge-pending' : 'badge-fcfs'}" style="font-size:10px;">${r.method === 'stamped' ? 'Stamped' : 'Tracked'}</span></td>
-      <td colspan="2"><span class="badge badge-secured" style="font-size:10px;">Shipped</span></td>
-      <td style="font-family:var(--mono);">${total > 0 ? '$' + total.toFixed(2) : '—'}</td>
-      <td style="font-size:12px;">${r.tracking_number ? trackingLink(r.tracking_number) : '—'}</td>
-      <td><div style="display:flex;gap:4px;align-items:center;white-space:nowrap;">
+      <td data-label="Joiner" style="font-weight:500;">${r.username}</td>
+      <td data-label="Items" style="font-size:12px;color:var(--text2);white-space:nowrap;">${items.length} item${items.length !== 1 ? 's' : ''}</td>
+      <td data-label="Method"><span class="badge ${r.method === 'stamped' ? 'badge-pending' : 'badge-fcfs'}" style="font-size:10px;">${r.method === 'stamped' ? 'Stamped' : 'Tracked'}</span></td>
+      <td data-label="Status" colspan="2"><span class="badge badge-secured" style="font-size:10px;">Shipped</span></td>
+      <td data-label="Total" style="font-family:var(--mono);">${total > 0 ? '$' + total.toFixed(2) : '—'}</td>
+      <td data-label="Tracking" style="font-size:12px;">${r.tracking_number ? trackingLink(r.tracking_number) : '—'}</td>
+      <td data-label="Actions"><div style="display:flex;gap:4px;align-items:center;white-space:nowrap;">
         <button class="btn btn-sm btn-ghost" onclick="viewShippingAddress('${r.request_id}')">View</button>
         <button class="btn btn-sm btn-ghost" style="font-size:11px;" onclick="unshipRequest('${r.request_id}')">Unship</button>
         <button class="btn btn-sm btn-ghost" style="font-size:12px;padding:3px 7px;color:var(--red-400);" title="Delete this request" onclick="deleteShippingRequest('${r.request_id}')">×</button>
@@ -5826,14 +5853,14 @@ function renderShippingQueueInner() {
     const dom = parseFloat(r.dom_fee) || 0;
     const total = (ems + dom) > 0 ? (ems + dom).toFixed(2) : '—';
     return `<tr>
-      <td style="font-weight:500;">${r.username}</td>
-      <td style="font-size:12px;color:var(--text2);white-space:nowrap;">${items.length} item${items.length !== 1 ? 's' : ''}${cards ? `<div style="font-size:11px;color:var(--text3);">${cards} card${cards !== 1 ? 's' : ''}</div>` : ''}</td>
-      <td><span class="badge ${r.method === 'stamped' ? 'badge-pending' : 'badge-fcfs'}" style="font-size:10px;">${r.method === 'stamped' ? 'Stamped' : 'Tracked'}</span></td>
-      <td><input type="number" placeholder="0.00" step="0.01" value="${r.ems_fee||''}" oninput="updateShipFee('${r.request_id}','ems',this.value)" onchange="saveShipFees('${r.request_id}')" style="width:72px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);">${emsBasis ? `<div style="font-size:10px;color:var(--text3);margin-top:2px;white-space:nowrap;">${emsBasis}</div>` : ''}</td>
-      <td><input type="number" placeholder="0.00" step="0.01" value="${r.dom_fee||''}" oninput="updateShipFee('${r.request_id}','dom',this.value)" onchange="saveShipFees('${r.request_id}')" style="width:72px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);"></td>
-      <td style="font-family:var(--mono);font-weight:500;" id="ship-total-${r.request_id}">${total !== '—' ? '$'+total : '—'}</td>
-      <td><input type="text" placeholder="Paste number" value="${r.tracking_number||''}" onchange="saveShipTracking('${r.request_id}',this.value)" style="width:130px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);"></td>
-      <td><div style="display:flex;gap:4px;align-items:center;white-space:nowrap;">
+      <td data-label="Joiner" style="font-weight:500;">${r.username}</td>
+      <td data-label="Items" style="font-size:12px;color:var(--text2);white-space:nowrap;">${items.length} item${items.length !== 1 ? 's' : ''}${cards ? `<div style="font-size:11px;color:var(--text3);">${cards} card${cards !== 1 ? 's' : ''}</div>` : ''}</td>
+      <td data-label="Method"><span class="badge ${r.method === 'stamped' ? 'badge-pending' : 'badge-fcfs'}" style="font-size:10px;">${r.method === 'stamped' ? 'Stamped' : 'Tracked'}</span></td>
+      <td data-label="EMS fee"><input type="number" placeholder="0.00" step="0.01" value="${r.ems_fee||''}" oninput="updateShipFee('${r.request_id}','ems',this.value)" onchange="saveShipFees('${r.request_id}')" style="width:72px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);">${emsBasis ? `<div style="font-size:10px;color:var(--text3);margin-top:2px;white-space:nowrap;">${emsBasis}</div>` : ''}</td>
+      <td data-label="Dom. fee"><input type="number" placeholder="0.00" step="0.01" value="${r.dom_fee||''}" oninput="updateShipFee('${r.request_id}','dom',this.value)" onchange="saveShipFees('${r.request_id}')" style="width:72px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);"></td>
+      <td data-label="Total" style="font-family:var(--mono);font-weight:500;" id="ship-total-${r.request_id}">${total !== '—' ? '$'+total : '—'}</td>
+      <td data-label="Tracking"><input type="text" placeholder="Paste number" value="${r.tracking_number||''}" onchange="saveShipTracking('${r.request_id}',this.value)" style="width:130px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);"></td>
+      <td data-label="Actions"><div style="display:flex;gap:4px;align-items:center;white-space:nowrap;">
         <button class="btn btn-sm btn-ghost" onclick="viewShippingAddress('${r.request_id}')">View</button>
         <button class="btn btn-sm btn-ghost" title="Edit address, method or items" onclick="editShippingRequest('${r.request_id}')">Edit</button>
         <button class="btn btn-sm btn-primary" onclick="markShipped('${r.request_id}')">Mark shipped</button>
