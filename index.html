@@ -96,6 +96,7 @@
   .upload-area input[type=file] { display:none; }
   .admin-section { margin-bottom:24px; }
   .admin-section-title { font-size:13px;font-weight:500;margin-bottom:12px;display:flex;align-items:center;gap:8px; }
+  .si-name, .si-meta, .si-ctl, .si-date { display:contents; }   /* desktop: one flowing row, as before */
   .admin-tabs { display:flex; gap:4px; overflow-x:auto; border-bottom:1.5px solid var(--border); margin:8px 0 16px; }
   .admin-tab { flex:0 0 auto; background:none; border:none; padding:8px 12px; font-size:13px; font-weight:500; color:var(--text3); cursor:pointer; border-bottom:2px solid transparent; }
   .admin-tab .tab-dot { display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-left:5px;vertical-align:1px; }
@@ -145,6 +146,13 @@
     /* Admin GO detail: header rows wrap instead of running off the right edge */
     .detail-head, .admin-section-title { flex-wrap:wrap; row-gap:6px; }
     .admin-section-title > * { max-width:100%; }
+    /* POB header as three tidy lines: name · details · controls */
+    .si-name { display:block; flex:1 1 0; min-width:0; font-size:15px; line-height:1.3; }
+    .si-meta, .si-ctl { display:flex; flex:1 1 100%; flex-wrap:wrap; align-items:center; gap:6px 10px; padding-left:20px; font-weight:400; }
+    .si-meta > * { margin-left:0 !important; }
+    .si-ctl { margin-bottom:2px; }
+    .si-date { display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+    .si-ctl input[type=date] { font-size:14px; padding:4px 6px; width:128px; }
     .member-grid { grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); }
     /* Shipping queue: one card per request instead of a 9-column table */
     .ship-queue thead { display:none; }
@@ -2908,7 +2916,7 @@ function renderDetailContentInner() {
     const siOpen = !!adminOpenSI[si.id];
     html += `<div class="admin-section">
       <div class="admin-section-title" style="cursor:pointer;user-select:none;" onclick="toggleAdminSI('${si.id}')">
-        <span id="adm-chev-${si.id}" style="width:12px;color:var(--text3);">${siOpen ? '▾' : '▸'}</span>${subItemHasNewClaims(go.id, si) ? '<span title="New claims since you last opened this GO" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent);margin-right:6px;flex:none;"></span>' : ''}${si.name}`;
+        <span id="adm-chev-${si.id}" style="width:12px;color:var(--text3);">${siOpen ? '▾' : '▸'}</span>${subItemHasNewClaims(go.id, si) ? '<span title="New claims since you last opened this GO" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent);margin-right:6px;flex:none;"></span>' : ''}<span class="si-name">${si.name}</span><span class="si-meta">`;
     if (si.sets) {
       html += ` <span class="badge badge-set" style="font-size:10px;">set-based</span>`;
       if (si.price) html += ` <span style="font-size:12px;color:var(--text3);">$${si.price.toFixed(2)}/copy</span>`;
@@ -2924,10 +2932,11 @@ function renderDetailContentInner() {
     if (nSecurable) html += ` <span class="badge" style="background:var(--accent-light);color:var(--accent-dark);font-size:10px;margin-left:auto;">${nSecurable} securable</span>`;
     html += ` <span style="font-size:12px;color:var(--text3);font-weight:400;${nSecurable ? '' : 'margin-left:auto;'}">${setsSummary(si)}</span>`;
     if (si.closed) html += ` <span class="badge badge-waitlist" style="font-size:10px;">Closed</span>`;
+    html += `</span><span class="si-ctl">`;
     html += ` <button class="btn btn-sm btn-ghost" style="font-size:11px;padding:2px 8px;${si.closed ? 'color:var(--teal-600);' : 'color:var(--red-400);'}" onclick="event.stopPropagation();toggleSubItemClosed('${go.id}','${si.id}')">${si.closed ? 'Reopen POB' : 'Close POB'}</button>`;
-    html += ` <span style="font-size:11px;color:var(--text3);">closes</span> <input type="date" value="${si.deadline || ''}" onclick="event.stopPropagation()" onchange="setSubItemDeadline('${go.id}','${si.id}', this.value)" style="font-size:11px;padding:1px 4px;border:0.5px solid var(--border2);border-radius:5px;">`;
-    html += ` <span style="font-size:11px;color:var(--text3);">pay by</span> <input type="date" value="${si.payDue || ''}" onclick="event.stopPropagation()" onchange="setSubItemPayDue('${go.id}','${si.id}', this.value)" style="font-size:11px;padding:1px 4px;border:0.5px solid var(--border2);border-radius:5px;">`;
-    html += `</div>`;
+    html += ` <span class="si-date"><span style="font-size:11px;color:var(--text3);">closes</span> <input type="date" value="${si.deadline || ''}" onclick="event.stopPropagation()" onchange="setSubItemDeadline('${go.id}','${si.id}', this.value)" style="font-size:11px;padding:1px 4px;border:0.5px solid var(--border2);border-radius:5px;"></span>`;
+    html += ` <span class="si-date"><span style="font-size:11px;color:var(--text3);">pay by</span> <input type="date" value="${si.payDue || ''}" onclick="event.stopPropagation()" onchange="setSubItemPayDue('${go.id}','${si.id}', this.value)" style="font-size:11px;padding:1px 4px;border:0.5px solid var(--border2);border-radius:5px;"></span>`;
+    html += `</span></div>`;
     html += `<div id="adm-body-${si.id}" style="display:${siOpen ? 'block' : 'none'};">`;
     if (si.imageUrl) html += `<div style="margin-bottom:10px;">${siImg(si,'thumb')}</div>`;
 
