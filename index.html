@@ -4639,8 +4639,14 @@ async function saveClaimEdit(goId, siId, setIdx, member) {
   const newStatus = (document.getElementById('ec-status') || {}).value || slot.claim_status;
   const ovrEl = document.getElementById('ec-override');
   const newOverride = ovrEl ? (ovrEl.value.trim() === '' ? null : parseFloat(ovrEl.value)) : (slot.price_override != null ? slot.price_override : null);
-  if (newMember !== member && set.slots[newMember]) {
-    toast(`${newMember}'s spot in this set is already taken.`); return;
+  // Changing member: if that member's spot in THIS set is taken (locally or on the server —
+  // the local board can be stale), move the claim to the lowest set where the member is
+  // free instead of refusing. The board is reloaded afterwards so set numbers are exact.
+  let reslotted = null;
+  if (newMember !== member && slot.claim_id && set.slots[newMember]) {
+    if (!confirm(`${newMember}'s spot in set ${set.num || setIdx + 1} is taken. Move ${slot.user}'s claim to the first set where ${newMember} is free?`)) return;
+    try { reslotted = await db.reassignClaimMember({ claim_id: slot.claim_id, sub_item_id: siId, member_name: newMember }); }
+    catch (e) { toast("Couldn't move the claim — please refresh (↺) and retry."); return; }
   }
   // Persist FIRST; only mutate local state on success (edits used to fake-succeed).
   if (slot.claim_id) {
@@ -4650,13 +4656,21 @@ async function saveClaimEdit(goId, siId, setIdx, member) {
         payment_status: newPayment, fulfillment: newFulfillment,
         price_override: newOverride,
         ...(newStatus !== slot.claim_status ? { claim_status: newStatus } : {}),
-        ...(newMember !== member ? { member_name: newMember, sub_item_id: siId } : {})
+        ...(newMember !== member && !reslotted ? { member_name: newMember, sub_item_id: siId } : {})
       });
     } catch (e) {
-      toast(e && e.message === 'slot_taken'
-        ? `${newMember}'s spot in this set is already taken.`
-        : "Couldn't save the claim edit — please try again.");
-      return;
+      if (e && e.message === 'slot_taken' && !reslotted) {
+        // Stale board: the server says the spot is taken. Offer the re-slot path.
+        if (!confirm(`${newMember}'s spot in this set is already taken. Move the claim to the first set where ${newMember} is free?`)) return;
+        try {
+          reslotted = await db.reassignClaimMember({ claim_id: slot.claim_id, sub_item_id: siId, member_name: newMember });
+          await db.updateClaim({ claim_id: slot.claim_id, username: newUser, payment_status: newPayment, fulfillment: newFulfillment, price_override: newOverride,
+            ...(newStatus !== slot.claim_status ? { claim_status: newStatus } : {}) });
+        } catch (e2) { toast("Couldn't move the claim — please refresh (↺) and retry."); return; }
+      } else {
+        toast("Couldn't save the claim edit — please try again.");
+        return;
+      }
     }
   }
   slot.user = newUser; slot.payment = newPayment; slot.fulfillment = newFulfillment;
@@ -4670,6 +4684,14 @@ async function saveClaimEdit(goId, siId, setIdx, member) {
       sib.price_override = newOverride;
       if (sib.claim_id) db.updateClaim({ claim_id: sib.claim_id, price_override: newOverride }).catch(() => toast("Couldn't sync the set price to every card — reopen and re-save."));
     }
+  }
+  if (reslotted) {
+    // The claim now lives in another set: reload the board rather than guess locally.
+    closeModal();
+    toast(`Claim moved to set ${reslotted.set_no} as ${newMember}.`);
+    await refreshCurrentGO(true);
+    renderAdminGOList();
+    return;
   }
   if (newMember !== member) {
     set.slots[newMember] = slot; set.slots[member] = null;
@@ -6453,6 +6475,25 @@ const db = {
         p_username: String(username || '').trim().replace(/^@/, ''), p_archived: !!archived });
     if (error) throw error;
     return data;
+  },
+  // Admin: change a set-slot claim's member and drop it into the lowest set where that
+  // member is free (creating a new set if none), in ONE update so the slot-uniqueness
+  // index never trips. Returns the set number it landed in.
+  async reassignClaimMember(d) {   // { claim_id, sub_item_id, member_name }
+    const m = dbThrow(await sb.from('members').select('id').eq('sub_item_id', d.sub_item_id).eq('name', d.member_name).limit(1));
+    if (!m.length) throw new Error('member "' + d.member_name + '" not found');
+    const sets = dbThrow(await sb.from('sets').select('id, set_no').eq('sub_item_id', d.sub_item_id).order('set_no'));
+    const taken = {};
+    dbThrow(await sb.from('claims').select('set_id').eq('sub_item_id', d.sub_item_id).eq('member_id', m[0].id).neq('id', d.claim_id))
+      .forEach(c => { if (c.set_id) taken[c.set_id] = true; });
+    let target = sets.find(st => !taken[st.id]);
+    if (!target) {
+      const no = sets.length ? Math.max(...sets.map(st => st.set_no)) + 1 : 1;
+      target = dbThrow(await sb.from('sets').insert({ sub_item_id: d.sub_item_id, set_no: no, status: 'open' }).select('id, set_no').single());
+    }
+    const r = await sb.from('claims').update({ member_id: m[0].id, set_id: target.id }).eq('id', d.claim_id);
+    if (r.error) throw (r.error.code === '23505' ? new Error('slot_taken') : r.error);
+    return { set_no: target.set_no };
   },
   async deleteClaim(claimId) {
     const r = await sb.from('claims').delete().eq('id', claimId);
