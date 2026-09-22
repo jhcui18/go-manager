@@ -2290,6 +2290,8 @@ function myPaymentsSection(username, goId) {
 // One collapsible card for a GO: claims table + payment section (Paid/Owed/Credit + form).
 function renderMyOrderGoBlock(g, goRows, u, summary) {
   const s = summary || goPaymentSummary(u, g.go_id);
+  const siMetaP = {}; Object.values(allGOs).forEach(go => (go.subItems || []).forEach(si => { siMetaP[si.id] = si; }));
+  const partial = g.go_id === 'shop' ? {} : partialPaidMap(ownedUnitsFromClaims((myLookupClaims || []).filter(c => sameUser(c.username, u) && c.go_id === g.go_id), siMetaP), s.paid);
   const open = myOrderGoOpen[g.go_id] !== false;
   const rightBadge = s.owed > 0
     ? `Owed: <strong style="font-family:var(--mono);">$${s.owed.toFixed(2)}</strong>`
@@ -2300,7 +2302,7 @@ function renderMyOrderGoBlock(g, goRows, u, summary) {
     <td>${r.qty}</td>
     <td style="font-family:var(--mono);font-size:12px;">${r.price > 0 ? '$' + (r.price * r.qty).toFixed(2) : '—'}</td>
     <td><div style="display:flex;align-items:center;gap:6px;"><span class="badge ${r.claim==='Secured'?'badge-secured':r.claim==='Not fulfilled'?'badge-dropped':'badge-pending'}">${r.claim}</span>${r.claim==='Not fulfilled' ? myOrderRowActions(r) : ''}</div></td>
-    <td><span class="badge ${r.payment==='paid'?'badge-paid':'badge-unpaid'}">${r.payment==='paid'?'Paid':'Unpaid'}</span>${(r.claim==='Secured' && r.payment!=='paid' && r.due) ? `<div style="font-size:10px;color:var(--red-400);margin-top:2px;font-weight:${payDatePast(r.due)?'600':'400'};">${payDatePast(r.due) ? 'Payment due now' : 'Pay by ' + r.due}</div>` : ''}</td>
+    <td>${paymentBadgeHtml(r.payment, (r.claim_ids || []).map(id => partial[id]).find(Boolean))}${(r.claim==='Secured' && r.payment!=='paid' && r.due) ? `<div style="font-size:10px;color:var(--red-400);margin-top:2px;font-weight:${payDatePast(r.due)?'600':'400'};">${payDatePast(r.due) ? 'Payment due now' : 'Pay by ' + r.due}</div>` : ''}</td>
     <td><div style="display:flex;align-items:center;gap:6px;"><span class="badge ${fulfillBadge(r.fulfillment)}">${r.fulfillment}</span>${isShippedRow(r) ? myOrderRowActions(r) : ''}</div></td>
   </tr>`).join('');
   const emptyNote = goRows.length ? '' : `<div style="font-size:12px;color:var(--text3);margin:4px 0 8px;">All items in this GO are archived — see Archived at the bottom of the page.</div>`;
@@ -2847,12 +2849,22 @@ function gcJoinersSectionHtml(go) {
 function renderDetailContent() {
   return withScrollLock(renderDetailContentInner);
 }
+let adminPartial = {};   // claim_id -> {got, of} for the open GO (rebuilt each render)
 function renderDetailContentInner() {
   const go = currentGO;
   const el = document.getElementById('detail-content');
   // No GO detail open (e.g. marking shipped straight from the Shipping tab):
   // nothing to redraw — without this guard the caller dies mid-function.
   if (!el || !go) return;
+  adminPartial = {};
+  try {
+    const users = new Set();
+    (go.subItems || []).forEach(si => {
+      (si.sets || []).forEach(set => Object.values(set.slots || {}).forEach(sl => { if (sl && sl.user) users.add(sl.user); }));
+      (si.claims || []).forEach(c => { if (c && c.user) users.add(c.user); });
+    });
+    users.forEach(u => Object.assign(adminPartial, partialPaidMap(paymentOwedUnits(u, go.id), goPaymentSummary(u, go.id).paid)));
+  } catch (e) { adminPartial = {}; }
   let html = '';
   // Money summary for this GO (claims are loaded here, so goExpected is valid).
   const _exp = goExpected(go);
@@ -2915,7 +2927,7 @@ function renderDetailContentInner() {
             <div style="font-size:12px;font-weight:500;">${c.member}${c.ot?' <span style="color:var(--text3);font-weight:400;">(OT)</span>':''}</div>
             <div style="font-size:11px;color:var(--text3);margin-top:2px;">${c.user}</div>
             <div style="margin-top:3px;display:flex;gap:4px;flex-wrap:wrap;">
-              <span class="badge ${c.payment==='paid'?'badge-paid':'badge-unpaid'}" style="font-size:10px;cursor:pointer;" onclick="toggleClaimPayment('${c.claim_id}','${go.id}','${si.id}')">${c.payment==='paid'?'Paid':'Unpaid'}</span>
+              ${paymentBadgeHtml(c.payment, adminPartial[c.claim_id], `style="font-size:10px;cursor:pointer;" onclick="toggleClaimPayment('${c.claim_id}','${go.id}','${si.id}')"`)}
               <span class="badge ${sec?'badge-secured':'badge-pending'}" style="font-size:10px;cursor:pointer;" onclick="toggleClaimSecure('${c.claim_id}','${go.id}','${si.id}')">${sec?'Secured':'Secure?'}</span>
               <button class="btn btn-sm btn-ghost" style="font-size:10px;padding:1px 6px;" title="Edit claim (username, price override, status…)" onclick="editBatchClaim('${go.id}','${si.id}','${c.claim_id}')">✎</button>
               <button class="btn btn-sm btn-ghost" style="font-size:10px;padding:1px 6px;" title="Mark not fulfilled — kept in history, not ordered/charged" onclick="dropBatchClaim('${go.id}','${si.id}','${c.claim_id}')">Drop</button>
@@ -3009,7 +3021,7 @@ function renderDetailContentInner() {
             <span class="badge badge-dropped" style="font-size:10px;">Dropped</span>
             <button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 6px;" onclick="restoreClaim('${go.id}','set','${si.id}',${setIdx},'${member}')">Restore</button>
           </div>` : `<div style="margin-top:3px;display:flex;gap:4px;flex-wrap:wrap;">
-            <span class="badge ${slot.payment==='paid'?'badge-paid':'badge-unpaid'}" style="font-size:10px;cursor:pointer;" title="Click to toggle paid/unpaid" onclick="toggleSlotPayment('${go.id}','${si.id}',${setIdx},'${member}')">${slot.payment==='paid'?'Paid':'Unpaid'}</span>
+            ${paymentBadgeHtml(slot.payment, adminPartial[slot.claim_id], `style="font-size:10px;cursor:pointer;" title="Click to toggle paid/unpaid" onclick="toggleSlotPayment('${go.id}','${si.id}',${setIdx},'${member}')"`)}
             <span class="badge ${slot.claim_status==='secured'?'badge-secured':'badge-pending'}" style="font-size:10px;cursor:pointer;" title="Click to secure/unsecure this claim" onclick="toggleSlotSecure('${go.id}','${si.id}',${setIdx},'${member}')">${slot.claim_status==='secured'?'Secured':'Secure?'}</span>
             <button class="btn btn-sm btn-ghost" style="font-size:11px;padding:1px 6px;color:var(--red-400);" title="Remove this claim" onclick="removeSlotClaim('${go.id}','${si.id}',${setIdx},'${member}')">×</button>
           </div>`) : '';
@@ -5413,6 +5425,28 @@ function paymentOwedUnits(username, goId) {
 // Per-buyer, per-GO money summary — the single source for both the joiner My-orders
 // line and the admin confirm modal, so the two never disagree. securedValue reuses
 // paymentOwedUnits (same claims the modal allocates against). paid = CONFIRMED only.
+// Third payment state, derived from the ledger: an UNPAID unit that the joiner's
+// loose cash (confirmed payments beyond the units flagged Paid) reaches, in order,
+// is "Partially paid $x of $y". The stored flag stays paid/unpaid — a card is
+// Paid only when fully covered (migration 035). Returns { claim_id: {got, of} }.
+function partialPaidMap(units, paidTotal) {
+  const out = {};
+  let loose = (parseFloat(paidTotal) || 0) - (units || []).filter(u => u.paid).reduce((a, u) => a + u.value, 0);
+  (units || []).forEach(u => {
+    if (u.paid || loose <= 0.005) return;
+    const got = Math.min(loose, u.value);
+    // Only a genuinely part-covered unit is "Partially paid"; a fully covered one that is
+    // still flagged unpaid stays Unpaid until the admin confirms it (keeps label = flag).
+    if (got < u.value - 0.005) (u.ids || []).forEach(id => { if (id) out[id] = { got, of: u.value }; });
+    loose -= got;
+  });
+  return out;
+}
+function paymentBadgeHtml(flag, partial, extra) {
+  if (flag === 'paid') return `<span class="badge badge-paid" ${extra || ''}>Paid</span>`;
+  if (partial) return `<span class="badge badge-pending" ${extra || ''} title="$${partial.got.toFixed(2)} received of $${partial.of.toFixed(2)}">Partially paid</span><div style="font-size:10px;color:var(--text3);margin-top:2px;">$${partial.got.toFixed(2)} of $${partial.of.toFixed(2)}</div>`;
+  return `<span class="badge badge-unpaid" ${extra || ''}>Unpaid</span>`;
+}
 function goPaymentSummary(username, goId) {
   const securedValue = paymentOwedUnits(username, goId).reduce((a, u) => a + u.value, 0);
   const mine = paymentProofs.filter(pp => sameUser(pp.username, username) && pp.go_id === goId);
