@@ -472,8 +472,8 @@
           <button class="btn btn-sm" onclick="refreshShippingQueue()">↺ Refresh</button>
         </div>
         <div class="card"><div class="table-wrap"><table class="ship-queue">
-          <thead><tr><th>Username</th><th>Items</th><th>Method</th><th>EMS fee</th><th>Dom. fee</th><th>Total</th><th>Tracking #</th><th>Actions</th></tr></thead>
-          <tbody id="shipping-queue-tbody"><tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px;">No shipping requests yet.</td></tr></tbody>
+          <thead><tr><th>Username</th><th>Items</th><th>EMS fee</th><th>Dom. fee</th><th>Total</th><th>Tracking #</th><th>Actions</th></tr></thead>
+          <tbody id="shipping-queue-tbody"><tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px;">No shipping requests yet.</td></tr></tbody>
         </table></div></div>
       </div>
     </div>
@@ -3941,7 +3941,7 @@ async function loadAdminStore() {
 
 async function loadAdminShipping() {
   if (adminShippingLoaded) { renderShippingQueue(); return; }
-  loadingRow('shipping-queue-tbody', 'Loading shipping requests…', 8);
+  loadingRow('shipping-queue-tbody', 'Loading shipping requests…', 7);
   let failed = false;
   try {
     const sr = await db.getShipping();
@@ -5849,7 +5849,7 @@ function renderShippingQueueInner() {
   const pending = (shippingRequests || []).filter(r => !r.shipped);
   const shipped = (shippingRequests || []).filter(r => r.shipped);
   if (!pending.length && !shipped.length) {
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px;">No shipping requests.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px;">No shipping requests.</td></tr>';
     return;
   }
   // Archived (shipped) rows are read-only: fees and tracking as text, View + Unship.
@@ -5859,7 +5859,6 @@ function renderShippingQueueInner() {
     return `<tr style="opacity:0.75;">
       <td data-label="Joiner" style="font-weight:500;">${r.username}</td>
       <td data-label="Items" style="font-size:12px;color:var(--text2);white-space:nowrap;">${items.reduce((a, it) => a + (parseInt(it.qty) || 1), 0)} item${items.reduce((a, it) => a + (parseInt(it.qty) || 1), 0) !== 1 ? 's' : ''}</td>
-      <td data-label="Method"><span class="badge ${r.method === 'stamped' ? 'badge-pending' : 'badge-fcfs'}" style="font-size:10px;">${r.method === 'stamped' ? 'Stamped' : 'Tracked'}</span></td>
       <td data-label="Status" colspan="2"><span class="badge badge-secured" style="font-size:10px;">Shipped</span></td>
       <td data-label="Total" style="font-family:var(--mono);">${total > 0 ? '$' + total.toFixed(2) : '—'}</td>
       <td data-label="Tracking" style="font-size:12px;">${r.tracking_number ? trackingLink(r.tracking_number) : '—'}</td>
@@ -5891,7 +5890,6 @@ function renderShippingQueueInner() {
     return `<tr>
       <td data-label="Joiner" style="font-weight:500;">${r.username}</td>
       <td data-label="Items" style="font-size:12px;color:var(--text2);white-space:nowrap;">${units} item${units !== 1 ? 's' : ''}${units !== items.length ? ` <span style="color:var(--text3);">(${items.length} lines)</span>` : ''}${cards ? `<div style="font-size:11px;color:var(--text3);">${cards} card${cards !== 1 ? 's' : ''}</div>` : ''}</td>
-      <td data-label="Method"><span class="badge ${r.method === 'stamped' ? 'badge-pending' : 'badge-fcfs'}" style="font-size:10px;">${r.method === 'stamped' ? 'Stamped' : 'Tracked'}</span></td>
       <td data-label="EMS fee"><input type="number" placeholder="0.00" step="0.01" value="${r.ems_fee||''}" oninput="updateShipFee('${r.request_id}','ems',this.value)" onchange="saveShipFees('${r.request_id}')" style="width:72px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);">${emsBasis ? `<div style="font-size:10px;color:var(--text3);margin-top:2px;white-space:nowrap;">${emsBasis}</div>` : ''}</td>
       <td data-label="Dom. fee"><input type="number" placeholder="0.00" step="0.01" value="${r.dom_fee||''}" oninput="updateShipFee('${r.request_id}','dom',this.value)" onchange="saveShipFees('${r.request_id}')" style="width:72px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);"></td>
       <td data-label="Total" style="font-family:var(--mono);font-weight:500;" id="ship-total-${r.request_id}">${total !== '—' ? '$'+total : '—'}</td>
@@ -5904,9 +5902,9 @@ function renderShippingQueueInner() {
       </div></td>
     </tr>`;
   }).join('')
-    || '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:14px;">Queue clear — nothing waiting to ship.</td></tr>';
+    || '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:14px;">Queue clear — nothing waiting to ship.</td></tr>';
   if (shipped.length) {
-    html += `<tr><td colspan="8" style="padding:8px;cursor:pointer;user-select:none;color:var(--text3);font-size:12px;" onclick="toggleShipArchive()">
+    html += `<tr><td colspan="7" style="padding:8px;cursor:pointer;user-select:none;color:var(--text3);font-size:12px;" onclick="toggleShipArchive()">
       ${shipArchiveOpen ? '▾' : '▸'} Shipped (${shipped.length})</td></tr>`;
     if (shipArchiveOpen) html += shipped.map(shippedRow).join('');
   }
