@@ -5970,7 +5970,23 @@ function shipReceiptHtml(items, emsFee, domFee) {
     <span style="font-size:12px;font-family:var(--mono);flex:none;color:${bold?'var(--text)':'var(--text2)'};">${right}</span>
   </div>`;
   const pv = (it) => (it.price != null && isFinite(parseFloat(it.price))) ? parseFloat(it.price) : null;
-  let itemsHtml = (items || []).map(it => {
+  // An OT full set is stored as one row per member; show it as ONE line ("… OT8 full set")
+  // instead of listing every member. Rows are grouped by set_id (admin items and the
+  // joiner-side shipping_status view both carry it); the label is the rows' shared prefix.
+  const shown = [], otSeen = {};
+  (items || []).forEach(it => {
+    if (it.ot && it.set_id) {
+      if (!otSeen[it.set_id]) { otSeen[it.set_id] = { label: String(it.label || ''), n: 0, ot: true }; shown.push(otSeen[it.set_id]); }
+      const g = otSeen[it.set_id]; g.n++;
+      let a = g.label, b = String(it.label || ''), k = 0;
+      while (k < a.length && k < b.length && a[k] === b[k]) k++;
+      g.label = a.slice(0, k);
+      return;
+    }
+    shown.push(it);
+  });
+  let itemsHtml = shown.map(it => {
+    if (it.ot && it.n) return line(it.label.replace(/[\s—-]+$/, '') + ` OT${it.n} full set`, 'OT set');
     const q = parseInt(it.qty) || 1;
     return line(it.label + (q > 1 ? ` <span style="color:var(--text3);">×${q}</span>` : ''),
                 it.ot ? 'OT set' : (pv(it) != null ? '$' + pv(it).toFixed(2) : '—'));
