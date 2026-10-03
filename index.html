@@ -2159,12 +2159,16 @@ function doLookupRenderInner(u) {
   // One block per GO: that GO's claims + its payment section. Newest GO first, Shop last.
   const blocksEl = document.getElementById('lookup-go-blocks');
   if (blocksEl) {
-    if (!rows.length) {
+    const payOnlyGos = joinerGoIds(u).filter(id => id !== 'shop' && !rows.some(r => r.go_id === id) && getSummary(id).paid > 0.001);
+    if (!rows.length && !payOnlyGos.length) {
       blocksEl.innerHTML = `<div class="card"><div style="text-align:center;color:var(--text3);padding:20px;">No claims found for ${u}.</div></div>`;
     } else {
       // A GO whose rows are all archived drops out of the list unless money is still owed on it.
-      const goList = [...new Map(rows.map(r => [r.go_id, { go_id: r.go_id, go: r.go }])).values()]
-        .filter(g => rows.some(r => r.go_id === g.go_id && !r.archived) || getSummary(g.go_id).owed > 0);
+      const goList = [...new Map(rows.map(r => [r.go_id, { go_id: r.go_id, go: r.go }])).values()];
+      // GOs with confirmed payments but no claim rows (claims removed / paid ahead): show them
+      // so the joiner can see the money sitting there as credit.
+      joinerGoIds(u).forEach(id => { if (id !== 'shop' && !goList.some(g => g.go_id === id) && getSummary(id).paid > 0.001) goList.push({ go_id: id, go: goDisplayName(id) }); });
+      goList.splice(0, goList.length, ...goList.filter(g => rows.some(r => r.go_id === g.go_id && !r.archived) || getSummary(g.go_id).owed > 0 || (getSummary(g.go_id).credit > 0.001 && !rows.some(r => r.go_id === g.go_id))));
       goList.sort((a, b) => {
         if (a.go_id === 'shop') return 1;
         if (b.go_id === 'shop') return -1;
@@ -2334,7 +2338,8 @@ function renderMyOrderGoBlock(g, goRows, u, summary) {
   const open = myOrderGoOpen[g.go_id] !== false;
   const rightBadge = s.owed > 0
     ? `Owed: <strong style="font-family:var(--mono);">$${s.owed.toFixed(2)}</strong>`
-    : (s.paid > 0 ? `<span style="color:var(--teal-600);font-weight:500;">All paid ✓</span>` : '');
+    : (s.credit > 0.001 ? `<span style="color:var(--teal-600);font-weight:500;">Credit $${s.credit.toFixed(2)}</span>`
+       : (s.paid > 0 ? `<span style="color:var(--teal-600);font-weight:500;">All paid ✓</span>` : ''));
   const claimRows = goRows.map(r => `<tr>
     <td>${r.item}</td>
     <td style="color:var(--text2);">${r.detail}</td>
@@ -2344,7 +2349,10 @@ function renderMyOrderGoBlock(g, goRows, u, summary) {
     <td>${paymentBadgeHtml(r.payment, (r.claim_ids || []).map(id => partial[id]).find(Boolean))}${(r.claim==='Secured' && r.payment!=='paid' && r.due) ? `<div style="font-size:10px;color:var(--red-400);margin-top:2px;font-weight:${payDatePast(r.due)?'600':'400'};">${payDatePast(r.due) ? 'Payment due now' : 'Pay by ' + r.due}</div>` : ''}</td>
     <td><div style="display:flex;align-items:center;gap:6px;"><span class="badge ${fulfillBadge(r.fulfillment)}">${r.fulfillment}</span>${isShippedRow(r) ? myOrderRowActions(r) : ''}</div></td>
   </tr>`).join('');
-  const emptyNote = goRows.length ? '' : `<div style="font-size:12px;color:var(--text3);margin:4px 0 8px;">All items in this GO are archived — see Archived at the bottom of the page.</div>`;
+  const hasAnyRow = (myLookupClaims || []).some(c => sameUser(c.username, u) && c.go_id === g.go_id) || g.go_id === 'shop';
+  const emptyNote = goRows.length ? '' : (hasAnyRow
+    ? `<div style="font-size:12px;color:var(--text3);margin:4px 0 8px;">All items in this GO are archived — see Archived at the bottom of the page.</div>`
+    : `<div style="font-size:12px;color:var(--text3);margin:4px 0 8px;">No claims in this GO right now — your payment below is held as credit you can use on any other GO.</div>`);
   const summaryLine = `Paid $${s.paid.toFixed(2)} · Owed $${s.owed.toFixed(2)}`
     + (s.pendingSubmitted > 0 ? ` · $${s.pendingSubmitted.toFixed(2)} awaiting confirmation` : '');
   const handles = PAYMENT_METHODS.map(p => `<span class="tag">${p.method}${p.note ? ' ' + p.note : ''}: ${p.handle}</span>`).join(' ');
@@ -5582,6 +5590,9 @@ function myGoSummary(u, goId) { return buyerGoSummary(u, goId); }
 function joinerGoIds(u) {
   const ids = new Set();
   (myLookupClaims || []).forEach(c => { if (sameUser(c.username, u)) ids.add(c.go_id); });
+  // A GO the joiner only has PAYMENTS in (claims removed, or paid ahead) still holds
+  // their money — it must count toward credit/balance and show on My orders.
+  (paymentProofs || []).forEach(p => { if (sameUser(p.username, u) && p.go_id && p.status === 'confirmed') ids.add(p.go_id); });
   if (shopOrders.some(o => sameUser(o.username, u))) ids.add('shop');
   return [...ids];
 }
