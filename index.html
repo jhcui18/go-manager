@@ -499,6 +499,8 @@
         <div class="field"><label>Payment deadline</label><input type="date" id="new-go-payment-deadline"></div>
       </div>
       <div class="field"><label>Min slots to secure a set</label><input type="number" id="new-go-min-secure" value="7" min="1"><div class="field-hint" id="min-secure-hint">Applies to photocard sets and album member versions.</div></div>
+      <div class="field"><label>Description (joiners see this)</label><textarea id="new-go-desc" style="min-height:62px;" placeholder="Shown at the top of the GO page"></textarea></div>
+      <div class="field"><label>Private note (only you)</label><textarea id="new-go-note" style="min-height:62px;" placeholder="Never shown to joiners"></textarea></div>
 
       <!-- Sub-items builder -->
       <div id="sub-items-section">
@@ -554,6 +556,8 @@
         <input type="number" id="edit-go-min-secure" min="1">
         <div class="field-hint">Applies to all set-based sub-items in this GO.</div>
       </div>
+      <div class="field"><label>Description (joiners see this)</label><textarea id="edit-go-desc" style="min-height:62px;" placeholder="Shown at the top of the GO page"></textarea></div>
+      <div class="field"><label>Private note (only you)</label><textarea id="edit-go-note" style="min-height:62px;" placeholder="Never shown to joiners"></textarea></div>
       <hr style="border:none;border-top:0.5px solid var(--border);margin:4px 0 20px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
         <div class="section-label" style="margin:0;" id="edit-sub-items-label">Sub-items</div>
@@ -793,9 +797,35 @@ function claimCollapsible(goId, si, inner) {
       </div>
       <span style="margin-left:auto;flex:none;font-size:12px;color:var(--text3);">${setsSummary(si)}</span>
     </div>
-    <div id="clm-body-${si.id}" style="display:${open ? 'block' : 'none'};padding-top:10px;">${inner}</div>
+    <div id="clm-body-${si.id}" style="display:${open ? 'block' : 'none'};padding-top:10px;">${descHtml(si.description)}${inner}</div>
   </div>`;
 }
+// Admin free text (a GO/item description, a private note) is the only value
+// interpolated into these templates that isn't drawn from a fixed vocabulary.
+// Escape it so a stray apostrophe or < cannot break the page.
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+// Joiner-facing description block, or '' when the field is empty.
+function descHtml(text) {
+  const t = String(text == null ? '' : text).trim();
+  if (!t) return '';
+  return `<div style="background:var(--surface2);border-radius:var(--radius);padding:10px 12px;margin-bottom:10px;font-size:13px;line-height:1.5;color:var(--text2);white-space:pre-wrap;">${esc(t)}</div>`;
+}
+// The two free-text boxes for a GO or an item in the admin editor.
+function noteFieldsHtml(prefix, id, description, adminNote) {
+  return `<div class="field" style="margin-top:8px;margin-bottom:0;"><label>Description (joiners see this)</label>
+      <textarea id="${prefix}-desc-${id}" style="min-height:58px;" placeholder="Shown to joiners on the GO page">${esc(description || '')}</textarea></div>
+    <div class="field" style="margin-top:8px;margin-bottom:0;"><label>Private note (only you)</label>
+      <textarea id="${prefix}-note-${id}" style="min-height:58px;" placeholder="Never shown to joiners">${esc(adminNote || '')}</textarea></div>`;
+}
+// undefined when the box was never rendered, so saveGO omits the key and the
+// server leaves the stored value alone. '' means the admin cleared it.
+function noteVal(id) { const el = document.getElementById(id); return el ? el.value.trim() : undefined; }
+// Private notes, keyed by GO id or sub-item id. Admin-only; loaded on demand.
+let adminNotes = {};
 function fmtDate(val) {
   if (!val) return '';
   // Clean YYYY-MM-DD, or a UTC-midnight timestamp (how admin-entered calendar
@@ -1223,7 +1253,8 @@ function renderClaimPage(goId) {
   ${(go.status !== 'closed' && (go.deadline || go.paymentDeadline)) ? `<div class="card" style="margin-bottom:16px;padding:10px 14px;"><div style="font-size:13px;color:var(--text2);display:flex;flex-wrap:wrap;gap:4px 14px;">
     ${go.deadline ? `<span>🗓️ Closes <span style="font-weight:600;color:var(--text);">${fmtDate(go.deadline)}</span></span>` : ''}
     ${go.paymentDeadline ? `<span>💸 Payment due <span style="font-weight:600;color:var(--text);">${fmtDate(go.paymentDeadline)}</span></span>` : ''}
-  </div><div style="font-size:11px;color:var(--text3);margin-top:3px;">Items showing their own dates use those instead.</div></div>` : ''}`;
+  </div><div style="font-size:11px;color:var(--text3);margin-top:3px;">Items showing their own dates use those instead.</div></div>` : ''}
+  ${descHtml(go.description)}`;
 
   if (go.type === 'photocard') {
     go.subItems.forEach(si => {
@@ -1531,7 +1562,7 @@ function renderMerchPublic(go) {
     }
     if (kind === 'member') {
       // Member ver — member tile picker, no set logic, no cap
-      html += `<div class="card" style="margin-bottom:12px;">${siImg(si,'card')}
+      html += `<div class="card" style="margin-bottom:12px;">${siImg(si,'card')}${descHtml(si.description)}
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
           <div style="font-weight:500;font-size:15px;">${si.name}</div>
           <div style="display:flex;align-items:center;gap:8px;">
@@ -1561,7 +1592,7 @@ function renderMerchPublic(go) {
       </div>`;
     } else {
       // Random ver — just qty
-      html += `<div class="card" style="margin-bottom:12px;">${siImg(si,'card')}
+      html += `<div class="card" style="margin-bottom:12px;">${siImg(si,'card')}${descHtml(si.description)}
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
           <div style="font-weight:500;font-size:15px;">${si.name}</div>
           <div style="display:flex;align-items:center;gap:8px;">
@@ -3675,6 +3706,7 @@ function addSubItem() {
     </div>
     <div id="si-merch-extra-${id}" style="display:none;margin-top:8px;"></div>`;
   }
+  inner += noteFieldsHtml('si', id, '', '');
   inner += imgFieldHtml('si-img-' + id, '');
   wrap.innerHTML = inner;
   document.getElementById('sub-items-list').appendChild(wrap);
@@ -3796,6 +3828,7 @@ function createGO() {
   });
   if (!subItems.length) { toast('Add at least one item.'); return; }
   subItems.forEach(si => { const el = document.getElementById('si-img-' + si.id); si.imageUrl = el ? el.value.trim() : ''; });
+  subItems.forEach(si => { si.description = noteVal('si-desc-' + si.id); si.adminNote = noteVal('si-note-' + si.id); });
   allGOs[id] = { id, name, type, deadline, paymentDeadline, status: 'open', minSecure: minSecure, subItems };
   db.saveGO(allGOs[id]).then(async () => {
     delete allGOs[id];
@@ -4077,13 +4110,17 @@ function showUpload(input) {
 }
 
 // ── EDIT GO ───────────────────────────────────────────────────────────────────
-function openEditGO() {
+async function openEditGO() {
   const go = currentGO;
+  try { adminNotes = await db.getAdminNotes(); }
+  catch (e) { adminNotes = {}; console.warn('[notes] could not load private notes', e); }
   document.getElementById('edit-go-breadcrumb').textContent = go.name;
   document.getElementById('edit-go-name').value = go.name;
   document.getElementById('edit-go-deadline').value = fmtDate(go.deadline);
   document.getElementById('edit-go-payment-deadline').value = fmtDate(go.paymentDeadline);
   document.getElementById('edit-go-status').value = go.status || 'open';
+  document.getElementById('edit-go-desc').value = go.description || '';
+  document.getElementById('edit-go-note').value = adminNotes[go.id] || '';
   const minSecureRow = document.getElementById('edit-min-secure-row');
   minSecureRow.style.display = go.type === 'merch' ? 'none' : 'block';
   if (go.type !== 'merch') {
@@ -4245,6 +4282,7 @@ function renderEditSubItems() {
         </div>`}`;
     }
     const claimCount = getSubItemClaimCount(si);
+    inner += noteFieldsHtml('edit-si', si.id, si.description, adminNotes[si.id]);
     inner += imgFieldHtml('edit-si-img-' + si.id, si.imageUrl || '');
     inner += `</div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;padding-top:20px;">
@@ -4321,6 +4359,7 @@ function addEditSubItem() {
     </div>
     <div id="edit-si-merch-extra-${id}" style="display:none;margin-top:8px;"></div>`;
   }
+  inner += noteFieldsHtml('edit-si', id, '', '');
   inner += imgFieldHtml('edit-si-img-' + id, '');
   wrap.innerHTML = inner;
   wrap.dataset.newItem = '1';
@@ -4535,12 +4574,15 @@ async function saveGOEdits() {
     });
   }
   go.subItems.forEach(si => { const el = document.getElementById('edit-si-img-' + si.id); if (el) si.imageUrl = el.value.trim(); });
+  go.subItems.forEach(si => { si.description = noteVal('edit-si-desc-' + si.id); si.adminNote = noteVal('edit-si-note-' + si.id); });
+  go.description = noteVal('edit-go-desc');
+  go.adminNote = noteVal('edit-go-note');
   // AWAIT the write before anything re-reads from the sheet. updateGO rewrites the sub-items
   // via delete-then-append (a window where the sheet has 0 sub-item rows); openGODetail below
   // can trigger a background sync, so reading before this write finishes could pull an empty
   // sub-item list and make the GO's items look deleted. Awaiting closes that race.
   try {
-    const res = await db.saveGO({ go_id: go.id, name: go.name, artist: go.artist, type: go.type, status: go.status, deadline: go.deadline, paymentDeadline: go.paymentDeadline, minSecure: go.minSecure, subItems: go.subItems });
+    const res = await db.saveGO({ go_id: go.id, name: go.name, artist: go.artist, type: go.type, status: go.status, deadline: go.deadline, paymentDeadline: go.paymentDeadline, minSecure: go.minSecure, description: go.description, adminNote: go.adminNote, subItems: go.subItems });
     if (res && res.ok === false) { toast(res.message || 'Save didn’t go through — please try again.'); return; }
     await syncFromBackend(true);
   }
@@ -6256,14 +6298,14 @@ function goRowToLegacy(g) {
   return {
     go_id: g.id, name: g.name, artist: g.artist || '', type: g.type, status: g.status,
     deadline: g.deadline, payment_deadline: g.payment_deadline, min_secure: g.min_secure,
-    created_at: g.created_at,
+    created_at: g.created_at, description: g.description || '',
     subItems: (g.sub_items || [])
       .slice().sort((a, b) => a.position - b.position)
       .map(si => ({
         sub_item_id: si.id, name: si.name, kind: si.kind,
         members: (si.members || []).slice().sort((a, b) => a.position - b.position).map(m => m.name),
         versions: (si.versions || []).slice().sort((a, b) => a.position - b.position).map(v => v.name),
-        price: si.price, ot_price: si.ot_price, ems_fee: si.ems_fee,
+        price: si.price, ot_price: si.ot_price, ems_fee: si.ems_fee, description: si.description || '',
         // Batch mode round-trips through the legacy negative-min_secure sentinel
         // so isBatch() and every render branch stay untouched.
         min_secure: si.order_mode === 'batch' ? -(si.batch_size || 0)
@@ -6290,8 +6332,8 @@ async function selectAll(makeQuery) {
 const db = {
   async getGOsList() {
     const data = dbThrow(await sb.from('gos')
-      .select('id, name, artist, type, status, deadline, payment_deadline, min_secure, created_at,' +
-        ' sub_items(id, name, kind, order_mode, batch_size, price, ot_price, ems_fee, min_secure,' +
+      .select('id, name, artist, type, status, deadline, payment_deadline, min_secure, created_at, description,' +
+        ' sub_items(id, name, kind, order_mode, batch_size, price, ot_price, ems_fee, min_secure, description,' +
         ' image_url, position, closed, deadline, pay_due, members(name, position), versions(name, position))')
       .order('created_at'));
     return { gos: data.map(goRowToLegacy) };
@@ -6544,6 +6586,14 @@ const db = {
     if (error) throw error;
     return data;
   },
+  // Private notes live in their own table with no anon policy, so this call
+  // only succeeds for the signed-in admin and joiners never make it.
+  async getAdminNotes() {
+    const rows = dbThrow(await sb.from('admin_notes').select('go_id, sub_item_id, body'));
+    const map = {};
+    (rows || []).forEach(r => { map[r.go_id || r.sub_item_id] = r.body || ''; });
+    return map;
+  },
   async saveGO(go) {
     // go: in-memory GO object (allGOs[id] shape) + optional go_id for updates.
     const p = {
@@ -6553,7 +6603,7 @@ const db = {
       min_secure: parseInt(go.minSecure) || 7,
       sub_items: (go.subItems || []).map(si => {
         const ms = parseInt(si.minSecure);
-        return {
+        const out = {
           id: /^[0-9a-f-]{36}$/.test(si.id || '') ? si.id : null,   // temp client ids -> insert
           // The photocard create form omits kind (legacy backend defaulted it to the GO
           // type); mirror the frontend's own fallback so slot mechanics stay intact.
@@ -6565,8 +6615,15 @@ const db = {
           image_url: si.imageUrl || null,
           members: si.members || [], versions: si.versions || []
         };
+        // Only send a note the caller actually collected. save_go leaves any key
+        // it does not receive untouched, so a partial save cannot blank a note.
+        if (si.description !== undefined) out.description = si.description || '';
+        if (si.adminNote !== undefined) out.admin_note = si.adminNote || '';
+        return out;
       })
     };
+    if (go.description !== undefined) p.description = go.description || '';
+    if (go.adminNote !== undefined) p.admin_note = go.adminNote || '';
     const { data, error } = await sb.rpc('save_go', { p });
     if (error) throw error;
     return data;   // {ok, go_id, sub_item_ids}
@@ -6890,6 +6947,7 @@ async function syncFromBackend(silent) {
           deadline: fmtDate(go.deadline), paymentDeadline: fmtDate(go.payment_deadline), status: go.status || 'open',
           minSecure: parseInt(go.min_secure) || 7,   // the ONE GO-level secure threshold for its set POBs
           createdAt: go.created_at || '',
+          description: go.description || '',
           subItems: []
         };
         // Remap orphaned claims to the correct current sub-item (handles re-created sub-item IDs)
@@ -6912,10 +6970,11 @@ async function syncFromBackend(silent) {
           }
         }
 
-        const imgById = {}, emsById = {};
+        const imgById = {}, emsById = {}, descById = {};
         (go.subItems || []).forEach(si => {
           if (!si || !si.sub_item_id || !si.name) return; // skip blank/ghost sub-item rows
           imgById[si.sub_item_id] = si.image_url || '';
+          descById[si.sub_item_id] = si.description || '';
           emsById[si.sub_item_id] = (si.ems_fee != null && si.ems_fee !== '') ? parseFloat(si.ems_fee) : null;
           let members = parseMembers(si.members);
           // Fallback: if members empty in Sheets, reconstruct from now-remapped claims
@@ -6966,7 +7025,7 @@ async function syncFromBackend(silent) {
             }
           }
         });
-        rebuilt.subItems.forEach(s => { s.imageUrl = imgById[s.id] || ''; s.emsFee = emsById[s.id] != null ? emsById[s.id] : null; });
+        rebuilt.subItems.forEach(s => { s.imageUrl = imgById[s.id] || ''; s.emsFee = emsById[s.id] != null ? emsById[s.id] : null; s.description = descById[s.id] || ''; });
         rebuilt.subItems.forEach(s => { s.closed = isSubItemClosed(go.go_id, s.id); });
         rebuilt.subItems.forEach(s => { s.deadline = subItemDeadline(go.go_id, s.id); });
         rebuilt.subItems.forEach(s => { s.payDue = subItemPayByDate(go.go_id, s.id); });
