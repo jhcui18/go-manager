@@ -664,6 +664,27 @@ function subItemPayByDate(goId, siId) { return subItemPayDue[goId + '|' + siId] 
 // Effective pay-by for a My-orders row: the POB's own due date, else the GO-level
 // payment deadline. Display-only — the admin's per-POB input keeps using the raw value.
 // A YYYY-MM-DD date that's already behind us (local calendar).
+// An unpaid shop order is held this long before the manager releases it and
+// returns the stock. Nothing cancels automatically — this only states the
+// policy on the order form, gives the buyer a pay-by date, and flags overdue
+// orders in the admin Shop table.
+const SHOP_HOLD_DAYS = 7;
+function shopHoldDate(createdAt) {
+  if (!createdAt) return '';
+  const t = new Date(createdAt);
+  if (isNaN(t.getTime())) return '';
+  t.setDate(t.getDate() + SHOP_HOLD_DAYS);
+  // Built from local parts, not toISOString, which would shift the day westward.
+  return t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0');
+}
+// Admin-side hold note under the Unpaid badge. Paid or shipped orders show nothing.
+function shopHoldNoteHtml(o) {
+  if (!o || o.payment_status === 'paid' || o.fulfillment === 'Shipped') return '';
+  const d = shopHoldDate(o.created_at);
+  if (!d) return '';
+  const past = payDatePast(d);
+  return `<div style="font-size:10px;margin-top:2px;font-weight:${past ? '600' : '400'};color:${past ? 'var(--red-400)' : 'var(--text3)'};">${past ? 'Hold expired ' : 'Hold until '}${fmtDate(d)}</div>`;
+}
 function payDatePast(d) {
   if (!d) return false;
   const t = new Date();
@@ -1089,6 +1110,7 @@ function openShopListing(listingId) {
         <button class="qty-btn" onclick="adjustShopQty('${listingId}',1)">+</button>
       </div>
     </div>
+    <div style="font-size:12px;color:var(--text2);background:var(--surface2);border-radius:var(--radius);padding:8px 10px;margin-bottom:4px;line-height:1.45;">⏳ Unpaid orders are held for ${SHOP_HOLD_DAYS} days. Pay within that time or your order is released for someone else to buy.</div>
     <div style="display:flex;gap:8px;margin-top:8px;">
       <button class="btn btn-primary" style="flex:1;justify-content:center;" onclick="submitShopOrder('${l.listing_id}')">Place order</button>
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
@@ -2173,6 +2195,8 @@ function doLookupRenderInner(u) {
       go_id: 'shop', go: 'Shop', item: o.listing_name, detail: o.variant || '',
       qty: parseInt(o.qty) || 1, price: parseFloat(o.unit_price) || 0,
       claim: 'Secured', payment: o.payment_status, fulfillment: o.fulfillment,
+      // Reuses the row's existing pay-by line, which only renders while unpaid.
+      due: shopHoldDate(o.created_at),
       order_ids: [o.order_id], archived: !!o.archived
     });
   });
@@ -5409,7 +5433,7 @@ function renderShopOrders() {
       <td style="font-size:12px;">${o.listing_name}${o.variant ? ' — ' + o.variant : ''}</td>
       <td>${o.qty}</td>
       <td style="font-family:var(--mono);">$${amt.toFixed(2)}</td>
-      <td><span class="badge ${o.payment_status==='paid'?'badge-paid':'badge-unpaid'}" style="cursor:pointer;" onclick="toggleShopOrderPayment('${o.order_id}')">${o.payment_status==='paid'?'Paid':'Unpaid'}</span></td>
+      <td><span class="badge ${o.payment_status==='paid'?'badge-paid':'badge-unpaid'}" style="cursor:pointer;" onclick="toggleShopOrderPayment('${o.order_id}')">${o.payment_status==='paid'?'Paid':'Unpaid'}</span>${shopHoldNoteHtml(o)}</td>
       <td><div style="display:flex;align-items:center;gap:6px;">
         <span class="badge ${shopFulfillBadge(o.fulfillment)}">${o.fulfillment}</span>
         ${pf ? `<button class="btn btn-sm btn-ghost" style="font-size:11px;padding:3px 8px;" title="Back to ${pf}" onclick="advanceShopFulfill('${o.order_id}','prev')">←</button>` : ''}
