@@ -2,5 +2,6 @@
 # Real-data exports — personal info, never commit
 GO Manager Data.xlsx
 *.xlsx
+*.csv
 .venv/
 __pycache__/
