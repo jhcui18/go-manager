@@ -2515,6 +2515,14 @@ function trackingLink(num) {
   return `<a href="${trackingUrl(n)}" target="_blank" rel="noopener" style="font-family:var(--mono);font-weight:500;color:var(--accent);">${n}</a>`;
 }
 // The joiner's submitted shipments: method, status, fee, and tracking link.
+// A shipping total is final only once the domestic leg has been entered. The
+// queue auto-fills EMS the moment a request arrives, so total_fee is EMS-only
+// until the admin types a domestic fee — and of 60 shipped requests not one
+// went out EMS-only, while 14 of 26 open ones sat in that state when this was
+// found. Blank means not done; typing 0 counts as entered, so an EMS-only
+// shipment can still be finalised on purpose.
+function domFeeEntered(v) { return v !== null && v !== undefined && String(v).trim() !== ''; }
+function shipFeeFinal(r) { return domFeeEntered(r && r.dom_fee) && (parseFloat(r && r.total_fee) || 0) > 0; }
 // What happens next on a shipment the joiner is still waiting on. This sits on
 // every unshipped row rather than only firing after submitting, because the
 // question comes back days later when the submit toast is long gone. The
@@ -2524,7 +2532,7 @@ function trackingLink(num) {
 function shipNextStepHtml(r) {
   if (r.shipped) return '';
   const fee = parseFloat(r.total_fee) || 0;
-  const text = fee > 0
+  const text = shipFeeFinal(r)
     ? `Your shipping total is $${fee.toFixed(2)}. Your package goes out once that payment reaches me.`
     : "Nothing to pay yet. I'll message you with photos of your items and your shipping total.";
   return `<div style="font-size:12px;color:var(--text2);background:var(--surface2);border-radius:6px;padding:7px 9px;margin-top:6px;line-height:1.45;">${text}</div>`;
@@ -2538,8 +2546,8 @@ function shipmentsCardHtml(username) {
         <span class="badge ${r.shipped ? 'badge-secured' : 'badge-pending'}" style="font-size:10px;">${r.shipped ? 'Shipped' : 'Preparing'}</span>
         <span class="badge badge-fcfs" style="font-size:10px;">${r.method === 'stamped' ? 'Stamped' : 'Tracked'}</span>
         <span style="font-size:11px;color:var(--text3);">${(r.items || []).length} item${(r.items || []).length !== 1 ? 's' : ''}${r.created_at ? ' · ' + fmtDate(r.created_at) : ''}</span>
-        <button class="btn btn-sm btn-ghost" style="font-size:11px;padding:2px 8px;${parseFloat(r.total_fee) > 0 ? '' : 'margin-left:auto;'}" onclick="viewMyShipment('${r.request_id}')">View receipt</button>
-        ${parseFloat(r.total_fee) > 0 ? `<span style="font-size:11px;font-family:var(--mono);color:var(--text2);margin-left:auto;">$${parseFloat(r.total_fee).toFixed(2)} shipping</span>` : ''}
+        <button class="btn btn-sm btn-ghost" style="font-size:11px;padding:2px 8px;${shipFeeFinal(r) ? '' : 'margin-left:auto;'}" onclick="viewMyShipment('${r.request_id}')">View receipt</button>
+        ${shipFeeFinal(r) ? `<span style="font-size:11px;font-family:var(--mono);color:var(--text2);margin-left:auto;">$${parseFloat(r.total_fee).toFixed(2)} shipping</span>` : ''}
       </div>
       ${r.tracking_number ? `<div style="font-size:12px;margin-top:4px;">Tracking: ${trackingLink(r.tracking_number)}</div>` : ''}
       ${shipNextStepHtml(r)}
@@ -6093,10 +6101,15 @@ function shipReceiptHtml(items, emsFee, domFee) {
     const computed = cards * EMS_PER_CARD + (items || []).reduce((a, it) => a + (parseFloat(it.ems) || 0), 0);
     if (emsBreak && Math.abs(computed - ems) > 0.005) emsBreak += sub('Adjusted by the manager', (ems - computed >= 0 ? '+' : '−') + '$' + Math.abs(ems - computed).toFixed(2));
   }
+  // Until the domestic leg is entered, ems+dom is not the figure to collect —
+  // say so rather than printing a number the joiner might pay.
+  const domSet = domFeeEntered(domFee);
   const feesHtml = (ems || dom) ? `<div style="margin-top:12px;">
     ${ems ? line('EMS fee', '$' + ems.toFixed(2)) + emsBreak : ''}
     ${dom ? line('Domestic shipping', '$' + dom.toFixed(2)) : ''}
-    <div style="border-top:0.5px solid var(--border);margin-top:4px;">${line('Shipping to collect', '$' + (ems + dom).toFixed(2), true)}</div>
+    <div style="border-top:0.5px solid var(--border);margin-top:4px;">${domSet
+      ? line('Shipping to collect', '$' + (ems + dom).toFixed(2), true)
+      : line('Shipping to collect', 'not final yet', true) + sub('domestic postage still to be added', '')}</div>
   </div>` : '';
   return { itemsHtml, feesHtml };
 }
