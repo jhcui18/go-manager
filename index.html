@@ -2515,6 +2515,20 @@ function trackingLink(num) {
   return `<a href="${trackingUrl(n)}" target="_blank" rel="noopener" style="font-family:var(--mono);font-weight:500;color:var(--accent);">${n}</a>`;
 }
 // The joiner's submitted shipments: method, status, fee, and tracking link.
+// What happens next on a shipment the joiner is still waiting on. This sits on
+// every unshipped row rather than only firing after submitting, because the
+// question comes back days later when the submit toast is long gone. The
+// wording flips on its own once the admin enters the fee, so it needs no
+// upkeep. It deliberately does not say HOW to pay — that is arranged over
+// Instagram, and the page should not contradict the message.
+function shipNextStepHtml(r) {
+  if (r.shipped) return '';
+  const fee = parseFloat(r.total_fee) || 0;
+  const text = fee > 0
+    ? `Your shipping total is $${fee.toFixed(2)}. Your package goes out once that payment reaches me.`
+    : "Nothing to pay yet. I'll message you with photos of your items and your shipping total.";
+  return `<div style="font-size:12px;color:var(--text2);background:var(--surface2);border-radius:6px;padding:7px 9px;margin-top:6px;line-height:1.45;">${text}</div>`;
+}
 function shipmentsCardHtml(username) {
   const mine = (shippingRequests || []).filter(r => sameUser(r.username, username));
   if (!mine.length) return '';
@@ -2528,6 +2542,7 @@ function shipmentsCardHtml(username) {
         ${parseFloat(r.total_fee) > 0 ? `<span style="font-size:11px;font-family:var(--mono);color:var(--text2);margin-left:auto;">$${parseFloat(r.total_fee).toFixed(2)} shipping</span>` : ''}
       </div>
       ${r.tracking_number ? `<div style="font-size:12px;margin-top:4px;">Tracking: ${trackingLink(r.tracking_number)}</div>` : ''}
+      ${shipNextStepHtml(r)}
     </div>`).join('');
   return `<div class="card" style="margin-top:12px;">
     <div style="font-weight:500;font-size:15px;margin-bottom:4px;">Your shipments</div>${rows}
