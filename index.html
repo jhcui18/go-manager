@@ -2322,14 +2322,17 @@ function renderMyOrderArchive(archivedRows, u) {
   </div>`;
 }
 
-let myOrderGoOpen = {};  // go_id -> bool; default OPEN (a missing key renders expanded)
+let myOrderGoOpen = {};  // go_id -> bool; a missing key means "not touched" — the block then opens only if that GO owes money
 function toggleMyOrderGo(gid) {
-  myOrderGoOpen[gid] = myOrderGoOpen[gid] === false ? true : false;
-  const isOpen = myOrderGoOpen[gid] !== false;
   const body = document.getElementById('myo-body-' + gid);
   const chev = document.getElementById('myo-chev-' + gid);
-  if (body) body.style.display = isOpen ? 'block' : 'none';
-  if (chev) chev.textContent = isOpen ? '▾' : '▸';
+  // Read the state off the rendered block instead of assuming a default. Blocks
+  // now start closed unless the GO owes money, so the old fixed default made
+  // the first tap on a closed block a no-op.
+  const next = !!(body && body.style.display === 'none');
+  myOrderGoOpen[gid] = next;
+  if (body) body.style.display = next ? 'block' : 'none';
+  if (chev) chev.textContent = next ? '▾' : '▸';
 }
 
 let myOrderPayOpen = {};  // go_id -> bool; default OPEN (missing key renders expanded)
@@ -2392,11 +2395,37 @@ function myPaymentsSection(username, goId) {
 }
 
 // One collapsible card for a GO: claims table + payment section (Paid/Owed/Credit + form).
+// The line under a collapsed GO's name. A joiner opens this page to answer two
+// questions — do I owe anything, and has my stuff arrived — so a collapsed row
+// has to carry both or there is nothing to decide on without tapping. Items
+// already sitting in a shipping request are not counted as ready to ship,
+// otherwise the count would keep nagging after they had done their part.
+function myOrderGoSubLine(goRows, summary, shipReqs) {
+  const rows = goRows || [];
+  const bits = [];
+  if (rows.length) bits.push(rows.length + ' item' + (rows.length !== 1 ? 's' : ''));
+  const inRequest = {};
+  (shipReqs || []).forEach(r => (r.items || []).forEach(i => { if (i && i.id) inRequest[i.id] = true; }));
+  const ready = rows.filter(r => r.payment === 'paid' && r.fulfillment === 'Ready'
+    && ![...(r.claim_ids || []), ...(r.order_ids || [])].some(id => inRequest[id])).length;
+  if (ready) bits.push(`<span style="color:var(--teal-600);">${ready} ready to ship</span>`);
+  if (summary && summary.owed > 0) {
+    const dues = rows.filter(r => r.claim === 'Secured' && r.payment !== 'paid' && r.due).map(r => r.due).sort();
+    if (dues.length) bits.push(payDatePast(dues[0])
+      ? '<span style="color:var(--red-400);font-weight:500;">payment due now</span>'
+      : 'pay by ' + fmtDate(dues[0]));
+  }
+  return bits.length ? `<div style="font-size:12px;color:var(--text3);margin-top:2px;font-weight:400;">${bits.join(' · ')}</div>` : '';
+}
 function renderMyOrderGoBlock(g, goRows, u, summary) {
   const s = summary || goPaymentSummary(u, g.go_id);
   const siMetaP = {}; Object.values(allGOs).forEach(go => (go.subItems || []).forEach(si => { siMetaP[si.id] = si; }));
   const partial = g.go_id === 'shop' ? {} : partialPaidMap(ownedUnitsFromClaims((myLookupClaims || []).filter(c => sameUser(c.username, u) && c.go_id === g.go_id), siMetaP), s.paid);
-  const open = myOrderGoOpen[g.go_id] !== false;
+  // Collapsed by default — a joiner with a thousand claims got a page thousands
+  // of rows tall. Anything still owed opens itself, so what needs action is
+  // what is already expanded; owing nothing means every block stays shut.
+  // An explicit tap is remembered for the visit and overrides both.
+  const open = myOrderGoOpen[g.go_id] !== undefined ? !!myOrderGoOpen[g.go_id] : (s.owed > 0);
   const rightBadge = s.owed > 0
     ? `Owed: <strong style="font-family:var(--mono);">$${s.owed.toFixed(2)}</strong>`
     : (s.credit > 0.001 ? `<span style="color:var(--teal-600);font-weight:500;">Credit $${s.credit.toFixed(2)}</span>`
@@ -2444,8 +2473,8 @@ function renderMyOrderGoBlock(g, goRows, u, summary) {
   return `<div class="card" style="margin-bottom:12px;">
     <div style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;" onclick="toggleMyOrderGo('${g.go_id}')">
       <span id="myo-chev-${g.go_id}" style="width:12px;color:var(--text3);">${open ? '▾' : '▸'}</span>
-      <div style="font-weight:500;font-size:15px;flex:1;">${g.go}</div>
-      <div style="font-size:13px;">${rightBadge}</div>
+      <div style="font-weight:500;font-size:15px;flex:1;min-width:0;">${g.go}${myOrderGoSubLine(goRows, s, shippingRequests)}</div>
+      <div style="font-size:13px;flex:none;">${rightBadge}</div>
     </div>
     <div id="myo-body-${g.go_id}" style="display:${open ? 'block' : 'none'};margin-top:12px;">
       ${goRows.length ? `<div class="table-wrap"><table>
