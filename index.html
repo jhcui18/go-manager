@@ -343,7 +343,7 @@
       <div style="font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:2px;">Payment methods</div>
       <div style="font-size:13px;display:flex;flex-wrap:wrap;gap:8px;">
         <span class="tag">PayPal F&amp;F (no note): @jinghanc</span>
-        <span class="tag">Venmo: @Jinghan-Cui</span>
+        <span class="tag">Venmo: @zttzhu</span>
         <span class="tag">Zelle: jhcui1818@gmail.com</span>
         <span class="tag">Wise: @jinghanc3</span>
       </div>
@@ -581,7 +581,7 @@ const EMS_PER_CARD = 0.65;
 // Single source of truth for the manager's payment handles (mirrors the Rules page).
 const PAYMENT_METHODS = [
   { method: 'PayPal', handle: '@jinghanc',          note: 'F&F (no note)' },
-  { method: 'Venmo',  handle: '@Jinghan-Cui',       note: '' },
+  { method: 'Venmo',  handle: '@zttzhu',       note: '' },
   { method: 'Zelle',  handle: 'jhcui1818@gmail.com', note: '' },
   { method: 'Wise',   handle: '@jinghanc3',         note: '' },
 ];
@@ -3059,7 +3059,7 @@ function renderDetailContentInner() {
     html += ` <span style="font-size:12px;color:var(--text3);font-weight:400;${nSecurable ? '' : 'margin-left:auto;'}">${setsSummary(si)}</span>`;
     html += `</span><span class="si-ctl">`;
     if (si.closed) html += ` <span class="badge badge-waitlist" style="font-size:10px;">Closed</span>`;
-    html += ` <button class="btn btn-sm btn-ghost" style="font-size:11px;padding:2px 8px;${si.closed ? 'color:var(--teal-600);' : 'color:var(--red-400);'}" onclick="event.stopPropagation();toggleSubItemClosed('${go.id}','${si.id}')">${si.closed ? 'Reopen POB' : 'Close POB'}</button>`;
+    html += ` <button class="btn btn-sm btn-ghost" style="font-size:11px;padding:2px 8px;${si.closed ? 'color:var(--teal-600);' : 'color:var(--red-400);'}" onclick="event.stopPropagation();toggleSubItemClosed('${go.id}','${si.id}')">${si.closed ? 'Reopen' : 'Close'}</button>`;
     html += `<span class="si-dates"> <span class="si-date"><span style="font-size:11px;color:var(--text3);">closes</span> <input type="date" value="${si.deadline || ''}" onclick="event.stopPropagation()" onchange="setSubItemDeadline('${go.id}','${si.id}', this.value)" style="font-size:11px;padding:1px 4px;border:0.5px solid var(--border2);border-radius:5px;"></span>`;
     html += ` <span class="si-date"><span style="font-size:11px;color:var(--text3);">pay by</span> <input type="date" value="${si.payDue || ''}" onclick="event.stopPropagation()" onchange="setSubItemPayDue('${go.id}','${si.id}', this.value)" style="font-size:11px;padding:1px 4px;border:0.5px solid var(--border2);border-radius:5px;"></span>`;
     html += `</span></span></div>`;
