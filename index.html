@@ -472,8 +472,8 @@
           <button class="btn btn-sm" onclick="refreshShippingQueue()">↺ Refresh</button>
         </div>
         <div class="card"><div class="table-wrap"><table class="ship-queue">
-          <thead><tr><th>Username</th><th>Items</th><th>EMS fee</th><th>Dom. fee</th><th>Total</th><th>Tracking #</th><th>Actions</th></tr></thead>
-          <tbody id="shipping-queue-tbody"><tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px;">No shipping requests yet.</td></tr></tbody>
+          <thead><tr><th>Username</th><th>Total</th><th>Tracking #</th><th>Actions</th></tr></thead>
+          <tbody id="shipping-queue-tbody"><tr><td colspan="4" style="text-align:center;color:var(--text3);padding:20px;">No shipping requests yet.</td></tr></tbody>
         </table></div></div>
       </div>
     </div>
@@ -4065,7 +4065,7 @@ async function loadAdminStore() {
 
 async function loadAdminShipping() {
   if (adminShippingLoaded) { renderShippingQueue(); return; }
-  loadingRow('shipping-queue-tbody', 'Loading shipping requests…', 7);
+  loadingRow('shipping-queue-tbody', 'Loading shipping requests…', 4);
   let failed = false;
   try {
     const sr = await db.getShipping();
@@ -5990,7 +5990,7 @@ function renderShippingQueueInner() {
   const pending = (shippingRequests || []).filter(r => !r.shipped);
   const shipped = (shippingRequests || []).filter(r => r.shipped);
   if (!pending.length && !shipped.length) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px;">No shipping requests.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:20px;">No shipping requests.</td></tr>';
     return;
   }
   // Archived (shipped) rows are read-only: fees and tracking as text, View + Unship.
@@ -5998,10 +5998,8 @@ function renderShippingQueueInner() {
     const items = r.items || [];
     const total = parseFloat(r.total_fee) || ((parseFloat(r.ems_fee) || 0) + (parseFloat(r.dom_fee) || 0));
     return `<tr style="opacity:0.75;">
-      <td data-label="Joiner" style="font-weight:500;">${r.username}</td>
-      <td data-label="Items" style="font-size:12px;color:var(--text2);white-space:nowrap;">${items.reduce((a, it) => a + (parseInt(it.qty) || 1), 0)} item${items.reduce((a, it) => a + (parseInt(it.qty) || 1), 0) !== 1 ? 's' : ''}</td>
-      <td data-label="Status" colspan="2"><span class="badge badge-secured" style="font-size:10px;">Shipped</span></td>
-      <td data-label="Total" style="font-family:var(--mono);">${total > 0 ? '$' + total.toFixed(2) : '—'}</td>
+      <td data-label="Joiner" style="font-weight:500;white-space:nowrap;">${r.username}${r.full_name ? `<div style="font-size:11px;font-weight:400;color:var(--text3);">${esc(r.full_name)}</div>` : ''}</td>
+      <td data-label="Total" style="font-family:var(--mono);white-space:nowrap;">${total > 0 ? '$' + total.toFixed(2) : '—'} <span class="badge badge-secured" style="font-size:10px;margin-left:6px;">Shipped</span></td>
       <td data-label="Tracking" style="font-size:12px;">${r.tracking_number ? trackingLink(r.tracking_number) : '—'}</td>
       <td data-label="Actions"><div style="display:flex;gap:4px;align-items:center;white-space:nowrap;">
         <button class="btn btn-sm btn-ghost" onclick="viewShippingAddress('${r.request_id}')">View</button>
@@ -6020,20 +6018,19 @@ function renderShippingQueueInner() {
     // Basis shown under the input; if the stored fee disagrees with the computed
     // figure (items edited before the recalc, or a manual value), say so and offer
     // a one-click apply — the basis alone read as "2 × $0.65" over a $0.65 box.
+    // Fees are edited in the View modal now (the table was too wide); the row
+    // only flags what still needs attention there.
     const expectedEms = cards * EMS_PER_CARD + extraEms;
     const emsMismatch = expectedEms > 0.001 && parseFloat(r.ems_fee) > 0 && Math.abs(parseFloat(r.ems_fee) - expectedEms) > 0.005;
-    const emsBasis = [cards ? `${cards} × $${EMS_PER_CARD.toFixed(2)}` : '', extraEms ? `+ $${extraEms.toFixed(2)} items` : ''].filter(Boolean).join(' ')
-      + (emsMismatch ? ` = <span style="color:var(--amber-800);">$${expectedEms.toFixed(2)}</span> <a href="#" style="color:var(--accent);" onclick="event.preventDefault();applyComputedEms('${r.request_id}',${expectedEms.toFixed(2)})">apply</a>` : '')
-      + (unpriced ? `<div style="color:var(--amber-800);">${unpriced} item${unpriced !== 1 ? 's' : ''} without EMS</div>` : '');
+    const feeHint = unpriced ? `${unpriced} item${unpriced !== 1 ? 's' : ''} without EMS`
+      : !domFeeEntered(r.dom_fee) ? 'domestic not set'
+      : emsMismatch ? 'EMS differs from computed' : '';
     const ems = parseFloat(r.ems_fee) || 0;
     const dom = parseFloat(r.dom_fee) || 0;
     const total = (ems + dom) > 0 ? (ems + dom).toFixed(2) : '—';
     return `<tr>
-      <td data-label="Joiner" style="font-weight:500;">${r.username}</td>
-      <td data-label="Items" style="font-size:12px;color:var(--text2);white-space:nowrap;">${units} item${units !== 1 ? 's' : ''}${units !== items.length ? ` <span style="color:var(--text3);">(${items.length} lines)</span>` : ''}${cards ? `<div style="font-size:11px;color:var(--text3);">${cards} card${cards !== 1 ? 's' : ''}</div>` : ''}</td>
-      <td data-label="EMS fee"><input type="number" placeholder="0.00" step="0.01" value="${r.ems_fee||''}" oninput="updateShipFee('${r.request_id}','ems',this.value)" onchange="saveShipFees('${r.request_id}')" style="width:72px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);">${emsBasis ? `<div style="font-size:10px;color:var(--text3);margin-top:2px;white-space:nowrap;">${emsBasis}</div>` : ''}</td>
-      <td data-label="Dom. fee"><input type="number" placeholder="0.00" step="0.01" value="${r.dom_fee||''}" oninput="updateShipFee('${r.request_id}','dom',this.value)" onchange="saveShipFees('${r.request_id}')" style="width:72px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);"></td>
-      <td data-label="Total" style="font-family:var(--mono);font-weight:500;" id="ship-total-${r.request_id}">${total !== '—' ? '$'+total : '—'}</td>
+      <td data-label="Joiner" style="font-weight:500;white-space:nowrap;">${r.username}${r.full_name ? `<div style="font-size:11px;font-weight:400;color:var(--text3);">${esc(r.full_name)}</div>` : ''}</td>
+      <td data-label="Total" style="white-space:nowrap;"><span style="font-family:var(--mono);font-weight:500;" id="ship-total-${r.request_id}">${total !== '—' ? '$'+total : '—'}</span>${feeHint ? `<div style="font-size:10px;color:var(--amber-800);margin-top:2px;">${feeHint}</div>` : ''}</td>
       <td data-label="Tracking"><input type="text" placeholder="Paste number" value="${r.tracking_number||''}" onchange="saveShipTracking('${r.request_id}',this.value)" style="width:130px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);"></td>
       <td data-label="Actions"><div style="display:flex;gap:4px;align-items:center;white-space:nowrap;">
         <button class="btn btn-sm btn-ghost" onclick="viewShippingAddress('${r.request_id}')">View</button>
@@ -6043,9 +6040,9 @@ function renderShippingQueueInner() {
       </div></td>
     </tr>`;
   }).join('')
-    || '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:14px;">Queue clear — nothing waiting to ship.</td></tr>';
+    || '<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:14px;">Queue clear — nothing waiting to ship.</td></tr>';
   if (shipped.length) {
-    html += `<tr><td colspan="7" style="padding:8px;cursor:pointer;user-select:none;color:var(--text3);font-size:12px;" onclick="toggleShipArchive()">
+    html += `<tr><td colspan="4" style="padding:8px;cursor:pointer;user-select:none;color:var(--text3);font-size:12px;" onclick="toggleShipArchive()">
       ${shipArchiveOpen ? '▾' : '▸'} Shipped (${shipped.length})</td></tr>`;
     if (shipArchiveOpen) html += shipped.map(shippedRow).join('');
   }
@@ -6263,12 +6260,40 @@ async function saveShipEdit() {
   toast(d.reset_ems ? 'Shipping request updated — EMS recalculated from the new items.' : 'Shipping request updated.');
   refreshShippingQueue();   // reload items (labels, prices, card counts) from the database; a blank EMS pre-fills
 }
-// Packing-slip view of one request: address, then the shared receipt.
+// Fee editor inside the View modal: EMS (with the computed basis and a one-click
+// apply when the stored fee differs) and domestic. Saves like the old table
+// inputs did — debounced while typing, at once on change — and re-renders the
+// receipt's fee lines so "Shipping to collect" follows the edit.
+function shipFeeEditorHtml(r) {
+  const items = r.items || [];
+  const cards = items.reduce((a, it) => a + (parseInt(it.cards) || 0), 0);
+  const extraEms = items.reduce((a, it) => a + (parseFloat(it.ems) || 0), 0);
+  const unpriced = items.filter(it => it.type === 'claim' && !it.cards && it.ems == null).length;
+  const expectedEms = cards * EMS_PER_CARD + extraEms;
+  const emsMismatch = expectedEms > 0.001 && parseFloat(r.ems_fee) > 0 && Math.abs(parseFloat(r.ems_fee) - expectedEms) > 0.005;
+  const basis = [cards ? `${cards} × $${EMS_PER_CARD.toFixed(2)}` : '', extraEms ? `+ $${extraEms.toFixed(2)} items` : ''].filter(Boolean).join(' ')
+    + (emsMismatch ? ` = <span style="color:var(--amber-800);">$${expectedEms.toFixed(2)}</span> <a href="#" style="color:var(--accent);" onclick="event.preventDefault();applyComputedEms('${r.request_id}',${expectedEms.toFixed(2)});viewShippingAddress('${r.request_id}')">apply</a>` : '')
+    + (unpriced ? `<div style="color:var(--amber-800);">${unpriced} item${unpriced !== 1 ? 's' : ''} without EMS</div>` : '');
+  const inp = (which, val) => `<input type="number" placeholder="0.00" step="0.01" value="${val || ''}" ${r.shipped ? 'disabled' : ''} oninput="updateShipFee('${r.request_id}','${which}',this.value);refreshShipModalFees('${r.request_id}')" onchange="saveShipFees('${r.request_id}')" style="width:84px;padding:4px 8px;border:0.5px solid var(--border2);border-radius:6px;font-size:12px;font-family:var(--mono);">`;
+  return `<div style="display:flex;gap:16px;flex-wrap:wrap;margin:12px 0 4px;">
+    <div><div style="font-size:11px;color:var(--text3);margin-bottom:3px;">EMS fee</div>${inp('ems', r.ems_fee)}${basis ? `<div style="font-size:10px;color:var(--text3);margin-top:2px;">${basis}</div>` : ''}</div>
+    <div><div style="font-size:11px;color:var(--text3);margin-bottom:3px;">Domestic fee</div>${inp('dom', r.dom_fee)}</div>
+  </div>`;
+}
+function refreshShipModalFees(requestId) {
+  const r = shippingRequests.find(x => x.request_id === requestId);
+  const el = document.getElementById('ship-modal-fees');
+  if (!r || !el) return;
+  el.innerHTML = shipReceiptHtml(r.items || [], r.ems_fee, r.dom_fee).feesHtml;
+}
+// Packing-slip view of one request: address, items, the fee editor, then the receipt.
 function viewShippingAddress(requestId) {
   const r = shippingRequests.find(x => x.request_id === requestId);
   if (!r) return;
   const addr = [r.full_name, r.address1, r.address2, [r.city, r.state, r.postal].filter(Boolean).join(', '), r.country, r.notes ? ('Notes: ' + r.notes) : ''].filter(Boolean).join('\n');
   const items = r.items || [];
+  const units = items.reduce((a, it) => a + (parseInt(it.qty) || 1), 0);
+  const cards = items.reduce((a, it) => a + (parseInt(it.cards) || 0), 0);
   const { itemsHtml, feesHtml } = shipReceiptHtml(items, r.ems_fee, r.dom_fee);
   showModal(`
     <div style="font-size:16px;font-weight:500;margin-bottom:4px;">Shipping request</div>
@@ -6276,9 +6301,10 @@ function viewShippingAddress(requestId) {
       <span class="badge ${r.method === 'stamped' ? 'badge-pending' : 'badge-fcfs'}" style="font-size:10px;margin-left:6px;">${r.method === 'stamped' ? 'Stamped' : 'Tracked'}</span>
       ${r.tracking_number ? `<span style="font-size:12px;font-weight:400;margin-left:6px;">${trackingLink(r.tracking_number)}</span>` : ''}</div>
     <div style="font-size:13px;color:var(--text2);white-space:pre-line;margin-bottom:16px;">${addr || 'No address.'}</div>
-    <div style="font-size:13px;font-weight:500;margin-bottom:4px;">Items (${items.length})</div>
-    <div style="max-height:45vh;overflow-y:auto;">${itemsHtml || '<div style="font-size:12px;color:var(--text3);">—</div>'}</div>
-    ${feesHtml}
+    <div style="font-size:13px;font-weight:500;margin-bottom:4px;">Items (${units}${units !== items.length ? `, ${items.length} lines` : ''}${cards ? `, ${cards} card${cards !== 1 ? 's' : ''}` : ''})</div>
+    <div style="max-height:40vh;overflow-y:auto;">${itemsHtml || '<div style="font-size:12px;color:var(--text3);">—</div>'}</div>
+    ${shipFeeEditorHtml(r)}
+    <div id="ship-modal-fees">${feesHtml}</div>
     <button class="btn btn-ghost" onclick="closeModal()" style="margin-top:20px;width:100%;justify-content:center;">Close</button>`);
 }
 
