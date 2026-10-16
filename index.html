@@ -2638,7 +2638,7 @@ function setShipMethod(m) {
 function renderShipPanel(username) {
   const el = document.getElementById('lookup-ship-panel');
   if (!el) return;
-  const items = shipEligibleItems(username);
+  const items = shipSortItems(shipEligibleItems(username));   // GO by GO, sub-item by sub-item
   let html = shipmentsCardHtml(username);
   shipMethod = 'tracked';
   if (items.length) html += `
@@ -6132,6 +6132,25 @@ function saveShipFees(requestId) {
 // Receipt body shared by the admin packing slip and the joiner's Your-shipments
 // card: itemized prices (OT-set cards and legacy unlinked lines unpriced), an
 // items-already-paid total, and the shipping fees once entered.
+// Shipping-request lines are labeled "GO — sub-item detail" (shop lines "Shop — …").
+// Split that so lines can be grouped by GO, then by sub-item; `go`/`si` fields win
+// when the row carries them (admin getShipping), the label is parsed otherwise.
+function shipItemKey(it) {
+  const label = String(it.label || '');
+  const m = label.match(/^(.*?)\s+—\s+([\s\S]*)$/);
+  const go = it.go || (m ? m[1] : '');
+  const rest = m ? m[2] : label;
+  return { go, rest, si: it.si || rest };
+}
+function shipSortItems(arr) {
+  arr.forEach((it, i) => { it._i = i; });
+  arr.sort((a, b) => {
+    const ka = shipItemKey(a), kb = shipItemKey(b);
+    return ka.go.localeCompare(kb.go) || ka.si.localeCompare(kb.si) || (a._i - b._i);
+  });
+  arr.forEach(it => { delete it._i; });
+  return arr;
+}
 function shipReceiptHtml(items, emsFee, domFee) {
   const line = (label, right, bold) => `<div style="display:flex;gap:10px;justify-content:space-between;align-items:baseline;padding:3px 0;${bold?'font-weight:600;':''}">
     <span style="font-size:12px;color:${bold?'var(--text)':'var(--text2)'};min-width:0;">${label}</span>
@@ -6153,12 +6172,22 @@ function shipReceiptHtml(items, emsFee, domFee) {
     }
     shown.push(it);
   });
-  let itemsHtml = shown.map(it => {
-    if (it.ot && it.n) return line(it.label.replace(/[\s—-]+$/, '') + ` OT${it.n} full set`, 'OT set');
+  // One GO's lines sit together under a GO heading, and within a GO one sub-item's
+  // lines sit together — requests are stored in the order the joiner ticked boxes.
+  shipSortItems(shown);
+  let itemsHtml = '', lastGo = null;
+  shown.forEach(it => {
+    const k = shipItemKey(it);
+    if (k.go !== lastGo) {
+      lastGo = k.go;
+      if (k.go) itemsHtml += `<div style="font-size:11px;font-weight:500;color:var(--text3);padding:6px 0 1px;">${k.go}</div>`;
+    }
+    const label = k.go ? k.rest : it.label;
+    if (it.ot && it.n) { itemsHtml += line(label.replace(/[\s—-]+$/, '') + ` OT${it.n} full set`, 'OT set'); return; }
     const q = parseInt(it.qty) || 1;
-    return line(it.label + (q > 1 ? ` <span style="color:var(--text3);">×${q}</span>` : ''),
-                it.ot ? 'OT set' : (pv(it) != null ? '$' + pv(it).toFixed(2) : '—'));
-  }).join('');
+    itemsHtml += line(label + (q > 1 ? ` <span style="color:var(--text3);">×${q}</span>` : ''),
+                      it.ot ? 'OT set' : (pv(it) != null ? '$' + pv(it).toFixed(2) : '—'));
+  });
   const priced = (items || []).map(pv).filter(v => v != null);
   if (priced.length) {
     const sum = priced.reduce((a, v) => a + v, 0);
@@ -6199,7 +6228,7 @@ function shipReceiptHtml(items, emsFee, domFee) {
 let shipEdit = null;   // { r, groups:[{key,label,row_ids}], removed:Set, eligible:[], added:Set }
 function shipEditGroups(items) {
   const groups = [], ot = {};
-  (items || []).forEach(it => {
+  shipSortItems((items || []).slice()).forEach(it => {
     if (it.ot && it.set_id) {
       if (!ot[it.set_id]) { ot[it.set_id] = { key: 'ot:' + it.set_id, label: '', row_ids: [], n: 0 }; groups.push(ot[it.set_id]); }
       ot[it.set_id].row_ids.push(it.row_id); ot[it.set_id].n++;
@@ -6571,7 +6600,7 @@ const db = {
   async getShipping() {  // admin: full requests incl. addresses + items
     const data = await selectAll(() => sb.from('shipping_requests')
       .select('*, shipping_request_items(id, go_id, description, qty, claim_id, shop_order_id,' +
-        ' claims(qty, is_ot, set_id, price_override, sub_items(price, name, ems_fee, gos(type))), shop_orders(qty, unit_price))').order('created_at').order('id'));
+        ' claims(qty, is_ot, set_id, price_override, sub_items(price, name, ems_fee, gos(type, name))), shop_orders(qty, unit_price))').order('created_at').order('id'));
     return { requests: data.map(r => ({
       request_id: r.id, username: r.username, full_name: r.full_name,
       address1: r.address1, address2: r.address2 || '', city: r.city, state: r.state,
@@ -6608,7 +6637,9 @@ const db = {
           }
           return { type: i.claim_id ? 'claim' : i.shop_order_id ? 'shop' : 'item',
                    id: i.claim_id || i.shop_order_id || i.id, label: i.description, price, ot, qty, cards, ems,
-                   row_id: i.id, set_id: (i.claims && i.claims.set_id) || null };
+                   row_id: i.id, set_id: (i.claims && i.claims.set_id) || null,
+                   go: i.claims ? (((i.claims.sub_items || {}).gos || {}).name || '') : (i.shop_orders ? 'Shop' : ''),
+                   si: i.claims ? ((i.claims.sub_items || {}).name || '') : '' };
         }))
     })) };
   },
