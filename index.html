@@ -2849,8 +2849,11 @@ function loadClaimActivity() {  // background; failure (e.g. pre-migration) just
   db.getClaimActivity().then(act => { claimActivity = act; renderAdminGOList(); }).catch(()=>{});
   // Per-GO expected totals (go_money view) drive the "to collect" amount on the list.
   db.getGoMoney().then(m => { goMoney = m; renderAdminGOList(); }).catch(()=>{});
+  // Joiners still to add to the group chat, for the "N not in GC" line.
+  db.getGcPending().then(m => { gcPending = m; renderAdminGOList(); }).catch(()=>{});
 }
 let goMoney = {};  // go_id -> expected collection total (secured value), from go_money
+let gcPending = {}; // go_id -> secured joiners not yet marked added to the group chat, from go_gc_pending
 
 function markGOSeen(goId) {
   if (!isAdmin) return;
@@ -2881,10 +2884,34 @@ function renderAdminGOList() {
     if (!groups[key]) { groups[key] = { label, gos: [] }; order.push(key); }
     groups[key].gos.push(go);
   });
+  // Two thirds of the GOs are closed, so the tab was a long scroll past finished
+  // work. Like the Orders page, what needs action stays expanded: open GOs, and
+  // closed ones that still owe money or have new claims. The rest of each
+  // artist's closed GOs fold into one row that opens on click.
   el.innerHTML = order.map(key => {
     const g = groups[key];
-    return `<div class="artist-header">${g.label}</div>` + g.gos.map(go => renderAdminGOCard(go)).join('');
+    const live = g.gos.filter(go => go.status !== 'closed' || goNeedsAttention(go));
+    const done = g.gos.filter(go => !live.includes(go));
+    const open = !!adminClosedOpen[key];
+    let html = `<div class="artist-header">${g.label}</div>` + live.map(go => renderAdminGOCard(go)).join('');
+    if (done.length) {
+      html += `<div style="padding:6px 4px 10px;cursor:pointer;user-select:none;color:var(--text3);font-size:12px;" onclick="toggleAdminClosed('${key.replace(/'/g, "\\'")}')">${open ? '▾' : '▸'} Closed (${done.length})</div>`;
+      if (open) html += done.map(go => renderAdminGOCard(go)).join('');
+    }
+    return html;
   }).join('');
+}
+let adminClosedOpen = {};   // artist key -> bool; the folded closed-GO rows, shut by default
+function toggleAdminClosed(key) { adminClosedOpen[key] = !adminClosedOpen[key]; renderAdminGOList(); }
+// A closed GO still earns a card of its own while money is outstanding or
+// claims arrived since the admin last looked.
+function goNeedsAttention(go) {
+  if (hasNewClaims(go.id)) return true;
+  if (gcPending[go.id] > 0) return true;
+  const expected = goMoney[go.id];
+  if (!(expected > 0)) return false;
+  const collected = (paymentProofs || []).filter(p => p.go_id === go.id && p.status === 'confirmed').reduce((a, p) => a + (parseFloat(p.amount) || 0), 0);
+  return expected - collected > 0.005;
 }
 function renderAdminGOCard(go) {
     const typeLabel = go.type==='photocard'?'Photocard':go.type==='album'?'Album':'Merch';
@@ -2898,6 +2925,8 @@ function renderAdminGOCard(go) {
         ? ` · <span style="color:var(--red-400);font-weight:500;">$${toCollect.toFixed(2)} to collect</span>`
         : ` · <span style="color:var(--teal-600);">fully collected ✓</span>`;
     }
+    const gcLeft = gcPending[go.id] || 0;
+    if (gcLeft) collectedHtml += ` · <span style="color:var(--amber-800);font-weight:500;">${gcLeft} not in GC</span>`;
     const dot = hasNewClaims(go.id) ? '<span title="New claims since you last opened this GO" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--accent);margin-right:6px;"></span>' : '';
     return `<div class="card-sm" style="margin-bottom:8px;">
       <div style="display:flex;align-items:center;justify-content:space-between;">
@@ -2967,6 +2996,7 @@ function toggleGcAdded(goId, username) {
   const added = !gcAdded[goId][k];
   if (added) gcAdded[goId][k] = true; else delete gcAdded[goId][k];
   persistWrite(db.setGcAdded(goId, username, added), 'Group-chat mark');
+  gcPending[goId] = Math.max(0, (gcPending[goId] || 0) + (added ? -1 : 1));   // list line follows without a refetch
   renderDetailContent();
 }
 function copyHandle(username) {
@@ -6517,6 +6547,12 @@ const db = {
     const out = {};
     dbThrow(seen).forEach(g => { out[g.id] = { latest: null, seenAt: g.claims_seen_at }; });
     dbThrow(act).forEach(a => { if (out[a.go_id]) out[a.go_id].latest = a.latest_claim_at; });
+    return out;
+  },
+  async getGcPending() {   // admin-only view (044): secured joiners per GO not yet marked added to the group chat
+    const data = dbThrow(await sb.from('go_gc_pending').select('go_id, not_added'));
+    const out = {};
+    data.forEach(r => { out[r.go_id] = parseInt(r.not_added) || 0; });
     return out;
   },
   async getGoMoney() {
