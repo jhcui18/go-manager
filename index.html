@@ -2623,7 +2623,7 @@ function viewMyShipment(requestId) {
       <span class="badge badge-fcfs" style="font-size:10px;margin-left:4px;">${r.method === 'stamped' ? 'Stamped' : 'Tracked'}</span>
       ${r.created_at ? `<span style="font-size:12px;font-weight:400;color:var(--text3);margin-left:6px;">${fmtDate(r.created_at)}</span>` : ''}
       ${r.tracking_number ? `<span style="font-size:12px;font-weight:400;margin-left:6px;">${trackingLink(r.tracking_number)}</span>` : ''}</div>
-    <div style="font-size:13px;font-weight:500;margin-bottom:4px;">Items (${items.length})</div>
+    <div style="font-size:13px;font-weight:500;margin-bottom:4px;">Items (${shipItemsSummary(items)})</div>
     <div style="max-height:45vh;overflow-y:auto;">${itemsHtml || '<div style="font-size:12px;color:var(--text3);">—</div>'}</div>
     ${feesHtml}
     <button class="btn btn-ghost" onclick="closeModal()" style="margin-top:20px;width:100%;justify-content:center;">Close</button>`);
@@ -6135,6 +6135,22 @@ function saveShipFees(requestId) {
 // Shipping-request lines are labeled "GO — sub-item detail" (shop lines "Shop — …").
 // Split that so lines can be grouped by GO, then by sub-item; `go`/`si` fields win
 // when the row carries them (admin getShipping), the label is parsed otherwise.
+// Shipment make-up for the "Items (…)" heading: units, then cards / merch / albums.
+// A card is what the EMS rule calls a card (photocard GO, or a sub-item named
+// photocard); an album is any other unit from an album GO; the rest is merch
+// (merch GOs, shop orders, legacy unlinked lines).
+function shipItemsSummary(items) {
+  let units = 0, cards = 0, albums = 0, merch = 0;
+  (items || []).forEach(it => {
+    const q = parseInt(it.qty) || 1, c = parseInt(it.cards) || 0;
+    units += q; cards += c;
+    const rest = Math.max(0, q - c);
+    if (it.go_type === 'album') albums += rest; else merch += rest;
+  });
+  const n = (k, one, many) => k ? `${k} ${k === 1 ? one : many}` : '';
+  const parts = [n(cards, 'card', 'cards'), n(merch, 'merch item', 'merch items'), n(albums, 'album', 'albums')].filter(Boolean);
+  return `${units}${parts.length ? ': ' + parts.join(', ') : ''}`;
+}
 function shipItemKey(it) {
   const label = String(it.label || '');
   const m = label.match(/^(.*?)\s+—\s+([\s\S]*)$/);
@@ -6351,8 +6367,6 @@ function viewShippingAddress(requestId) {
   if (!r) return;
   const addr = [r.full_name, r.address1, r.address2, [r.city, r.state, r.postal].filter(Boolean).join(', '), r.country, r.notes ? ('Notes: ' + r.notes) : ''].filter(Boolean).join('\n');
   const items = r.items || [];
-  const units = items.reduce((a, it) => a + (parseInt(it.qty) || 1), 0);
-  const cards = items.reduce((a, it) => a + (parseInt(it.cards) || 0), 0);
   const { itemsHtml, feesHtml } = shipReceiptHtml(items, r.ems_fee, r.dom_fee);
   showModal(`
     <div style="font-size:16px;font-weight:500;margin-bottom:4px;">Shipping request</div>
@@ -6360,7 +6374,7 @@ function viewShippingAddress(requestId) {
       <span class="badge ${r.method === 'stamped' ? 'badge-pending' : 'badge-fcfs'}" style="font-size:10px;margin-left:6px;">${r.method === 'stamped' ? 'Stamped' : 'Tracked'}</span>
       ${r.tracking_number ? `<span style="font-size:12px;font-weight:400;margin-left:6px;">${trackingLink(r.tracking_number)}</span>` : ''}</div>
     <div style="font-size:13px;color:var(--text2);white-space:pre-line;margin-bottom:16px;">${addr || 'No address.'}</div>
-    <div style="font-size:13px;font-weight:500;margin-bottom:4px;">Items (${units}${units !== items.length ? `, ${items.length} lines` : ''}${cards ? `, ${cards} card${cards !== 1 ? 's' : ''}` : ''})</div>
+    <div style="font-size:13px;font-weight:500;margin-bottom:4px;">Items (${shipItemsSummary(items)})</div>
     <div style="max-height:40vh;overflow-y:auto;">${itemsHtml || '<div style="font-size:12px;color:var(--text3);">—</div>'}</div>
     ${shipFeeEditorHtml(r)}
     <div id="ship-modal-fees">${feesHtml}</div>
@@ -6639,6 +6653,7 @@ const db = {
                    id: i.claim_id || i.shop_order_id || i.id, label: i.description, price, ot, qty, cards, ems,
                    row_id: i.id, set_id: (i.claims && i.claims.set_id) || null,
                    go: i.claims ? (((i.claims.sub_items || {}).gos || {}).name || '') : (i.shop_orders ? 'Shop' : ''),
+                   go_type: i.claims ? (((i.claims.sub_items || {}).gos || {}).type || null) : null,
                    si: i.claims ? ((i.claims.sub_items || {}).name || '') : '' };
         }))
     })) };
