@@ -6153,10 +6153,17 @@ function shipItemsSummary(items) {
 }
 function shipItemKey(it) {
   const label = String(it.label || '');
+  // Shop lines read "listing — variant": the listing is the item, not a GO, so the
+  // whole label stays on the line under a "Shop" heading.
+  if (it.type === 'shop' || it.go === 'Shop') return { go: 'Shop', rest: label, si: label };
+  if (it.go) {
+    const pre = it.go + ' — ';
+    const rest = label.startsWith(pre) ? label.slice(pre.length) : label;
+    return { go: it.go, rest, si: it.si || rest };
+  }
   const m = label.match(/^(.*?)\s+—\s+([\s\S]*)$/);
-  const go = it.go || (m ? m[1] : '');
   const rest = m ? m[2] : label;
-  return { go, rest, si: it.si || rest };
+  return { go: m ? m[1] : '', rest, si: rest };
 }
 function shipSortItems(arr) {
   arr.forEach((it, i) => { it._i = i; });
