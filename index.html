@@ -33,6 +33,9 @@
   .page.active { display:block; }
   .card { background:var(--surface);border:1.5px solid var(--text);border-radius:var(--radius-lg);padding:20px 24px;margin-bottom:16px; }
   .card-sm { background:var(--surface);border:1.5px solid var(--text);border-radius:var(--radius);padding:14px 16px; }
+  /* Collapsible buyer item: the wrapper wears the frame, so the board it opens into drops its own. */
+  .clm-wrap { padding-top:0;padding-bottom:0; }
+  .clm-body > .card { border:0;padding:0;margin:0; }
   .section-label { font-size:11px;font-weight:500;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:12px; }
   .page-title { font-family:var(--display);font-size:30px;font-weight:400;margin-bottom:6px;letter-spacing:0.5px;text-transform:uppercase;line-height:1.05; }
   .page-sub { font-size:13px;color:var(--text2);margin-bottom:24px; }
@@ -809,8 +812,11 @@ function claimCollapsible(goId, si, inner) {
     ? '<span style="font-size:11px;color:var(--red-400);font-weight:500;">pay asap once secured</span>'
     : `<span style="font-size:11px;color:var(--text3);">pay by ${fmtDate(si.payDue)}</span>`);
   const dateLine = bits.join(' <span style="color:var(--border2);">·</span> ');
-  return `<div style="margin-bottom:10px;">
-    <div style="display:flex;align-items:center;gap:8px;padding:12px 4px;cursor:pointer;user-select:none;border-bottom:0.5px solid var(--border);" onclick="toggleClaimSI('${goId}','${si.id}')">
+  // The collapsed row wears the same frame as a merch card: a bare bordered line
+  // between framed cards was easy to miss. Expanded, the body renders its own card,
+  // so the header frame hides and the body card takes its place.
+  return `<div class="card clm-wrap" style="margin-bottom:12px;">
+    <div style="display:flex;align-items:center;gap:8px;padding:14px 0;cursor:pointer;user-select:none;" onclick="toggleClaimSI('${goId}','${si.id}')">
       <span id="clm-chev-${si.id}" style="width:12px;flex:none;color:var(--text3);">${open ? '▾' : '▸'}</span>
       <div style="min-width:0;">
         <div style="font-weight:500;font-size:15px;">${si.name}</div>
@@ -818,7 +824,7 @@ function claimCollapsible(goId, si, inner) {
       </div>
       <span style="margin-left:auto;flex:none;font-size:12px;color:var(--text3);">${setsSummary(si)}</span>
     </div>
-    <div id="clm-body-${si.id}" style="display:${open ? 'block' : 'none'};padding-top:10px;">${descHtml(si.description)}${inner}</div>
+    <div id="clm-body-${si.id}" class="clm-body" style="display:${open ? 'block' : 'none'};padding-bottom:6px;">${descHtml(si.description)}${inner}</div>
   </div>`;
 }
 // Admin free text (a GO/item description, a private note) is the only value
