@@ -2406,11 +2406,10 @@ function myPaymentsSection(username, goId) {
 }
 
 // One collapsible card for a GO: claims table + payment section (Paid/Owed/Credit + form).
-// The line under a collapsed GO's name. A joiner opens this page to answer two
-// questions — do I owe anything, and has my stuff arrived — so a collapsed row
-// has to carry both or there is nothing to decide on without tapping. Items
-// already sitting in a shipping request are not counted as ready to ship,
-// otherwise the count would keep nagging after they had done their part.
+// The line under a collapsed GO's name: item count and what is ready to ship.
+// The pay-by date lives only in each row's Payment column, so it shows once.
+// Items already sitting in a shipping request are not counted as ready to
+// ship, otherwise the count would keep nagging after they had done their part.
 function myOrderGoSubLine(goRows, summary, shipReqs) {
   const rows = goRows || [];
   const bits = [];
@@ -2420,12 +2419,6 @@ function myOrderGoSubLine(goRows, summary, shipReqs) {
   const ready = rows.filter(r => r.payment === 'paid' && r.fulfillment === 'Ready'
     && ![...(r.claim_ids || []), ...(r.order_ids || [])].some(id => inRequest[id])).length;
   if (ready) bits.push(`<span style="color:var(--teal-600);">${ready} ready to ship</span>`);
-  if (summary && summary.owed > 0) {
-    const dues = rows.filter(r => r.claim === 'Secured' && r.payment !== 'paid' && r.due).map(r => r.due).sort();
-    if (dues.length) bits.push(payDatePast(dues[0])
-      ? '<span style="color:var(--red-400);font-weight:500;">payment due now</span>'
-      : 'pay by ' + fmtDate(dues[0]));
-  }
   return bits.length ? `<div style="font-size:12px;color:var(--text3);margin-top:2px;font-weight:400;">${bits.join(' · ')}</div>` : '';
 }
 function renderMyOrderGoBlock(g, goRows, u, summary) {
@@ -2479,8 +2472,6 @@ function renderMyOrderGoBlock(g, goRows, u, summary) {
           <button class="btn btn-sm" style="margin-left:6px;" onclick="payWithBalance('${u}','${g.go_id}')">Use $${ba.spent.toFixed(2)} of balance</button>
         </div>` : '';
   const creditNote = '';
-  const goObj = allGOs[g.go_id];
-  const deadlineNote = (s.owed > 0 && goObj && goObj.paymentDeadline) ? `<div style="font-size:12px;color:var(--red-400);font-weight:500;margin:0 0 10px;">Pay by ${fmtDate(goObj.paymentDeadline)}</div>` : '';
   return `<div class="card" style="margin-bottom:12px;">
     <div style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;" onclick="toggleMyOrderGo('${g.go_id}')">
       <span id="myo-chev-${g.go_id}" style="width:12px;color:var(--text3);">${open ? '▾' : '▸'}</span>
@@ -2494,7 +2485,7 @@ function renderMyOrderGoBlock(g, goRows, u, summary) {
       </table></div>` : emptyNote}
       <div style="font-size:12px;color:var(--text3);margin:10px 0;">${summaryLine}</div>
       ${myPaymentsSection(u, g.go_id)}
-      ${deadlineNote}${form}${creditNote}${balanceControl}
+      ${form}${creditNote}${balanceControl}
     </div>
   </div>`;
 }
