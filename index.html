@@ -226,6 +226,16 @@
       <button class="btn btn-primary" onclick="doLookup()">Look up</button>
     </div>
   </div>
+  <div class="lookup-box" id="lookup-gate" style="display:none;">
+    <div style="font-size:32px;color:var(--text3);margin-bottom:12px;">🔒</div>
+    <div style="font-size:16px;font-weight:500;margin-bottom:6px;">Passcode for <span id="lookup-gate-user">@username</span></div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:20px;" id="lookup-gate-note">Enter your passcode to see your orders.</div>
+    <div style="display:flex;gap:8px;max-width:360px;margin:0 auto;">
+      <input type="password" placeholder="Passcode" id="lookup-code" autocomplete="off" onkeydown="if(event.key==='Enter')submitLookupPasscode()" style="flex:1;">
+      <button class="btn btn-primary" onclick="submitLookupPasscode()">Continue</button>
+    </div>
+    <div style="font-size:12px;color:var(--text3);margin-top:14px;">First time here? <a href="#" onclick="createLookupPasscode();return false;" style="color:var(--accent-dark);">Create your passcode</a> · Forgot it? DM Carol to reset. · <a href="#" onclick="resetLookup();return false;" style="color:var(--text2);">Back</a></div>
+  </div>
   <div id="lookup-result" style="display:none;">
     <div class="card">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
@@ -433,6 +443,11 @@
         <div class="section-label">Recent joiner edits</div>
         <div class="card">
           <div style="font-size:12px;color:var(--text2);margin-bottom:10px;">Changes joiners made to their own pending claims on My orders (last 50). A removed claim keeps its full row in the log, so it can be restored if someone reports it missing.</div>
+          <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center;">
+            <input type="text" id="passcode-reset-input" placeholder="@username" style="flex:1 1 140px;min-width:0;">
+            <button class="btn btn-sm" onclick="resetJoinerPasscode()">Reset passcode</button>
+            <span id="passcode-count" style="font-size:12px;color:var(--text3);"></span>
+          </div>
           <div id="claim-edit-log-list" style="font-size:13px;color:var(--text3);">Loading…</div>
         </div>
       </div>
@@ -2063,6 +2078,7 @@ async function doLookup() {
   const u = '@' + raw.trim().replace(/^[@\s]+/, '');
   if (!raw.trim()) { toast('Enter your username.'); return; }
   if (/.@/.test(raw.trim())) { toast('That looks like an email address — enter your Instagram username instead.'); return; }
+  if (!isAdmin && gcNorm(u) !== gcNorm(myVerifiedUser)) { showLookupGate(u); return; }
   // Buyer lazy path: pull just this user's claims + payments/shop/shipping.
   // Also used for admin — admin no longer has allGOs claims loaded at login (Finding 2).
   showLoadingOverlay(true, 'Looking up your orders…');
@@ -2295,7 +2311,7 @@ function myOrdersUser() { return (document.getElementById('result-username') || 
 // row (slot or OT set) can only be deleted; a plain row can also lower its qty or,
 // when the item has members, switch member. The RPC re-checks all of it.
 let myEditRows = {};   // claim-ids csv -> row, so the onclick string stays tiny
-const JOINER_EDIT_ENABLED = false;   // off until the passcode (049) is fully wired
+const JOINER_EDIT_ENABLED = true;   // off until the passcode (049) is fully wired
 function myClaimEditable(r) {
   if (!JOINER_EDIT_ENABLED) return false;
   if (!r || r.go_id === 'shop' || r.payment === 'paid' || r.archived) return false;
@@ -2325,11 +2341,101 @@ function openMyClaimEdit(key) {
     <div style="font-size:12px;color:var(--text3);margin-bottom:12px;">${esc(r.detail || '')}${r.detail ? ' · ' : ''}qty ${r.qty} · Pending, unpaid</div>
     <div style="font-size:12px;color:var(--text2);margin-bottom:12px;">${note}</div>
     ${memberField}${qtyField}
+    <div class="field"><label>Your passcode</label>
+      <input type="password" id="myedit-code" autocomplete="off" placeholder="First time? Leave blank and you'll create one" value="${esc(myPasscodeCache)}"></div>
     <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">
       ${(canMember || canQty) ? `<button class="btn btn-primary" onclick="submitMyClaimEdit('${key}')">Save</button>` : ''}
       <button class="btn" style="color:var(--red-400);border-color:var(--red-400);" onclick="deleteMyPendingRow('${key}')">Remove claim</button>
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
     </div>`);
+}
+// Passcode (migration 049): kept only for this page visit so a joiner making
+// several edits types it once. Never stored anywhere else.
+let myPasscodeCache = '';
+// ── My orders page gate ──────────────────────────────────────────────────────
+// The page asks for the handle's passcode before rendering its orders (admin
+// skips it). Verification only — the reads still use the anon views, so this
+// stops joiners peeking at each other, not someone with the public key.
+let myVerifiedUser = '';   // handle whose passcode was accepted this visit
+let myLookupGateUser = '';
+function showLookupGate(u) {
+  myLookupGateUser = u;
+  document.getElementById('lookup-form').style.display = 'none';
+  document.getElementById('lookup-result').style.display = 'none';
+  document.getElementById('lookup-gate').style.display = 'block';
+  document.getElementById('lookup-gate-user').textContent = u;
+  const code = document.getElementById('lookup-code');
+  if (code) { code.value = ''; setTimeout(() => code.focus(), 50); }
+}
+async function submitLookupPasscode() {
+  const u = myLookupGateUser;
+  const code = (document.getElementById('lookup-code') || {}).value || '';
+  if (!u) return;
+  showLoadingOverlay(true, 'Checking…');
+  let res;
+  try { res = await db.verifyMyPasscode(u, code); }
+  catch (e) { showLoadingOverlay(false); toast("Couldn't check — " + (e && e.message ? e.message : 'please retry.')); return; }
+  showLoadingOverlay(false);
+  if (res && res.ok === false) {
+    if (res.error === 'no_passcode') { createLookupPasscode(); return; }
+    if (res.error === 'locked') { toast('Too many tries. Wait 15 minutes, then try again.'); return; }
+    toast('Wrong passcode, try again.');
+    return;
+  }
+  myVerifiedUser = u; myPasscodeCache = code;
+  document.getElementById('lookup-gate').style.display = 'none';
+  await doLookup();
+}
+function createLookupPasscode() {
+  const u = myLookupGateUser;
+  if (!u) return;
+  openCreatePasscode(u, async () => {
+    myVerifiedUser = u;
+    closeModal();
+    document.getElementById('lookup-gate').style.display = 'none';
+    await doLookup();
+  });
+}
+function myEditCode() { const el = document.getElementById('myedit-code'); return el ? el.value : myPasscodeCache; }
+// Runs one edit RPC and turns its passcode outcomes into either a thrown error
+// (shown as a toast) or a "create your passcode" detour that resumes `retry`.
+async function myEditCall(ids, u, action, qty, member, retry) {
+  const code = myEditCode();
+  const res = await db.editMyPendingClaim(ids, u, action, qty, member, code);
+  if (res && res.ok === false) {
+    if (res.error === 'no_passcode') { openCreatePasscode(u, retry); return false; }
+    if (res.error === 'locked') throw new Error('Too many tries. Wait 15 minutes, then try again.');
+    if (res.error === 'wrong_passcode') { myPasscodeCache = ''; throw new Error('Wrong passcode, try again.'); }
+    throw new Error(res.error || 'please retry.');
+  }
+  myPasscodeCache = code;
+  return true;
+}
+function openCreatePasscode(u, retry) {
+  myPendingRetry = retry;
+  showModal(`
+    <div style="font-size:16px;font-weight:500;margin-bottom:4px;">Create your passcode</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:12px;">No passcode is set for <strong>${esc(u)}</strong> yet. Pick one (4 to 20 characters). From now on, seeing or editing these orders will ask for it, so only you can. Forgot it later? DM Carol to reset.</div>
+    <div class="field"><label>Passcode</label><input type="password" id="newcode-1" autocomplete="new-password"></div>
+    <div class="field"><label>Type it again</label><input type="password" id="newcode-2" autocomplete="new-password"></div>
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button class="btn btn-primary" onclick="saveNewPasscode('${esc(u)}')">Save passcode</button>
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+    </div>`);
+}
+let myPendingRetry = null;
+async function saveNewPasscode(u) {
+  const a = (document.getElementById('newcode-1') || {}).value || '', b = (document.getElementById('newcode-2') || {}).value || '';
+  if (a.trim().length < 4 || a.trim().length > 20) { toast('Passcode must be 4 to 20 characters.'); return; }
+  if (a !== b) { toast("The two passcodes don't match."); return; }
+  showLoadingOverlay(true, 'Saving…');
+  try { await db.setMyPasscode(u, a); }
+  catch (e) { showLoadingOverlay(false); toast("Couldn't save — " + (e && e.message ? e.message : 'please retry.')); return; }
+  showLoadingOverlay(false);
+  myPasscodeCache = a.trim();
+  toast('Passcode saved.');
+  const retry = myPendingRetry; myPendingRetry = null;
+  if (retry) await retry();
 }
 async function submitMyClaimEdit(key) {
   const r = myEditRows[key];
@@ -2342,15 +2448,18 @@ async function submitMyClaimEdit(key) {
   if (!memberChanged && !qtyChanged) { closeModal(); return; }
   if (qty !== null && qty > (parseInt(r.qty) || 1)) { toast('Qty can only go down.'); return; }
   const u = myOrdersUser();
-  showLoadingOverlay(true, 'Saving…');
-  try {
-    if (memberChanged) await db.editMyPendingClaim(ids, u, 'member', null, member);
-    if (qtyChanged) await db.editMyPendingClaim(ids, u, 'qty', qty, null);
-  } catch (e) { showLoadingOverlay(false); toast("Couldn't save — " + (e && e.message ? e.message : 'please retry.')); return; }
-  showLoadingOverlay(false);
-  closeModal();
-  toast('Claim updated.');
-  await doLookup();
+  const run = async () => {
+    showLoadingOverlay(true, 'Saving…');
+    try {
+      if (memberChanged && !(await myEditCall(ids, u, 'member', null, member, run))) { showLoadingOverlay(false); return; }
+      if (qtyChanged && !(await myEditCall(ids, u, 'qty', qty, null, run))) { showLoadingOverlay(false); return; }
+    } catch (e) { showLoadingOverlay(false); toast("Couldn't save — " + (e && e.message ? e.message : 'please retry.')); return; }
+    showLoadingOverlay(false);
+    closeModal();
+    toast('Claim updated.');
+    await doLookup();
+  };
+  await run();
 }
 async function deleteMyPendingRow(key) {
   const r = myEditRows[key];
@@ -2360,13 +2469,16 @@ async function deleteMyPendingRow(key) {
   const label = r.item + (r.detail ? ' · ' + r.detail : '');
   if (!confirm(`Remove your claim for ${label}? You can claim it again while the GO is open.`)) return;
   const u = myOrdersUser();
-  showLoadingOverlay(true, 'Removing…');
-  try { await db.editMyPendingClaim(ids, u, 'delete', null, null); }
-  catch (e) { showLoadingOverlay(false); toast("Couldn't remove — " + (e && e.message ? e.message : 'please retry.')); return; }
-  showLoadingOverlay(false);
-  closeModal();
-  toast('Claim removed.');
-  await doLookup();   // refetch: a set column may have repacked server-side
+  const run = async () => {
+    showLoadingOverlay(true, 'Removing…');
+    try { if (!(await myEditCall(ids, u, 'delete', null, null, run))) { showLoadingOverlay(false); return; } }
+    catch (e) { showLoadingOverlay(false); toast("Couldn't remove — " + (e && e.message ? e.message : 'please retry.')); return; }
+    showLoadingOverlay(false);
+    closeModal();
+    toast('Claim removed.');
+    await doLookup();   // refetch: a set column may have repacked server-side
+  };
+  await run();
 }
 async function deleteMyDroppedRows(idsCsv, label) {
   const ids = idsCsv.split(',').filter(Boolean);
@@ -2902,6 +3014,7 @@ async function payWithBalance(u, goId) {
 function resetLookup() {
   document.getElementById('lookup-form').style.display = 'block';
   document.getElementById('lookup-result').style.display = 'none';
+  document.getElementById('lookup-gate').style.display = 'none';
   document.getElementById('lookup-input').value = '';
 }
 
@@ -4098,6 +4211,31 @@ function claimEditLine(l) {
   if (l.action === 'member') return `${esc(l.detail || '?')} → ${esc(l.after_detail || '?')}`;
   return esc(l.action);
 }
+// Admin reset (049): deleting the row lets the joiner create a new passcode on
+// their next edit. Count shown so Carol can see adoption.
+async function resetJoinerPasscode() {
+  const el = document.getElementById('passcode-reset-input');
+  const u = gcNorm((el || {}).value || '').replace(/^@/, '');
+  if (!u) { toast('Type the username.'); return; }
+  if (!confirm(`Reset the passcode for ${u}? They will create a new one on their next edit.`)) return;
+  try {
+    const { data, error } = await sb.from('joiner_passcodes').delete().eq('username', u).select('username');
+    if (error) throw error;
+    if (!data || !data.length) { toast(`${u} has no passcode set.`); return; }
+    toast(`Passcode reset for ${u}.`);
+    if (el) el.value = '';
+    loadPasscodeCount();
+  } catch (e) { toast("Couldn't reset — " + (e && e.message ? e.message : 'please retry.')); }
+}
+async function loadPasscodeCount() {
+  const el = document.getElementById('passcode-count');
+  if (!el) return;
+  try {
+    const { count, error } = await sb.from('joiner_passcodes').select('username', { count: 'exact', head: true });
+    if (error) throw error;
+    el.textContent = count + ' joiner' + (count === 1 ? '' : 's') + ' with a passcode';
+  } catch (e) { el.textContent = ''; }
+}
 function renderClaimEditLog() {
   const el = document.getElementById('claim-edit-log-list');
   if (!el) return;
@@ -4138,7 +4276,7 @@ async function removeBlockedUser(u) {
 function showAdminTab(name) {
   adminActiveTab = name;
   updateAdminTabDots();
-  if (name === 'gos') { loadBlockedUsers(); loadClaimEditLog(); }
+  if (name === 'gos') { loadBlockedUsers(); loadClaimEditLog(); loadPasscodeCount(); }
   ['gos','shop','store','payments','shipping'].forEach(t => {
     const panel = document.getElementById('admin-tabpanel-' + t);
     if (panel) panel.style.display = t === name ? 'block' : 'none';
@@ -6871,10 +7009,23 @@ const db = {
     if (error) throw error;
     return data;
   },
-  async editMyPendingClaim(claimIds, username, action, qty, member) {
+  async editMyPendingClaim(claimIds, username, action, qty, member, code) {
     const { data, error } = await sb.rpc('edit_my_pending_claim',
       { p_claim_ids: claimIds, p_username: String(username || '').trim().replace(/^@/, ''),
-        p_action: action, p_qty: qty == null ? null : parseInt(qty), p_member: member == null ? null : String(member) });
+        p_action: action, p_qty: qty == null ? null : parseInt(qty), p_member: member == null ? null : String(member),
+        p_code: code == null || code === '' ? null : String(code) });
+    if (error) throw error;
+    return data;   // {ok:true,…} or {ok:false, error:'no_passcode'|'wrong_passcode'|'locked'}
+  },
+  async verifyMyPasscode(username, code) {
+    const { data, error } = await sb.rpc('verify_my_passcode',
+      { p_username: String(username || '').trim().replace(/^@/, ''), p_code: code == null || code === '' ? null : String(code) });
+    if (error) throw error;
+    return data;   // {ok:true} or {ok:false, error}
+  },
+  async setMyPasscode(username, code) {
+    const { data, error } = await sb.rpc('set_my_passcode',
+      { p_username: String(username || '').trim().replace(/^@/, ''), p_code: String(code || '') });
     if (error) throw error;
     return data;
   },

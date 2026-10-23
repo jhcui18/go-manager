@@ -6,7 +6,9 @@
 --   * qty     — lower the qty of a non-set claim (never raise it).
 --   * member  — change the member of a non-set claim (merch member items,
 --               batch POBs). Set-slot claims can't move: delete and re-claim.
--- Secured, paid, dropped, archived, closed-item and closed-GO claims all refuse.
+-- Secured, paid, dropped, archived, closed-item and closed-GO claims all refuse,
+-- and so does any claim whose fulfillment already moved past Pending (ordered
+-- before it was marked secured).
 create or replace function edit_my_pending_claim(p_claim_ids uuid[], p_username citext,
                                                  p_action text, p_qty int default null,
                                                  p_member text default null)
@@ -21,6 +23,7 @@ begin
     from claims c join sub_items si on si.id = c.sub_item_id join gos g on g.id = si.go_id
    where c.id = any(p_claim_ids) and c.username = v_user
      and c.status = 'pending' and c.payment_status = 'unpaid' and not c.archived
+     and coalesce(c.fulfillment, 'Pending') = 'Pending'
      and not si.closed and g.status <> 'closed';
   if v_n <> cardinality(p_claim_ids) then
     raise exception 'Only a pending, unpaid claim in an open GO can be changed';
