@@ -3626,29 +3626,19 @@ async function toggleSubItemClosed(goId, siId) {
   const go = allGOs[goId];
   const si = go.subItems.find(s => s.id === siId);
   if (!si) return;
-  let toDrop = [];
   if (!si.closed) {
-    // Closing drops this POB's unsecured claims (unpaid only — paid-but-unsecured
-    // claims are money already taken and need manual handling, same as GO close).
-    const { droppable, paid } = collectUnsecured({ subItems: [si] });
-    toDrop = droppable;
-    const kept = paid.length ? ` ${paid.length} paid-but-unsecured claim${paid.length !== 1 ? 's' : ''} will be KEPT — resolve those manually.` : '';
-    if (!confirm(`Close ${si.name}?` +
-      (toDrop.length ? ` ${toDrop.length} unsecured claim${toDrop.length !== 1 ? 's' : ''} will be dropped.` : ' No unsecured claims to drop.') + kept)) return;
+    // Closing goes through the review list: it names every unsecured claim and the
+    // POB only closes when "Close & drop" is tapped (paid-but-unsecured are kept and
+    // flagged there). Dismissing the list leaves the POB open.
+    openDropReviewModal(goId, { mode: 'item', siId });
+    return;
   }
-  si.closed = !si.closed;
-  closedSubItems[goId + '|' + siId] = si.closed ? true : undefined;
-  if (!si.closed) delete closedSubItems[goId + '|' + siId];
-  persistWrite(db.setSubItemFlag(siId, { closed: !!si.closed }), si.closed ? 'Close POB' : 'Reopen POB');
-  for (const ref of toDrop) {
-    applyClaimStatusRef(go, ref, 'dropped');
-    if (ref.claimId) { try { await db.updateClaim({ claim_id: ref.claimId, claim_status: 'dropped' }); } catch (e) {} }
-  }
-  if (toDrop.length) saveLocal();
+  // Reopen.
+  si.closed = false;
+  delete closedSubItems[goId + '|' + siId];
+  persistWrite(db.setSubItemFlag(siId, { closed: false }), 'Reopen POB');
   renderDetailContent(); renderAdminGOList(); renderOrdersList();
-  toast(si.closed
-    ? ('POB closed' + (toDrop.length ? ` — ${toDrop.length} unsecured claim${toDrop.length !== 1 ? 's' : ''} dropped.` : ' — no new claims (except leftover secured spots).'))
-    : 'POB reopened.');
+  toast('POB reopened.');
 }
 
 // Group fulfillment: advance/rewind every SECURED claim of a set/batch at once.
@@ -3764,7 +3754,17 @@ function collectUnsecured(go) {
         (c.payment === 'paid' ? paid : droppable).push(ref);
       });
     }
-    // FCFS claims-based (versioned/single/random/member-FCFS): firm orders — skipped.
+    else if (si.claims) {
+      // First-come items (versioned/single/random/merch-member): a claim is firm once
+      // secured, but one still sitting at 'pending' never got ordered and drops too.
+      (si.claims || []).forEach(c => {
+        if (c.claim_status !== 'pending') return;
+        const what = c.member || (c.assignedVers || []).join('+') || '';
+        const ref = { siId: si.id, siName: si.name, kind: 'batch', setIdx: null, member: null, claimId: c.claim_id, user: c.user,
+          label: (what || 'claim') + ((parseInt(c.qty) || 1) > 1 ? ' ×' + c.qty : '') };
+        (c.payment === 'paid' ? paid : droppable).push(ref);
+      });
+    }
   });
   return { droppable, paid };
 }
@@ -3804,10 +3804,17 @@ async function restoreClaim(goId, kind, siId, setIdx, member, claimId) {
   toast('Claim restored.');
 }
 
-// Review modal shown when a GO is closed with still-unsecured claims.
-function openDropReviewModal(goId) {
+// Review modal for closing a GO (mode 'go') or one POB (mode 'item'): lists every
+// unsecured claim and nothing closes until "Close & drop" is tapped — dismissing
+// the box leaves the GO/item open, so a close can never leave leftovers behind.
+// Mode 'review' is the old after-the-fact view of an already-closed GO.
+let dropReviewCtx = null;   // { goId, siId, mode }
+function dropReviewScope(go, siId) { return siId ? { subItems: (go.subItems || []).filter(s => s.id === siId) } : go; }
+function openDropReviewModal(goId, ctx) {
   const go = allGOs[goId];
-  const { droppable, paid } = collectUnsecured(go);
+  dropReviewCtx = { goId, siId: (ctx && ctx.siId) || null, mode: (ctx && ctx.mode) || 'review' };
+  const { droppable, paid } = collectUnsecured(dropReviewScope(go, dropReviewCtx.siId));
+  const si = dropReviewCtx.siId ? (go.subItems || []).find(s => s.id === dropReviewCtx.siId) : null;
 
   // Group droppable refs by sub-item name.
   const byItem = {};
@@ -3838,15 +3845,52 @@ function openDropReviewModal(goId) {
     body += `</div>`;
   }
 
-  const footer = droppable.length
+  const closing = dropReviewCtx.mode === 'go' || dropReviewCtx.mode === 'item';
+  const footer = closing
     ? `<div style="display:flex;gap:8px;margin-top:18px;">
-        <button class="btn btn-primary" style="flex:1;justify-content:center;" onclick="confirmDropUnsecured('${goId}')">Close &amp; drop remaining</button>
-        <button class="btn btn-ghost" onclick="closeModal()">Close without dropping</button>
-      </div>`
-    : `<div style="display:flex;margin-top:18px;"><button class="btn btn-primary" style="flex:1;justify-content:center;" onclick="closeModal()">Done</button></div>`;
-
-  showModal(`<div style="font-size:16px;font-weight:500;margin-bottom:4px;">Review unsecured claims</div>
-    <div style="font-size:13px;color:var(--text2);margin-bottom:16px;">${go.name}</div>${body}${footer}`);
+        <button class="btn btn-primary" style="flex:1;justify-content:center;" onclick="confirmCloseWithDrops()">${droppable.length ? `Close &amp; drop ${droppable.length}` : 'Close'}</button>
+        <button class="btn btn-ghost" onclick="closeModal()">Keep open</button>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:8px;">Nothing changes until you tap Close. Keep open leaves every claim as it is.</div>`
+    : (droppable.length
+      ? `<div style="display:flex;gap:8px;margin-top:18px;">
+          <button class="btn btn-primary" style="flex:1;justify-content:center;" onclick="confirmDropUnsecured('${goId}')">Drop remaining</button>
+          <button class="btn btn-ghost" onclick="closeModal()">Not now</button>
+        </div>`
+      : `<div style="display:flex;margin-top:18px;"><button class="btn btn-primary" style="flex:1;justify-content:center;" onclick="closeModal()">Done</button></div>`);
+  const title = dropReviewCtx.mode === 'item' ? `Close ${si ? si.name : 'this item'}?` : dropReviewCtx.mode === 'go' ? `Close ${go.name}?` : 'Review unsecured claims';
+  showModal(`<div style="font-size:16px;font-weight:500;margin-bottom:4px;">${title}</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:16px;">${dropReviewCtx.mode === 'item' ? go.name : (dropReviewCtx.mode === 'go' ? 'Last look before it closes' : go.name)}</div>${body}${footer}`);
+}
+// "Close & drop": drop the listed claims, THEN flip the GO status / item flag.
+async function confirmCloseWithDrops() {
+  const ctx = dropReviewCtx;
+  if (!ctx) return;
+  const go = allGOs[ctx.goId];
+  const { droppable } = collectUnsecured(dropReviewScope(go, ctx.siId));
+  showLoadingOverlay(true, 'Closing…');
+  for (const ref of droppable) {
+    applyClaimStatusRef(go, ref, 'dropped');
+    if (ref.claimId) { try { await db.updateClaim({ claim_id: ref.claimId, claim_status: 'dropped' }); } catch (e) {} }
+  }
+  let label;
+  try {
+    if (ctx.mode === 'item') {
+      const si = (go.subItems || []).find(s => s.id === ctx.siId);
+      if (si) { si.closed = true; closedSubItems[ctx.goId + '|' + ctx.siId] = true; }
+      await db.setSubItemFlag(ctx.siId, { closed: true });
+      label = (si ? si.name : 'POB') + ' closed';
+    } else {
+      go.status = 'closed';
+      await db.setGoStatus(ctx.goId, 'closed');
+      label = 'GO closed';
+    }
+  } catch (e) { showLoadingOverlay(false); toast("Close didn't go through — check your connection and try again."); return; }
+  showLoadingOverlay(false);
+  saveLocal();
+  closeModal();
+  renderDetailContent(); renderAdminGOList(); renderOrdersList();
+  toast(label + (droppable.length ? ` — ${droppable.length} unsecured claim${droppable.length !== 1 ? 's' : ''} dropped.` : '.'));
 }
 
 // Rescue exactly one claim (per-claim secure), then re-render the modal.
@@ -3856,7 +3900,7 @@ async function secureFromReview(goId, kind, siId, setIdx, member, claimId) {
   if (claimId) { try { await db.updateClaim({ claim_id: claimId, claim_status: 'secured' }); } catch (e) {} }
   saveLocal();
   renderDetailContent(); renderAdminGOList(); renderOrdersList();
-  openDropReviewModal(goId);
+  openDropReviewModal(goId, dropReviewCtx);
 }
 
 // Confirm: drop every still-unsecured (non-paid) claim. Awaits all writes before saveLocal.
@@ -4798,7 +4842,11 @@ async function saveGOEdits() {
   go.deadline = document.getElementById('edit-go-deadline').value;
   go.paymentDeadline = document.getElementById('edit-go-payment-deadline').value;
   const prevStatus = go.status;
-  go.status = document.getElementById('edit-go-status').value;
+  const wantStatus = document.getElementById('edit-go-status').value;
+  // Open → Closed is not saved here: the drop-review list owns that flip (below), so a
+  // dismissed list leaves the GO open instead of closed-with-leftovers.
+  const closingGo = prevStatus !== 'closed' && wantStatus === 'closed';
+  go.status = closingGo ? prevStatus : wantStatus;
   const minSecure = parseInt(document.getElementById('edit-go-min-secure').value);
   if (minSecure > 0) go.minSecure = minSecure;   // the ONE GO-level threshold (persisted below)
   // Update each sub-item
@@ -4968,9 +5016,15 @@ async function saveGOEdits() {
   // against stale/empty claims, or double-render if loadGOClaims's rebuild lands later.
   await openGODetail(go.id);
   toast('Changes saved.');
-  if (prevStatus !== 'closed' && go.status === 'closed') {
+  if (closingGo) {
     const { droppable, paid } = collectUnsecured(go);
-    if (droppable.length || paid.length) openDropReviewModal(go.id);
+    if (droppable.length || paid.length) openDropReviewModal(go.id, { mode: 'go' });
+    else {
+      try { await db.setGoStatus(go.id, 'closed'); go.status = 'closed'; }
+      catch (e) { toast("Close didn't go through — set the status again."); }
+      saveLocal(); renderDetailContent(); renderAdminGOList(); renderOrdersList();
+      if (go.status === 'closed') toast('GO closed — no unsecured claims.');
+    }
   }
   } finally { goSaveInFlight = false; }
 }
@@ -7128,6 +7182,10 @@ const db = {
       ? await sb.from('gc_members').upsert({ go_id: goId, username: u })
       : await sb.from('gc_members').delete().match({ go_id: goId, username: u });
     if (r.error) throw r.error;
+    return { ok: true };
+  },
+  async setGoStatus(goId, status) {      // status-only flip, used by the close review list
+    dbThrow(await sb.from('gos').update({ status }).eq('id', goId));
     return { ok: true };
   },
   async setSubItemFlag(siId, patch) {    // {closed} | {deadline} | {pay_due}
