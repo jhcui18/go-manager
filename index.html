@@ -2146,7 +2146,7 @@ function doLookupRenderInner(u) {
         rows.push({ go_id:c.go_id, go:c.go_name, item:(meta && meta.name) || c.sub_item_name, detail, qty: parseInt(c.qty)||1, price: effClaimPrice(c, meta && meta.price),
           claim:(c.claim_status==='dropped')?'Not fulfilled':((c.claim_status && c.claim_status !== 'secured') ? 'Pending' : 'Secured'),
           payment:c.payment_status, fulfillment:c.fulfillment, due: effectivePayBy(c.go_id, c.sub_item_id),
-          claim_ids:[c.claim_id], archived: !!c.archived });
+          claim_ids:[c.claim_id], archived: !!c.archived, si_id: c.sub_item_id, is_ot: c.assigned_vers === 'OT' });
       }
     });
     Object.values(setGroups).forEach(g => {
@@ -2158,12 +2158,12 @@ function doLookupRenderInner(u) {
           claim:(c0.claim_status==='dropped')?'Not fulfilled':((c0.claim_status==='secured')?'Secured':'Pending'), payment:c0.payment_status,
           fulfillment: lowestFulfillment(otClaims.filter(c => c.claim_status !== 'dropped')) || c0.fulfillment,
           due: effectivePayBy(g.go_id, g.meta && g.meta.id),
-          claim_ids: otClaims.map(c => c.claim_id).filter(Boolean), archived: otClaims.every(c => c.archived) });
+          claim_ids: otClaims.map(c => c.claim_id).filter(Boolean), archived: otClaims.every(c => c.archived), si_id: g.meta && g.meta.id, is_set: true, is_ot: true });
       }
       normalClaims.forEach(c => {
         rows.push({ go_id:g.go_id, go:g.go, item:g.item, detail:c.member_or_version, qty:1, price:effClaimPrice(c, g.meta && g.meta.price),
           claim:(c.claim_status==='dropped')?'Not fulfilled':((c.claim_status==='secured')?'Secured':'Pending'), payment:c.payment_status, fulfillment:c.fulfillment,
-          due: effectivePayBy(g.go_id, g.meta && g.meta.id), claim_ids:[c.claim_id], archived: !!c.archived });
+          due: effectivePayBy(g.go_id, g.meta && g.meta.id), claim_ids:[c.claim_id], archived: !!c.archived, si_id: c.sub_item_id, is_set: true });
       });
     });
   } else {
@@ -2272,11 +2272,93 @@ function myOrderRowActions(r) {
   const btn = (text, fn, extra) => `<button class="btn btn-sm" style="font-size:11px;padding:3px 9px;white-space:nowrap;border-color:var(--text3);color:var(--text2);${extra || ''}" onclick="${fn}">${text}</button>`;
   if (r.claim === 'Not fulfilled' && ids.length)
     return btn('Delete', `deleteMyDroppedRows('${ids.join(',')}','${label}')`, 'color:var(--red-400);border-color:var(--red-400);');
+  if (r.claim === 'Pending' && ids.length && myClaimEditable(r)) {
+    const key = ids.join(',');
+    myEditRows[key] = r;
+    return btn('Edit', `openMyClaimEdit('${key}')`);
+  }
   if (isShippedRow(r))
     return btn(r.archived ? 'Unarchive' : 'Archive', `setMyRowsArchived('${ids.join(',')}','${oids.join(',')}',${r.archived ? 'false' : 'true'})`);
   return '';
 }
 function myOrdersUser() { return (document.getElementById('result-username') || {}).textContent || ''; }
+
+// ── My orders: joiner edits a Pending claim (migration 047) ─────────────────────
+// Only while the claim is pending AND unpaid AND its item and GO are open. A set
+// row (slot or OT set) can only be deleted; a plain row can also lower its qty or,
+// when the item has members, switch member. The RPC re-checks all of it.
+let myEditRows = {};   // claim-ids csv -> row, so the onclick string stays tiny
+function myClaimEditable(r) {
+  if (!r || r.go_id === 'shop' || r.payment === 'paid' || r.archived) return false;
+  const go = allGOs[r.go_id];
+  const meta = go && (go.subItems || []).find(s => s.id === r.si_id);
+  if (!meta || isPobClosed(go, meta)) return false;
+  if (r.is_ot && !r.is_set) return false;   // one card of a batch OT set — DM instead
+  return true;
+}
+function openMyClaimEdit(key) {
+  const r = myEditRows[key];
+  if (!r) return;
+  const go = allGOs[r.go_id];
+  const meta = go && (go.subItems || []).find(s => s.id === r.si_id);
+  const members = (meta && meta.members) || [];
+  const canMember = !r.is_set && members.length > 1 && members.includes(r.detail);
+  const canQty = !r.is_set && (parseInt(r.qty) || 1) > 1;
+  const memberField = canMember ? `<div class="field"><label>Member</label>
+      <select id="myedit-member">${members.map(m => `<option${m === r.detail ? ' selected' : ''}>${esc(m)}</option>`).join('')}</select></div>` : '';
+  const qtyField = canQty ? `<div class="field"><label>Qty (can only go down)</label>
+      <select id="myedit-qty">${Array.from({ length: r.qty }, (_, i) => i + 1).map(n => `<option${n === r.qty ? ' selected' : ''}>${n}</option>`).join('')}</select></div>` : '';
+  const note = r.is_set
+    ? 'A set claim can only be removed. To pick a different member, delete it and claim again.'
+    : (canMember || canQty ? 'Change it, or remove the claim.' : 'This claim can be removed.');
+  showModal(`
+    <div style="font-size:16px;font-weight:500;margin-bottom:4px;">${esc(r.item)}</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:12px;">${esc(r.detail || '')}${r.detail ? ' · ' : ''}qty ${r.qty} · Pending, unpaid</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:12px;">${note}</div>
+    ${memberField}${qtyField}
+    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">
+      ${(canMember || canQty) ? `<button class="btn btn-primary" onclick="submitMyClaimEdit('${key}')">Save</button>` : ''}
+      <button class="btn" style="color:var(--red-400);border-color:var(--red-400);" onclick="deleteMyPendingRow('${key}')">Remove claim</button>
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+    </div>`);
+}
+async function submitMyClaimEdit(key) {
+  const r = myEditRows[key];
+  if (!r) return;
+  const ids = (r.claim_ids || []).filter(Boolean);
+  const mEl = document.getElementById('myedit-member'), qEl = document.getElementById('myedit-qty');
+  const member = mEl ? mEl.value : null, qty = qEl ? parseInt(qEl.value) : null;
+  const memberChanged = member !== null && member !== r.detail;
+  const qtyChanged = qty !== null && qty !== (parseInt(r.qty) || 1);
+  if (!memberChanged && !qtyChanged) { closeModal(); return; }
+  if (qty !== null && qty > (parseInt(r.qty) || 1)) { toast('Qty can only go down.'); return; }
+  const u = myOrdersUser();
+  showLoadingOverlay(true, 'Saving…');
+  try {
+    if (memberChanged) await db.editMyPendingClaim(ids, u, 'member', null, member);
+    if (qtyChanged) await db.editMyPendingClaim(ids, u, 'qty', qty, null);
+  } catch (e) { showLoadingOverlay(false); toast("Couldn't save — " + (e && e.message ? e.message : 'please retry.')); return; }
+  showLoadingOverlay(false);
+  closeModal();
+  toast('Claim updated.');
+  await doLookup();
+}
+async function deleteMyPendingRow(key) {
+  const r = myEditRows[key];
+  if (!r) return;
+  const ids = (r.claim_ids || []).filter(Boolean);
+  if (!ids.length) return;
+  const label = r.item + (r.detail ? ' · ' + r.detail : '');
+  if (!confirm(`Remove your claim for ${label}? You can claim it again while the GO is open.`)) return;
+  const u = myOrdersUser();
+  showLoadingOverlay(true, 'Removing…');
+  try { await db.editMyPendingClaim(ids, u, 'delete', null, null); }
+  catch (e) { showLoadingOverlay(false); toast("Couldn't remove — " + (e && e.message ? e.message : 'please retry.')); return; }
+  showLoadingOverlay(false);
+  closeModal();
+  toast('Claim removed.');
+  await doLookup();   // refetch: a set column may have repacked server-side
+}
 async function deleteMyDroppedRows(idsCsv, label) {
   const ids = idsCsv.split(',').filter(Boolean);
   if (!ids.length) return;
@@ -2439,7 +2521,7 @@ function renderMyOrderGoBlock(g, goRows, u, summary) {
     <td style="color:var(--text2);">${r.detail}</td>
     <td>${r.qty}</td>
     <td style="font-family:var(--mono);font-size:12px;">${r.price > 0 ? '$' + (r.price * r.qty).toFixed(2) : '—'}</td>
-    <td><div style="display:flex;align-items:center;gap:6px;"><span class="badge ${r.claim==='Secured'?'badge-secured':r.claim==='Not fulfilled'?'badge-dropped':'badge-pending'}">${r.claim}</span>${r.claim==='Not fulfilled' ? myOrderRowActions(r) : ''}</div></td>
+    <td><div style="display:flex;align-items:center;gap:6px;"><span class="badge ${r.claim==='Secured'?'badge-secured':r.claim==='Not fulfilled'?'badge-dropped':'badge-pending'}">${r.claim}</span>${(r.claim==='Not fulfilled' || r.claim==='Pending') ? myOrderRowActions(r) : ''}</div></td>
     <td>${paymentBadgeHtml(r.payment, (r.claim_ids || []).map(id => partial[id]).find(Boolean))}${(r.claim==='Secured' && r.payment!=='paid' && r.due) ? `<div style="font-size:10px;color:var(--red-400);margin-top:2px;font-weight:${payDatePast(r.due)?'600':'400'};">${payDatePast(r.due) ? 'Payment due now' : 'Pay by ' + r.due}</div>` : ''}</td>
     <td><div style="display:flex;align-items:center;gap:6px;"><span class="badge ${fulfillBadge(r.fulfillment)}">${r.fulfillment}</span>${isShippedRow(r) ? myOrderRowActions(r) : ''}</div></td>
   </tr>`).join('');
@@ -6744,6 +6826,13 @@ const db = {
   async deleteMyDroppedClaims(claimIds, username) {
     const { data, error } = await sb.rpc('delete_my_dropped_claims',
       { p_claim_ids: claimIds, p_username: String(username || '').trim().replace(/^@/, '') });
+    if (error) throw error;
+    return data;
+  },
+  async editMyPendingClaim(claimIds, username, action, qty, member) {
+    const { data, error } = await sb.rpc('edit_my_pending_claim',
+      { p_claim_ids: claimIds, p_username: String(username || '').trim().replace(/^@/, ''),
+        p_action: action, p_qty: qty == null ? null : parseInt(qty), p_member: member == null ? null : String(member) });
     if (error) throw error;
     return data;
   },
