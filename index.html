@@ -2415,7 +2415,7 @@ function openCreatePasscode(u, retry) {
   myPendingRetry = retry;
   showModal(`
     <div style="font-size:16px;font-weight:500;margin-bottom:4px;">Create your passcode</div>
-    <div style="font-size:12px;color:var(--text2);margin-bottom:12px;">No passcode is set for <strong>${esc(u)}</strong> yet. Pick one (4 to 20 characters). From now on, seeing or editing these orders will ask for it, so only you can. Forgot it later? DM Carol to reset.</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:12px;">No passcode is set for <strong>${esc(u)}</strong> yet. Pick one: 4 to 20 letters, numbers or symbols, no spaces or emoji. From now on, seeing or editing these orders will ask for it, so only you can. Forgot it later? DM Carol to reset.</div>
     <div class="field"><label>Passcode</label><input type="password" id="newcode-1" autocomplete="new-password"></div>
     <div class="field"><label>Type it again</label><input type="password" id="newcode-2" autocomplete="new-password"></div>
     <div style="display:flex;gap:8px;margin-top:14px;">
@@ -2427,6 +2427,7 @@ let myPendingRetry = null;
 async function saveNewPasscode(u) {
   const a = (document.getElementById('newcode-1') || {}).value || '', b = (document.getElementById('newcode-2') || {}).value || '';
   if (a.trim().length < 4 || a.trim().length > 20) { toast('Passcode must be 4 to 20 characters.'); return; }
+  if (!/^[!-~]+$/.test(a.trim())) { toast('Letters, numbers and symbols only. No spaces or emoji.'); return; }
   if (a !== b) { toast("The two passcodes don't match."); return; }
   showLoadingOverlay(true, 'Saving…');
   try { await db.setMyPasscode(u, a); }

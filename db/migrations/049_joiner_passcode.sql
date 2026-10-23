@@ -1,6 +1,6 @@
 -- 049: per-joiner passcode for My-orders self-edits (047). Joiners voted for it
 -- over log-only. The first edit under a handle asks the joiner to create a code
--- (4-20 chars, bcrypt-hashed); every later edit must send it. Five wrong tries
+-- (4-20 printable ASCII chars, no spaces/emoji, bcrypt-hashed); every later edit must send it. Five wrong tries
 -- lock the handle for 15 minutes. Admin resets by deleting the row (authenticated
 -- grant) — the joiner then creates a new one on their next edit.
 -- Passcode failures are RETURNED as {ok:false, error} instead of raised, because a
@@ -26,6 +26,9 @@ begin
   if v_user = '' then raise exception 'No username'; end if;
   if length(v_code) < 4 or length(v_code) > 20 then
     raise exception 'Passcode must be 4 to 20 characters';
+  end if;
+  if v_code !~ '^[!-~]+$' then   -- printable ASCII: letters, digits, symbols; no spaces/emoji
+    raise exception 'Letters, numbers and symbols only — no spaces or emoji';
   end if;
   if exists (select 1 from joiner_passcodes where username = v_user) then
     raise exception 'A passcode is already set for this username — DM Carol to reset it';
