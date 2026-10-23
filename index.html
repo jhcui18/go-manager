@@ -429,6 +429,13 @@
           <div id="blocked-users-list" style="font-size:13px;color:var(--text3);">Loading…</div>
         </div>
       </div>
+      <div class="admin-section">
+        <div class="section-label">Recent joiner edits</div>
+        <div class="card">
+          <div style="font-size:12px;color:var(--text2);margin-bottom:10px;">Changes joiners made to their own pending claims on My orders (last 50). A removed claim keeps its full row in the log, so it can be restored if someone reports it missing.</div>
+          <div id="claim-edit-log-list" style="font-size:13px;color:var(--text3);">Loading…</div>
+        </div>
+      </div>
     </div>
 
     <div class="admin-tabpanel" id="admin-tabpanel-shop" style="display:none;">
@@ -2288,7 +2295,9 @@ function myOrdersUser() { return (document.getElementById('result-username') || 
 // row (slot or OT set) can only be deleted; a plain row can also lower its qty or,
 // when the item has members, switch member. The RPC re-checks all of it.
 let myEditRows = {};   // claim-ids csv -> row, so the onclick string stays tiny
+const JOINER_EDIT_ENABLED = false;   // off until the passcode (049) is fully wired
 function myClaimEditable(r) {
+  if (!JOINER_EDIT_ENABLED) return false;
   if (!r || r.go_id === 'shop' || r.payment === 'paid' || r.archived) return false;
   const go = allGOs[r.go_id];
   const meta = go && (go.subItems || []).find(s => s.id === r.si_id);
@@ -4073,6 +4082,39 @@ function renderBlockedUsers() {
       <button class="btn btn-sm btn-ghost" style="font-size:11px;padding:2px 8px;" onclick="removeBlockedUser('${b.username}')">Unblock</button>
     </div>`).join('');
 }
+// ── Recent joiner edits (migration 048) ──────────────────────────────────────
+let claimEditLog = [];
+async function loadClaimEditLog() {
+  try {
+    claimEditLog = dbThrow(await sb.from('claim_edit_log')
+      .select('at, username, action, item, detail, after_detail, before, after').order('at', { ascending: false }).limit(50));
+  } catch (e) { claimEditLog = []; }
+  renderClaimEditLog();
+}
+function claimEditLine(l) {
+  const b = l.before || {}, a = l.after || {};
+  if (l.action === 'delete') return `removed${b.qty > 1 ? ' ×' + b.qty : ''}`;
+  if (l.action === 'qty') return `qty ${b.qty} → ${a.qty}`;
+  if (l.action === 'member') return `${esc(l.detail || '?')} → ${esc(l.after_detail || '?')}`;
+  return esc(l.action);
+}
+function renderClaimEditLog() {
+  const el = document.getElementById('claim-edit-log-list');
+  if (!el) return;
+  if (!claimEditLog.length) { el.innerHTML = 'No joiner edits yet.'; return; }
+  el.innerHTML = claimEditLog.map(l => `
+    <div style="display:flex;align-items:baseline;gap:8px;padding:5px 0;border-bottom:0.5px solid var(--border);flex-wrap:wrap;">
+      <span style="font-size:11px;white-space:nowrap;">${fmtDateTimeShort(l.at)}</span>
+      <span style="font-weight:500;color:var(--text);">${esc(l.username)}</span>
+      <span style="color:${l.action === 'delete' ? 'var(--red-400)' : 'var(--text2)'};">${claimEditLine(l)}</span>
+      <span style="font-size:12px;flex:1 1 100%;color:var(--text3);">${esc(l.item || '')}${l.action !== 'member' && l.detail ? ' · ' + esc(l.detail) : ''}</span>
+    </div>`).join('');
+}
+function fmtDateTimeShort(val) {
+  const d = new Date(val);
+  if (isNaN(d)) return '';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
 async function addBlockedUser() {
   const raw = (document.getElementById('block-user-input') || {}).value || '';
   const u = raw.trim().replace(/^@/, '').toLowerCase();
@@ -4096,7 +4138,7 @@ async function removeBlockedUser(u) {
 function showAdminTab(name) {
   adminActiveTab = name;
   updateAdminTabDots();
-  if (name === 'gos') loadBlockedUsers();
+  if (name === 'gos') { loadBlockedUsers(); loadClaimEditLog(); }
   ['gos','shop','store','payments','shipping'].forEach(t => {
     const panel = document.getElementById('admin-tabpanel-' + t);
     if (panel) panel.style.display = t === name ? 'block' : 'none';
