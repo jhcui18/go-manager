@@ -1362,7 +1362,7 @@ function renderSetSubItemPublic(si, goId) {
     ${closed ? '<div style="background:var(--surface2);border:0.5px solid var(--border2);border-radius:var(--radius);padding:8px 10px;margin-bottom:10px;font-size:12px;color:var(--text2);font-weight:500;">Closed — only filling leftover spots in already-ordered sets.</div>' : ''}
     ${(!closed && si.deadline) ? `<div style="font-size:12px;color:var(--text3);margin-bottom:8px;">Closes ${fmtDate(si.deadline)}</div>` : ''}
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
-      <div style="font-weight:500;font-size:15px;">${si.name}</div>
+      <div></div>
       <div style="display:flex;align-items:center;gap:8px;">
         ${si.price ? `<span style="font-size:13px;font-weight:500;">$${si.price.toFixed(2)}<span style="font-size:11px;color:var(--text3);font-weight:400;">/copy</span></span>` : ''}
         <span class="badge badge-set">set-based</span>
@@ -1459,7 +1459,7 @@ function renderVersionedSubItemPublic(si, goId) {
     ${closed ? '<div style="background:var(--surface2);border:0.5px solid var(--border2);border-radius:var(--radius);padding:8px 10px;margin-bottom:10px;font-size:12px;color:var(--text2);font-weight:500;">Closed — no longer accepting new claims.</div>' : ''}
     ${(!closed && si.deadline) ? `<div style="font-size:12px;color:var(--text3);margin-bottom:8px;">Closes ${fmtDate(si.deadline)}</div>` : ''}
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
-      <div style="font-weight:500;font-size:15px;">${si.name}</div>
+      <div></div>
       <span style="font-size:13px;font-weight:500;white-space:nowrap;">$${(si.price||0).toFixed(2)} <span style="font-size:11px;color:var(--text3);font-weight:400;">per copy</span></span>
     </div>
     <div style="font-size:12px;color:var(--text3);margin-bottom:12px;">${totalClaimed} claimed</div>
@@ -1503,10 +1503,9 @@ function renderBatchSubItemPublic(si, goId) {
     ${closed ? '<div style="background:var(--surface2);border:0.5px solid var(--border2);border-radius:var(--radius);padding:8px 10px;margin-bottom:10px;font-size:12px;color:var(--text2);font-weight:500;">Closed — no longer accepting new claims.</div>' : ''}
     ${(!closed && si.deadline) ? `<div style="font-size:12px;color:var(--text3);margin-bottom:8px;">Closes ${fmtDate(si.deadline)}</div>` : ''}
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
-      <div style="font-weight:500;font-size:15px;">${si.name}</div>
+      <div style="font-size:12px;color:var(--text3);">$${(si.price||0).toFixed(2)} per card &nbsp;·&nbsp; ${claimed} claimed</div>
       <span class="badge badge-fcfs">batch of ${n}</span>
     </div>
-    <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">$${(si.price||0).toFixed(2)} per card &nbsp;·&nbsp; ${claimed} claimed</div>
     <div style="font-size:12px;color:var(--text2);background:var(--surface2);border-radius:8px;padding:8px 10px;margin-bottom:10px;line-height:1.5;">${solo
       ? `Claims are pooled and ordered together in batches of ${n}.`
       : `No full set needed — claim any member(s) you want, and you can pick the same member more than once. Claims are pooled and ordered together in batches of ${n} cards.`}</div>
@@ -1594,7 +1593,7 @@ function renderSingleSubItemPublic(si, goId) {
     ${closed ? '<div style="background:var(--surface2);border:0.5px solid var(--border2);border-radius:var(--radius);padding:8px 10px;margin-bottom:10px;font-size:12px;color:var(--text2);font-weight:500;">Closed — no longer accepting new claims.</div>' : ''}
     ${(!closed && si.deadline) ? `<div style="font-size:12px;color:var(--text3);margin-bottom:8px;">Closes ${fmtDate(si.deadline)}</div>` : ''}
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
-      <div style="font-weight:500;font-size:15px;">${si.name}</div>
+      <div></div>
       <span style="font-size:13px;font-weight:500;">$${(si.price||0).toFixed(2)}</span>
     </div>
     <div style="font-size:12px;color:var(--text3);margin-bottom:12px;">${totalClaimed} claimed</div>
@@ -6456,8 +6455,9 @@ function saveShipFees(requestId) {
 // when the row carries them (admin getShipping), the label is parsed otherwise.
 // Shipment make-up for the "Items (…)" heading: units, then cards / merch / albums.
 // A card is what the EMS rule calls a card (photocard GO, or a sub-item named
-// photocard); an album is any other unit from an album GO; the rest is merch
-// (merch GOs, shop orders, legacy unlinked lines).
+// photocard, or a Photocard shop listing); an album is any other unit from an
+// album GO or an Album shop listing; the rest is merch (merch GOs, Merch and
+// Accessories shop listings, legacy unlinked lines).
 function shipItemsSummary(items) {
   let units = 0, cards = 0, albums = 0, merch = 0;
   (items || []).forEach(it => {
@@ -6940,7 +6940,7 @@ const db = {
   async getShipping() {  // admin: full requests incl. addresses + items
     const data = await selectAll(() => sb.from('shipping_requests')
       .select('*, shipping_request_items(id, go_id, description, qty, claim_id, shop_order_id,' +
-        ' claims(qty, is_ot, set_id, price_override, sub_items(price, name, ems_fee, gos(type, name))), shop_orders(qty, unit_price))').order('created_at').order('id'));
+        ' claims(qty, is_ot, set_id, price_override, sub_items(price, name, ems_fee, gos(type, name))), shop_orders(qty, unit_price, listings(category, name)))').order('created_at').order('id'));
     return { requests: data.map(r => ({
       request_id: r.id, username: r.username, full_name: r.full_name,
       address1: r.address1, address2: r.address2 || '', city: r.city, state: r.state,
@@ -6964,7 +6964,7 @@ const db = {
             // Units = claim qty. An OT full set is stored as one claim PER MEMBER
             // (qty 1 each, set and batch alike), so it already sums to one card per
             // member — never multiply by the member count (that over-charged an OT8
-            // as 64 cards). Shop orders are never cards.
+            // as 64 cards). Shop orders follow their listing category below.
             const si = i.claims.sub_items || {};
             const isCard = ((si.gos || {}).type === 'photocard') || /photocard/i.test(si.name || '');
             const units = qty;
@@ -6974,12 +6974,17 @@ const db = {
           } else if (i.shop_orders) {
             qty = parseInt(i.shop_orders.qty) || 1;
             price = (parseFloat(i.shop_orders.unit_price) || 0) * qty;
+            // Shop lines classify by the listing's category: Photocard listings are
+            // cards for the EMS fee, Album listings count as albums, the rest is merch.
+            const lst = i.shop_orders.listings || {};
+            if (lst.category === 'Photocard' || /photocard/i.test(lst.name || '')) cards = qty;
           }
           return { type: i.claim_id ? 'claim' : i.shop_order_id ? 'shop' : 'item',
                    id: i.claim_id || i.shop_order_id || i.id, label: i.description, price, ot, qty, cards, ems,
                    row_id: i.id, set_id: (i.claims && i.claims.set_id) || null,
                    go: i.claims ? (((i.claims.sub_items || {}).gos || {}).name || '') : (i.shop_orders ? 'Shop' : ''),
-                   go_type: i.claims ? (((i.claims.sub_items || {}).gos || {}).type || null) : null,
+                   go_type: i.claims ? (((i.claims.sub_items || {}).gos || {}).type || null)
+                          : (i.shop_orders ? ({ Photocard:'photocard', Album:'album' }[(i.shop_orders.listings || {}).category] || 'merch') : null),
                    si: i.claims ? ((i.claims.sub_items || {}).name || '') : '' };
         }))
     })) };
