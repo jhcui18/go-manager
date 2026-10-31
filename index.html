@@ -5900,6 +5900,18 @@ function effOtSetPrice(rows, baseOtPrice) {
     .filter(v => v != null && v !== '' && isFinite(parseFloat(v))).map(v => parseFloat(v));
   return ovs.length ? Math.max(...ovs) : (parseFloat(baseOtPrice) || 0);
 }
+// Payments cover the items that are due SOONEST first. Stable sort of owed units by
+// their sub-item's effective pay-by (own pay_due, else the GO deadline); undated last,
+// page order within a date. Shared by the admin confirm modal, the joiner's
+// "Partially paid" badge and store-credit apply, so all three agree.
+function sortUnitsByDue(units) {
+  return (units || []).map((u, i) => ({ u, i }))
+    .sort((a, b) => {
+      const da = a.u.due || '', db_ = b.u.due || '';
+      if (da !== db_) { if (!da) return 1; if (!db_) return -1; return da < db_ ? -1 : 1; }
+      return a.i - b.i;
+    }).map(x => x.u);
+}
 function ownedUnitsFromClaims(claims, siMeta) {
   const units = [];
   // group set-based claims by sub_item + set_num
@@ -5919,14 +5931,15 @@ function ownedUnitsFromClaims(claims, siMeta) {
       const isBatchKind = (meta.kind === 'member' || meta.kind === 'photocard' || meta.kind === 'member-set') && parseInt(meta.minSecure) < 0;
       if (isBatchKind && c.claim_status !== 'secured') return; // batch: only secured owed
       if (c.claim_status === 'pending') return;                // explicitly unsecured merch not owed
-      units.push({ value: effClaimPrice(c, meta.price) * (parseInt(c.qty) || 1), ids: [c.claim_id].filter(Boolean), paid: c.payment_status === 'paid' });
+      units.push({ value: effClaimPrice(c, meta.price) * (parseInt(c.qty) || 1), ids: [c.claim_id].filter(Boolean), paid: c.payment_status === 'paid', due: effectivePayBy(c.go_id, c.sub_item_id) });
     }
   });
   Object.values(sets).forEach(s => {
-    if (s.ot.length) units.push({ value: effOtSetPrice(s.ot, s.meta.otPrice), ids: s.ot.map(c => c.claim_id).filter(Boolean), paid: s.ot.every(c => c.payment_status === 'paid') });
-    s.normal.forEach(c => units.push({ value: effClaimPrice(c, s.meta.price), ids: [c.claim_id].filter(Boolean), paid: c.payment_status === 'paid' }));
+    const due = s.ot.length ? effectivePayBy(s.ot[0].go_id, s.ot[0].sub_item_id) : effectivePayBy(s.normal[0].go_id, s.normal[0].sub_item_id);
+    if (s.ot.length) units.push({ value: effOtSetPrice(s.ot, s.meta.otPrice), ids: s.ot.map(c => c.claim_id).filter(Boolean), paid: s.ot.every(c => c.payment_status === 'paid'), due });
+    s.normal.forEach(c => units.push({ value: effClaimPrice(c, s.meta.price), ids: [c.claim_id].filter(Boolean), paid: c.payment_status === 'paid', due }));
   });
-  return units;
+  return sortUnitsByDue(units);
 }
 
 // Ordered OWED units for a buyer in a GO (or shop): secured set slots + claims-based
@@ -5945,6 +5958,7 @@ function paymentOwedUnits(username, goId) {
   const go = allGOs[goId] || Object.values(allGOs).find(g => g.name === goId);
   if (!go) return units;
   go.subItems.forEach(si => {
+    const due = effectivePayBy(go.id, si.id);
     if (si.sets) {
       si.sets.forEach(set => {
         const otSlots = [], normalSlots = [];
@@ -5955,19 +5969,19 @@ function paymentOwedUnits(username, goId) {
         });
         // OT full set → one unit at the flat OT price, covering all its (secured) slots.
         if (otSlots.length) {
-          units.push({ ids: otSlots.map(s => s.claim_id).filter(Boolean), value: effOtSetPrice(otSlots, si.otPrice), kind: 'slot', refs: otSlots, paid: otSlots.every(s => s.payment === 'paid') });
+          units.push({ ids: otSlots.map(s => s.claim_id).filter(Boolean), value: effOtSetPrice(otSlots, si.otPrice), kind: 'slot', refs: otSlots, paid: otSlots.every(s => s.payment === 'paid'), due });
         }
-        normalSlots.forEach(slot => units.push({ ids: [slot.claim_id].filter(Boolean), value: effClaimPrice(slot, si.price), kind: 'slot', refs: [slot], paid: slot.payment === 'paid' }));
+        normalSlots.forEach(slot => units.push({ ids: [slot.claim_id].filter(Boolean), value: effClaimPrice(slot, si.price), kind: 'slot', refs: [slot], paid: slot.payment === 'paid', due }));
       });
     }
     if (si.claims) si.claims.forEach(c => {
       if (!sameUser(c.user, username) || c.claim_status === 'dropped') return;
       if (isBatch(si) && c.claim_status !== 'secured') return;  // batch: only secured cards are owed/payable
       if (c.claim_status === 'pending') return;  // explicitly unsecured (e.g. merch) not owed/payable
-      units.push({ ids: [c.claim_id].filter(Boolean), value: effClaimPrice(c, si.price) * (c.qty||1), kind: 'claim', refs: [c], paid: c.payment === 'paid' });
+      units.push({ ids: [c.claim_id].filter(Boolean), value: effClaimPrice(c, si.price) * (c.qty||1), kind: 'claim', refs: [c], paid: c.payment === 'paid', due });
     });
   });
-  return units;
+  return sortUnitsByDue(units);
 }
 
 // Per-buyer, per-GO money summary — the single source for both the joiner My-orders
@@ -6141,7 +6155,8 @@ async function confirmPayment(id) {
   const totalPaid = paymentProofs
     .filter(pp => sameUser(pp.username, p.username) && pp.go_id === p.go_id && (pp.status === 'confirmed' || pp.payment_id === p.payment_id))
     .reduce((a, pp) => a + (parseFloat(pp.amount)||0), 0);
-  // Mark items paid in display order, filling as much of the payment as fits. A
+  // Mark items paid earliest-due first (units come pre-sorted by pay-by), filling as
+  // much of the payment as fits. A
   // too-big item is skipped (not a hard stop), so a later smaller item can still
   // use the remaining money — e.g. $28 across [7,7,7,11,...] pays the three 7s
   // AND a later 7 to reach $28, rather than stopping at $21 on the 11.
