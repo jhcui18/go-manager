@@ -6989,10 +6989,7 @@ const db = {
           } else if (i.shop_orders) {
             qty = parseInt(i.shop_orders.qty) || 1;
             price = (parseFloat(i.shop_orders.unit_price) || 0) * qty;
-            // Shop lines classify by the listing's category: Photocard listings are
-            // cards for the EMS fee, Album listings count as albums, the rest is merch.
-            const lst = i.shop_orders.listings || {};
-            if (lst.category === 'Photocard' || /photocard/i.test(lst.name || '')) cards = qty;
+            // Shop orders ship from stock already here: no EMS, so they never count as cards.
           }
           return { type: i.claim_id ? 'claim' : i.shop_order_id ? 'shop' : 'item',
                    id: i.claim_id || i.shop_order_id || i.id, label: i.description, price, ot, qty, cards, ems,
