@@ -1250,7 +1250,8 @@ async function loadGOClaims(goId) {
   if (sec && Array.isArray(sec.secured_sets)) { securedSets = {}; sec.secured_sets.forEach(r => { if (r && r.sub_item_id && r.set_num !== undefined && r.set_num !== '') securedSets[r.sub_item_id + '|' + r.set_num] = true; }); }
   if (closed && Array.isArray(closed.closed_subitems)) { closedSubItems = {}; closed.closed_subitems.forEach(r => { if (r && r.go_id && r.sub_item_id) closedSubItems[r.go_id + '|' + r.sub_item_id] = true; }); }
   if (deads && Array.isArray(deads.subitem_deadlines)) { subItemDeadlines = {}; deads.subitem_deadlines.forEach(r => { if (r && r.go_id && r.sub_item_id && r.deadline) subItemDeadlines[r.go_id + '|' + r.sub_item_id] = fmtDate(r.deadline); }); }
-  if (pdue && Array.isArray(pdue.subitem_payment_due)) { subItemPayDue = {}; pdue.subitem_payment_due.forEach(r => { if (r && r.go_id && r.sub_item_id && r.due_date) subItemPayDue[r.go_id + '|' + r.sub_item_id] = fmtDate(r.due_date); }); }
+  // Replace only THIS GO's pay-by dates: confirmPayment sorts by them for GOs loaded earlier.
+  if (pdue && Array.isArray(pdue.subitem_payment_due)) { Object.keys(subItemPayDue).forEach(k => { if (k.startsWith(goId + '|')) delete subItemPayDue[k]; }); pdue.subitem_payment_due.forEach(r => { if (r && r.go_id && r.sub_item_id && r.due_date) subItemPayDue[r.go_id + '|' + r.sub_item_id] = fmtDate(r.due_date); }); }
   // Rebuild each sub-item's claims/sets from the fetched claims, matching its shape.
   go.subItems.forEach(si => {
     const members = si.members || [];
