@@ -435,16 +435,8 @@
         </div>
       </div>
       <div class="admin-section">
-        <div class="section-label">Payments waiting</div>
-        <div class="card" id="today-payments" style="font-size:13px;">Loading…</div>
-      </div>
-      <div class="admin-section">
-        <div class="section-label">Close</div>
-        <div class="card" id="today-close" style="font-size:13px;">Loading…</div>
-      </div>
-      <div class="admin-section">
-        <div class="section-label">Shipping queue</div>
-        <div class="card" id="today-shipping" style="font-size:13px;">Loading…</div>
+        <div class="section-label">Today</div>
+        <div class="card" id="today-auto" style="font-size:13px;">Loading…</div>
       </div>
     </div>
 
@@ -4280,9 +4272,7 @@ async function toggleAdminTask(id, done) {
 }
 function renderToday() {
   const today = fmtDate(new Date());
-  const soon = fmtDate(new Date(Date.now() + 2 * 86400000));
   const who = e => esc((e || '').split('@')[0]);
-  const row = (text, btn) => `<div style="display:flex;gap:8px;align-items:center;padding:6px 0;flex-wrap:wrap;"><span style="flex:1 1 200px;">${text}</span>${btn}</div>`;
   const tl = document.getElementById('admin-tasks-list');
   if (tl) {
     const open = adminTasks.filter(t => !t.done_at);
@@ -4291,30 +4281,33 @@ function renderToday() {
       + (done.length ? `<div style="margin-top:8px;"><a href="#" onclick="showDoneTasks=!showDoneTasks;renderToday();return false;" style="font-size:12px;">${showDoneTasks ? 'Hide' : 'Show'} done (${done.length})</a></div>` : '')
       + (showDoneTasks ? done.map(t => `<div style="padding:4px 0;"><span style="text-decoration:line-through;">${esc(t.title)}</span> <span style="font-size:11px;">· ${who(t.done_by)} ${fmtDate(t.done_at)} · <a href="#" onclick="toggleAdminTask('${t.id}', false);return false;">undo</a></span></div>`).join('') : '');
   }
-  const pe = document.getElementById('today-payments');
-  if (pe) {
+  const el = document.getElementById('today-auto');
+  if (!el) return;
+  const line = t => `<div style="display:flex;gap:8px;padding:5px 0;"><span>☐</span><span>${t}</span></div>`;
+  const lines = [];
+  if (adminPaymentsLoaded) {
     const pend = (paymentProofs || []).filter(p => p.status === 'pending');
-    pe.innerHTML = !adminPaymentsLoaded ? 'Loading…' : !pend.length ? 'Nothing waiting.'
-      : row(`${pend.length} payment${pend.length === 1 ? '' : 's'} waiting · $${pend.reduce((a, p) => a + (parseFloat(p.amount) || 0), 0).toFixed(2)}`, `<button class="btn btn-sm" onclick="showAdminTab('payments')">Open</button>`);
+    if (pend.length) lines.push(line(`<b>${pend.length}</b> payment${pend.length === 1 ? '' : 's'} waiting for confirmation ($${pend.reduce((a, p) => a + (parseFloat(p.amount) || 0), 0).toFixed(2)})`));
   }
-  const ce = document.getElementById('today-close');
-  if (ce) {
-    const rows = [];
-    Object.values(allGOs).forEach(g => {
-      if (!g || g.status === 'closed') return;
-      if (g.deadline && g.deadline <= soon) rows.push({ due: g.deadline, label: g.name, goId: g.id });
-      (g.subItems || []).forEach(s => { const d = fmtDate(s.deadline); if (!s.closed && d && d <= soon) rows.push({ due: d, label: g.name + ' · ' + s.name, goId: g.id }); });
-    });
-    rows.sort((a, b) => a.due.localeCompare(b.due));
-    ce.innerHTML = !rows.length ? 'Nothing due in the next 2 days.'
-      : rows.map(r => row(`<span style="font-family:var(--mono);font-size:12px;color:${r.due < today ? 'var(--accent)' : 'var(--text3)'};">${r.due < today ? 'past due ' : r.due === today ? 'today ' : ''}${r.due}</span> ${esc(r.label)}`, `<button class="btn btn-sm" onclick="openGODetail('${r.goId}')">Open</button>`)).join('');
-  }
-  const se = document.getElementById('today-shipping');
-  if (se) {
+  if (adminShippingLoaded) {
     const q = (shippingRequests || []).filter(r => !r.shipped);
-    se.innerHTML = !adminShippingLoaded ? 'Loading…' : !q.length ? 'Queue is empty.'
-      : row(`${q.length} request${q.length === 1 ? '' : 's'} to ship`, `<button class="btn btn-sm" onclick="showAdminTab('shipping')">Open</button>`);
+    if (q.length) lines.push(line(`<b>${q.length}</b> shipment${q.length === 1 ? '' : 's'} waiting to be shipped`));
   }
+  const closes = [], pays = [];
+  Object.values(allGOs).forEach(g => {
+    if (!g || g.status === 'closed') return;
+    if (g.deadline && g.deadline <= today) closes.push({ due: g.deadline, label: g.name });
+    if (g.paymentDeadline === today) pays.push(g.name);
+    (g.subItems || []).forEach(si => {
+      const d = fmtDate(si.deadline), pd = fmtDate(si.payDue);
+      if (!si.closed && d && d <= today) closes.push({ due: d, label: g.name + ' · ' + si.name });
+      if (pd === today) pays.push(g.name + ' · ' + si.name);
+    });
+  });
+  closes.sort((a, b) => a.due.localeCompare(b.due));
+  closes.forEach(c => lines.push(line(`Close <b>${esc(c.label)}</b>${c.due < today ? ` <span style="color:var(--accent);font-size:11px;">past due ${c.due}</span>` : ''}`)));
+  pays.forEach(n => lines.push(line(`Payment due today: <b>${esc(n)}</b>`)));
+  el.innerHTML = (!adminPaymentsLoaded || !adminShippingLoaded) && !lines.length ? 'Loading…' : lines.length ? lines.join('') : 'Nothing due today.';
 }
 // ── Blocked joiners (migration 023) ──────────────────────────────────────────
 let blockedUsers = [];
