@@ -4313,7 +4313,7 @@ function renderToday() {
   if (se) {
     const q = (shippingRequests || []).filter(r => !r.shipped);
     se.innerHTML = !adminShippingLoaded ? 'Loading…' : !q.length ? 'Queue is empty.'
-      : q.map(r => row(`@${esc(r.username)} · $${(parseFloat(r.total_fee) || 0).toFixed(2)} · ${r.card_count || 0} item${r.card_count === 1 ? '' : 's'}`, `<button class="btn btn-sm" onclick="showAdminTab('shipping')">Open</button>`)).join('');
+      : row(`${q.length} request${q.length === 1 ? '' : 's'} to ship`, `<button class="btn btn-sm" onclick="showAdminTab('shipping')">Open</button>`);
   }
 }
 // ── Blocked joiners (migration 023) ──────────────────────────────────────────
