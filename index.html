@@ -4295,7 +4295,7 @@ function renderToday() {
   if (pe) {
     const pend = (paymentProofs || []).filter(p => p.status === 'pending');
     pe.innerHTML = !adminPaymentsLoaded ? 'Loading…' : !pend.length ? 'Nothing waiting.'
-      : pend.map(p => row(`@${esc(p.username)} · $${(parseFloat(p.amount) || 0).toFixed(2)} ${esc(p.method || '')} · ${esc(p.go_name || '')}`, `<button class="btn btn-sm" onclick="confirmPayment('${p.payment_id}')">Confirm</button>`)).join('');
+      : row(`${pend.length} payment${pend.length === 1 ? '' : 's'} waiting · $${pend.reduce((a, p) => a + (parseFloat(p.amount) || 0), 0).toFixed(2)}`, `<button class="btn btn-sm" onclick="showAdminTab('payments')">Open</button>`);
   }
   const ce = document.getElementById('today-close');
   if (ce) {
