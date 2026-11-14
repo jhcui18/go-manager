@@ -4270,6 +4270,12 @@ async function toggleAdminTask(id, done) {
   if (r.error) { toast('Couldn’t update the task.'); return; }
   await loadAdminTasks(); renderToday();
 }
+function toggleTodayLine(key, on) {
+  const k = 'today_done_' + fmtDate(new Date()), d = JSON.parse(localStorage.getItem(k) || '{}');
+  if (on) d[key] = 1; else delete d[key];
+  localStorage.setItem(k, JSON.stringify(d));
+  renderToday();
+}
 function renderToday() {
   const today = fmtDate(new Date());
   const who = e => esc((e || '').split('@')[0]);
@@ -4283,15 +4289,17 @@ function renderToday() {
   }
   const el = document.getElementById('today-auto');
   if (!el) return;
-  const line = t => `<div style="display:flex;gap:8px;padding:5px 0;"><span>☐</span><span>${t}</span></div>`;
+  // Ticks are per device and reset each day (localStorage); the line itself disappears once the work is done.
+  const doneKey = 'today_done_' + today, done = JSON.parse(localStorage.getItem(doneKey) || '{}');
+  const line = (t, k) => { const on = !!done[k]; return `<label style="display:flex;gap:8px;padding:5px 0;cursor:pointer;color:var(--text);"><input type="checkbox" ${on ? 'checked' : ''} onchange="toggleTodayLine('${esc(k)}', this.checked)" style="margin-top:3px;"><span style="${on ? 'text-decoration:line-through;color:var(--text3);' : ''}">${t}</span></label>`; };
   const lines = [];
   if (adminPaymentsLoaded) {
     const pend = (paymentProofs || []).filter(p => p.status === 'pending');
-    if (pend.length) lines.push(line(`<b>${pend.length}</b> payment${pend.length === 1 ? '' : 's'} waiting for confirmation ($${pend.reduce((a, p) => a + (parseFloat(p.amount) || 0), 0).toFixed(2)})`));
+    if (pend.length) lines.push(line(`<b>${pend.length}</b> payment${pend.length === 1 ? '' : 's'} waiting for confirmation ($${pend.reduce((a, p) => a + (parseFloat(p.amount) || 0), 0).toFixed(2)})`, 'pay'));
   }
   if (adminShippingLoaded) {
     const q = (shippingRequests || []).filter(r => !r.shipped);
-    if (q.length) lines.push(line(`<b>${q.length}</b> shipment${q.length === 1 ? '' : 's'} waiting to be shipped`));
+    if (q.length) lines.push(line(`<b>${q.length}</b> shipment${q.length === 1 ? '' : 's'} waiting to be shipped`, 'ship'));
   }
   const closes = [], pays = [];
   Object.values(allGOs).forEach(g => {
@@ -4305,8 +4313,8 @@ function renderToday() {
     });
   });
   closes.sort((a, b) => a.due.localeCompare(b.due));
-  closes.forEach(c => lines.push(line(`Close <b>${esc(c.label)}</b>${c.due < today ? ` <span style="color:var(--accent);font-size:11px;">past due ${c.due}</span>` : ''}`)));
-  pays.forEach(n => lines.push(line(`Payment due today: <b>${esc(n)}</b>`)));
+  closes.forEach(c => lines.push(line(`Close <b>${esc(c.label)}</b>${c.due < today ? ` <span style="color:var(--accent);font-size:11px;">past due ${c.due}</span>` : ''}`, 'close:' + c.label)));
+  pays.forEach(n => lines.push(line(`Payment due today: <b>${esc(n)}</b>`, 'pay:' + n)));
   el.innerHTML = (!adminPaymentsLoaded || !adminShippingLoaded) && !lines.length ? 'Loading…' : lines.length ? lines.join('') : 'Nothing due today.';
 }
 // ── Blocked joiners (migration 023) ──────────────────────────────────────────
