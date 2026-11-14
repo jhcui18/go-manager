@@ -415,11 +415,37 @@
     </div>
     <p class="page-sub">Manage claims, payments, and fulfillment.</p>
     <div class="admin-tabs">
+      <button class="admin-tab" id="admin-tab-today" onclick="showAdminTab('today')">Today</button>
       <button class="admin-tab" id="admin-tab-gos" onclick="showAdminTab('gos')">GOs</button>
       <button class="admin-tab" id="admin-tab-shop" onclick="showAdminTab('shop')">Shop</button>
       <button class="admin-tab" id="admin-tab-store" onclick="showAdminTab('store')">Store</button>
       <button class="admin-tab" id="admin-tab-payments" onclick="showAdminTab('payments')">Payments</button>
       <button class="admin-tab" id="admin-tab-shipping" onclick="showAdminTab('shipping')">Shipping</button>
+    </div>
+
+    <div class="admin-tabpanel" id="admin-tabpanel-today" style="display:none;">
+      <div class="admin-section">
+        <div class="section-label">To do</div>
+        <div class="card">
+          <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+            <input type="text" id="task-input" placeholder="Add a task, e.g. order 2 Felix from KREAM" style="flex:1 1 200px;min-width:0;" onkeydown="if(event.key==='Enter')addAdminTask()">
+            <button class="btn btn-sm btn-primary" onclick="addAdminTask()">Add</button>
+          </div>
+          <div id="admin-tasks-list" style="font-size:13px;color:var(--text3);">Loading…</div>
+        </div>
+      </div>
+      <div class="admin-section">
+        <div class="section-label">Payments waiting</div>
+        <div class="card" id="today-payments" style="font-size:13px;">Loading…</div>
+      </div>
+      <div class="admin-section">
+        <div class="section-label">Close</div>
+        <div class="card" id="today-close" style="font-size:13px;">Loading…</div>
+      </div>
+      <div class="admin-section">
+        <div class="section-label">Shipping queue</div>
+        <div class="card" id="today-shipping" style="font-size:13px;">Loading…</div>
+      </div>
     </div>
 
     <div class="admin-tabpanel" id="admin-tabpanel-gos">
@@ -4200,7 +4226,7 @@ function createGO() {
 }
 
 // ── ADMIN PANEL NAV ───────────────────────────────────────────────────────────
-let adminActiveTab = 'gos';
+let adminActiveTab = 'today';
 let adminShopLoaded = false, adminStoreLoaded = false, adminShippingLoaded = false, adminPaymentsLoaded = false;
 
 // Work-waiting dots on the admin tab bar: payments pending confirmation, shipping
@@ -4219,6 +4245,76 @@ function updateAdminTabDots() {
   const ship = (shippingRequests || []).filter(r => !r.shipped).length;
   set('payments', pay > 0, pay + ' payment' + (pay !== 1 ? 's' : '') + ' waiting for confirmation');
   set('shipping', ship > 0, ship + ' shipping request' + (ship !== 1 ? 's' : '') + ' to send');
+  if (adminActiveTab === 'today') renderToday();   // confirm/ship from the Today list refreshes it
+}
+// ── Today tab: live to-dos (payments, closes, shipping) + manual admin_tasks ──
+// Auto lists clear themselves when the work is done; manual tasks are checked off.
+let adminTasks = [], showDoneTasks = false;
+async function adminEmail() {
+  const { data } = await sb.auth.getSession();
+  return (data && data.session && data.session.user && data.session.user.email) || 'admin';
+}
+async function loadToday() {
+  renderToday();
+  await Promise.all([loadAdminPayments(), loadAdminShipping(), loadAdminTasks()]);
+  renderToday();
+}
+async function loadAdminTasks() {
+  try { adminTasks = dbThrow(await sb.from('admin_tasks').select('*').order('created_at')); }
+  catch (e) { adminTasks = []; }
+}
+async function addAdminTask() {
+  const el = document.getElementById('task-input');
+  const title = el.value.trim();
+  if (!title) return;
+  const r = await sb.from('admin_tasks').insert({ title, created_by: await adminEmail() });
+  if (r.error) { toast('Couldn’t add the task.'); return; }
+  el.value = '';
+  await loadAdminTasks(); renderToday();
+}
+async function toggleAdminTask(id, done) {
+  const patch = done ? { done_at: new Date().toISOString(), done_by: await adminEmail() } : { done_at: null, done_by: null };
+  const r = await sb.from('admin_tasks').update(patch).eq('id', id);
+  if (r.error) { toast('Couldn’t update the task.'); return; }
+  await loadAdminTasks(); renderToday();
+}
+function renderToday() {
+  const today = fmtDate(new Date());
+  const soon = fmtDate(new Date(Date.now() + 2 * 86400000));
+  const who = e => esc((e || '').split('@')[0]);
+  const row = (text, btn) => `<div style="display:flex;gap:8px;align-items:center;padding:6px 0;flex-wrap:wrap;"><span style="flex:1 1 200px;">${text}</span>${btn}</div>`;
+  const tl = document.getElementById('admin-tasks-list');
+  if (tl) {
+    const open = adminTasks.filter(t => !t.done_at);
+    const done = adminTasks.filter(t => t.done_at).slice(-20).reverse();
+    tl.innerHTML = (open.length ? open.map(t => `<label style="display:flex;gap:8px;align-items:flex-start;padding:6px 0;color:var(--text);cursor:pointer;"><input type="checkbox" onchange="toggleAdminTask('${t.id}', true)" style="margin-top:3px;"><span>${esc(t.title)} <span style="color:var(--text3);font-size:11px;">· ${who(t.created_by)} ${fmtDate(t.created_at)}</span></span></label>`).join('') : 'Nothing on the list.')
+      + (done.length ? `<div style="margin-top:8px;"><a href="#" onclick="showDoneTasks=!showDoneTasks;renderToday();return false;" style="font-size:12px;">${showDoneTasks ? 'Hide' : 'Show'} done (${done.length})</a></div>` : '')
+      + (showDoneTasks ? done.map(t => `<div style="padding:4px 0;"><span style="text-decoration:line-through;">${esc(t.title)}</span> <span style="font-size:11px;">· ${who(t.done_by)} ${fmtDate(t.done_at)} · <a href="#" onclick="toggleAdminTask('${t.id}', false);return false;">undo</a></span></div>`).join('') : '');
+  }
+  const pe = document.getElementById('today-payments');
+  if (pe) {
+    const pend = (paymentProofs || []).filter(p => p.status === 'pending');
+    pe.innerHTML = !adminPaymentsLoaded ? 'Loading…' : !pend.length ? 'Nothing waiting.'
+      : pend.map(p => row(`@${esc(p.username)} · $${(parseFloat(p.amount) || 0).toFixed(2)} ${esc(p.method || '')} · ${esc(p.go_name || '')}`, `<button class="btn btn-sm" onclick="confirmPayment('${p.payment_id}')">Confirm</button>`)).join('');
+  }
+  const ce = document.getElementById('today-close');
+  if (ce) {
+    const rows = [];
+    Object.values(allGOs).forEach(g => {
+      if (!g || g.status === 'closed') return;
+      if (g.deadline && g.deadline <= soon) rows.push({ due: g.deadline, label: g.name, goId: g.id });
+      (g.subItems || []).forEach(s => { const d = fmtDate(s.deadline); if (!s.closed && d && d <= soon) rows.push({ due: d, label: g.name + ' · ' + s.name, goId: g.id }); });
+    });
+    rows.sort((a, b) => a.due.localeCompare(b.due));
+    ce.innerHTML = !rows.length ? 'Nothing due in the next 2 days.'
+      : rows.map(r => row(`<span style="font-family:var(--mono);font-size:12px;color:${r.due < today ? 'var(--accent)' : 'var(--text3)'};">${r.due < today ? 'past due ' : r.due === today ? 'today ' : ''}${r.due}</span> ${esc(r.label)}`, `<button class="btn btn-sm" onclick="openGODetail('${r.goId}')">Open</button>`)).join('');
+  }
+  const se = document.getElementById('today-shipping');
+  if (se) {
+    const q = (shippingRequests || []).filter(r => !r.shipped);
+    se.innerHTML = !adminShippingLoaded ? 'Loading…' : !q.length ? 'Queue is empty.'
+      : q.map(r => row(`@${esc(r.username)} · $${(parseFloat(r.total_fee) || 0).toFixed(2)} · ${r.card_count || 0} item${r.card_count === 1 ? '' : 's'}`, `<button class="btn btn-sm" onclick="showAdminTab('shipping')">Open</button>`)).join('');
+  }
 }
 // ── Blocked joiners (migration 023) ──────────────────────────────────────────
 let blockedUsers = [];
@@ -4322,7 +4418,7 @@ function showAdminTab(name) {
   adminActiveTab = name;
   updateAdminTabDots();
   if (name === 'gos') { loadBlockedUsers(); loadClaimEditLog(); loadPasscodeCount(); }
-  ['gos','shop','store','payments','shipping'].forEach(t => {
+  ['today','gos','shop','store','payments','shipping'].forEach(t => {
     const panel = document.getElementById('admin-tabpanel-' + t);
     if (panel) panel.style.display = t === name ? 'block' : 'none';
     const tab = document.getElementById('admin-tab-' + t);
@@ -4333,6 +4429,7 @@ function showAdminTab(name) {
   else if (name === 'shipping') loadAdminShipping();
   else if (name === 'payments') { renderPaymentProofs(); loadAdminPayments(); } // retries if the background load failed
   else if (name === 'gos') renderAdminGOList();
+  else if (name === 'today') loadToday();
 }
 
 // While a tab is fetching, show "Loading…" in its containers — an un-loaded tab and an
