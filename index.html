@@ -6997,7 +6997,7 @@ const db = {
     return { payments: data.map(payRowToLegacy) };
   },
   async getListings() {
-    const data = dbThrow(await sb.from('listings').select('*, listing_variants(id, name, qty)').order('created_at'));
+    const data = dbThrow(await sb.from('listings').select('*, listing_variants(id, name, qty)').order('created_at', { ascending: false }));
     return { listings: data.map(l => ({
       listing_id: l.id, name: l.name, category: l.category, price: l.price,
       image_url: l.image_url || '', qty: l.qty, note: l.note || '', status: l.status,
