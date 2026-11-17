@@ -4248,7 +4248,7 @@ async function adminEmail() {
 }
 async function loadToday() {
   renderToday();
-  await Promise.all([loadAdminPayments(), loadAdminShipping(), loadAdminTasks()]);
+  await Promise.all([loadAdminPayments(), loadAdminShipping(), loadAdminTasks(), db.getGcPending().then(m => { gcPending = m; }).catch(()=>{})]);
   renderToday();
 }
 async function loadAdminTasks() {
@@ -4315,6 +4315,7 @@ function renderToday() {
   closes.sort((a, b) => a.due.localeCompare(b.due));
   closes.forEach(c => lines.push(line(`Close <b>${esc(c.label)}</b>${c.due < today ? ` <span style="color:var(--accent);font-size:11px;">past due ${c.due}</span>` : ''}`, 'close:' + c.label)));
   pays.forEach(n => lines.push(line(`Payment due today: <b>${esc(n)}</b>`, 'pay:' + n)));
+  Object.values(allGOs).forEach(g => { const n = g && gcPending[g.id]; if (n > 0) lines.push(line(`Add <b>${n}</b> joiner${n === 1 ? '' : 's'} to GC: <b>${esc(g.name)}</b>`, 'gc:' + g.name)); });
   el.innerHTML = (!adminPaymentsLoaded || !adminShippingLoaded) && !lines.length ? 'Loading…' : lines.length ? lines.join('') : 'Nothing due today.';
 }
 // ── Blocked joiners (migration 023) ──────────────────────────────────────────
@@ -7562,7 +7563,7 @@ async function syncFromBackend(silent) {
     // closed/deadline/pay-due flags) now loads lazily via the sub-tabs and Manage view,
     // each with its own Supabase call, not through this function. The guarded blocks below
     // (`if (payResult && …)`) are therefore harmless no-ops for admin from here on.
-    let result, payResult, listResult, orderResult, shipResult, storeResult, gcResult, securedResult, closedResult, deadlineResult, payDueResult;
+    let result, payResult, listResult, orderResult, shipResult, storeResult, gcResult, securedResult;
     // Admin and joiner both land on the light metadata call now. Admin's per-area data
     // (payments, shop, store, shipping, per-GO claims) loads lazily via the sub-tabs and
     // Manage view. Payments loads in the background just below (for the "collected" sums).
@@ -7575,24 +7576,15 @@ async function syncFromBackend(silent) {
         if (r && r.sub_item_id && r.set_num !== undefined && r.set_num !== '') securedSets[r.sub_item_id + '|' + r.set_num] = true;
       });
     }
-    closedSubItems = {};
-    if (closedResult && Array.isArray(closedResult.closed_subitems)) {
-      closedResult.closed_subitems.forEach(r => {
-        if (r && r.go_id && r.sub_item_id) closedSubItems[r.go_id + '|' + r.sub_item_id] = true;
-      });
-    }
-    subItemPayDue = {};
-    if (payDueResult && Array.isArray(payDueResult.subitem_payment_due)) {
-      payDueResult.subitem_payment_due.forEach(r => {
-        if (r && r.go_id && r.sub_item_id && r.due_date) subItemPayDue[r.go_id + '|' + r.sub_item_id] = fmtDate(r.due_date);
-      });
-    }
-    subItemDeadlines = {};
-    if (deadlineResult && Array.isArray(deadlineResult.subitem_deadlines)) {
-      deadlineResult.subitem_deadlines.forEach(r => {
-        if (r && r.go_id && r.sub_item_id && r.deadline) subItemDeadlines[r.go_id + '|' + r.sub_item_id] = fmtDate(r.deadline);
-      });
-    }
+    // Per-item closed / close date / pay-by come on the list rows themselves (goRowToLegacy);
+    // loadGOClaims refreshes the same maps per GO when a board opens.
+    closedSubItems = {}; subItemPayDue = {}; subItemDeadlines = {};
+    ((gosData && gosData.gos) || []).forEach(g => (g.subItems || []).forEach(si => {
+      const k = g.go_id + '|' + si.sub_item_id;
+      if (si.closed) closedSubItems[k] = true;
+      if (si.deadline) subItemDeadlines[k] = fmtDate(si.deadline);
+      if (si.pay_due) subItemPayDue[k] = fmtDate(si.pay_due);
+    }));
     if (gosData && gosData.gos && gosData.gos.length) {
       allGOs = {};
       gosData.gos.forEach(go => {
