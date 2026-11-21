@@ -771,13 +771,14 @@ let claimOpenSI = {};   // goId|si.id -> bool (buyer claim page); default collap
 function isBatch(si) { return !!si && (si.kind === 'member' || si.kind === 'photocard' || si.kind === 'member-set') && parseInt(si.minSecure) < 0; }
 function batchSize(si) { return Math.abs(parseInt(si.minSecure)) || 1; }
 // Group a batch POB's claims into runs of batchSize, ordered by created_at (oldest first).
+function claimOrder(a, b) {
+  const ta = a.created_at || '', tb = b.created_at || '';
+  if (ta !== tb) return ta < tb ? -1 : 1;
+  return String(a.claim_id) < String(b.claim_id) ? -1 : 1;
+}
 function goBatches(si) {
   const n = batchSize(si);
-  const claims = (si.claims || []).filter(c => c.claim_status !== 'dropped').slice().sort((a, b) => {
-    const ta = a.created_at || '', tb = b.created_at || '';
-    if (ta !== tb) return ta < tb ? -1 : 1;
-    return String(a.claim_id) < String(b.claim_id) ? -1 : 1;
-  });
+  const claims = (si.claims || []).filter(c => c.claim_status !== 'dropped').slice().sort(claimOrder);
   const batches = [];
   for (let i = 0; i < claims.length; i += n) {
     const items = claims.slice(i, i + n);
@@ -3353,7 +3354,7 @@ function renderDetailContentInner() {
               <button class="btn btn-sm btn-ghost" style="font-size:11px;padding:1px 6px;color:var(--red-400);" title="Remove this claim" onclick="removeBatchClaim('${go.id}','${si.id}','${c.claim_id}')">×</button>
             </div>
             ${sec ? (() => {
-              const grp = c.ot ? otBatchClaims(b, c.user) : null;
+              const grp = c.ot ? otBatchClaims(si, c) : null;
               const stage = grp ? FULFILLMENT[Math.max(0, groupFulfillStage(grp))] : c.fulfillment;
               const fn = (dir) => grp ? `otBatchFulfill('${go.id}','${si.id}',${b.num},'${c.claim_id}'${dir ? ",'prev'" : ''})` : `advanceBatchFulfill('${go.id}','${si.id}','${c.claim_id}'${dir ? ",'prev'" : ''})`;
               return `<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
@@ -3693,8 +3694,16 @@ async function setFulfillAll(goId, siId, setIdx, dir) {
 function otSetSlots(si, set, user) {
   return (si.members || []).map(m => set.slots[m]).filter(sl => sl && sl.ot && sameUser(sl.user, user) && sl.claim_status !== 'dropped');
 }
-function otBatchClaims(b, user) {
-  return (b.items || []).filter(c => c.ot && sameUser(c.user, user) && c.claim_status !== 'dropped');
+// Batch mode has no set rows: a buyer's OT sets are consecutive runs of distinct members
+// in claim order (same rule as submit_claim), and a batch boundary may cut through one.
+function otBatchClaims(si, claim) {
+  const mine = (si.claims || []).filter(c => c.ot && sameUser(c.user, claim.user) && c.claim_status !== 'dropped').sort(claimOrder);
+  let grp = [], seen = {};
+  for (const c of mine) {
+    if (seen[c.member]) { if (grp.includes(claim)) return grp; grp = []; seen = {}; }
+    grp.push(c); seen[c.member] = true;
+  }
+  return grp.includes(claim) ? grp : [claim];
 }
 async function otSetFulfill(goId, siId, setIdx, member, dir) {
   const si = allGOs[goId].subItems.find(s => s.id === siId);
@@ -3708,7 +3717,7 @@ async function otBatchFulfill(goId, siId, batchNum, claimId, dir) {
   const b = si && goBatches(si).find(x => x.num === batchNum);
   const c = b && b.items.find(x => x.claim_id === claimId);
   if (!c) return;
-  await groupFulfill(otBatchClaims(b, c.user).filter(x => x.claim_status === 'secured'), dir, { goId, si });
+  await groupFulfill(otBatchClaims(si, c).filter(x => x.claim_status === 'secured'), dir, { goId, si });
 }
 async function batchFulfillAll(goId, siId, batchNum, dir) {
   const si = allGOs[goId].subItems.find(s => s.id === siId);
