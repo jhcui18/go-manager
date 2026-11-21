@@ -5577,7 +5577,8 @@ function renderAdminListings() {
   const el = document.getElementById('admin-listings-list');
   if (!el) return;
   const active = listings.filter(l => (l.status || 'active') === 'active');
-  if (!active.length) { el.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:8px 0;">No listings yet.</div>'; return; }
+  const hidden = listings.filter(l => l.status === 'hidden');
+  if (!active.length && !hidden.length) { el.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:8px 0;">No listings yet.</div>'; return; }
   const CAT_ORDER = ['Album', 'Photocard', 'Merch', 'Accessories'];
   const groups = {}; CAT_ORDER.forEach(c => groups[c] = []); groups['Other'] = [];
   active.forEach(l => { groups[CAT_ORDER.includes(l.category) ? l.category : 'Other'].push(l); });
@@ -5589,7 +5590,10 @@ function renderAdminListings() {
         <div style="font-size:12px;color:var(--text3);">$${(parseFloat(l.price)||0).toFixed(2)} · ${(l.variants&&l.variants.length) ? l.variants.map(v=>v.name+' ('+(parseInt(v.qty)||0)+')').join(', ') : (parseInt(l.qty)||0) + ' in stock'}</div>
       </div>
       <button class="btn btn-sm btn-ghost" onclick="openListingModal('${l.listing_id}')">Edit</button>
-      <button class="btn btn-sm btn-ghost" style="color:var(--red-400);" onclick="hideListing('${l.listing_id}')">Hide</button>
+      ${l.status === 'hidden'
+        ? `<button class="btn btn-sm btn-ghost" onclick="unhideListing('${l.listing_id}')">Unhide</button>
+      <button class="btn btn-sm btn-ghost" style="color:var(--red-400);" onclick="deleteListing('${l.listing_id}')">Delete</button>`
+        : `<button class="btn btn-sm btn-ghost" style="color:var(--red-400);" onclick="hideListing('${l.listing_id}')">Hide</button>`}
     </div>`;
   let html = '';
   [...CAT_ORDER, 'Other'].forEach(cat => {
@@ -5601,6 +5605,13 @@ function renderAdminListings() {
       </div>
       <div id="shopcat-body-${cat}" style="display:${open ? 'block' : 'none'};">${items.map(listingRow).join('')}</div>`;
   });
+  if (hidden.length) {
+    const open = !!shopCatOpen['Hidden'];
+    html += `<div style="display:flex;align-items:center;gap:8px;padding:8px 4px;cursor:pointer;user-select:none;font-weight:500;font-size:13px;color:var(--text3);" onclick="toggleShopCat('Hidden')">
+        <span id="shopcat-chev-Hidden" style="width:12px;">${open ? '▾' : '▸'}</span>Hidden <span style="font-weight:400;">(${hidden.length})</span>
+      </div>
+      <div id="shopcat-body-Hidden" style="display:${open ? 'block' : 'none'};">${hidden.map(listingRow).join('')}</div>`;
+  }
   el.innerHTML = html;
 }
 
@@ -5687,6 +5698,26 @@ function saveListing(listingId) {
   renderAdminListings();
   renderShopPage();
   toast('Listing saved.');
+}
+
+function unhideListing(listingId) {
+  const local = listings.find(x => x.listing_id === listingId);
+  if (local) local.status = 'active';
+  db.unhideListing(listingId).catch(() => toast('Couldn’t unhide the listing — please try again.'));
+  renderAdminListings();
+  renderShopPage();
+  toast('Listing back in the shop.');
+}
+// Hard delete, only offered on hidden listings. Fails on purpose when orders exist
+// (shop_orders FK restrict): those listings stay hidden so order history survives.
+async function deleteListing(listingId) {
+  const l = listings.find(x => x.listing_id === listingId);
+  if (!confirm('Permanently delete "' + (l ? l.name : 'this listing') + '" and its variants? Cannot be undone.')) return;
+  try { await db.deleteListing(listingId); }
+  catch (e) { toast('Couldn’t delete — this listing has orders. Keep it hidden instead.'); return; }
+  listings = listings.filter(x => x.listing_id !== listingId);
+  renderAdminListings();
+  toast('Listing deleted.');
 }
 
 function hideListing(listingId) {
@@ -7405,6 +7436,11 @@ const db = {
   // Legacy backend's "deleteListing" action never actually deleted the row either.
   async hideListing(listingId) {
     const r = await sb.from('listings').update({ status: 'hidden' }).eq('id', listingId);
+    if (r.error) throw r.error;
+    return { ok: true };
+  },
+  async unhideListing(listingId) {
+    const r = await sb.from('listings').update({ status: 'active' }).eq('id', listingId);
     if (r.error) throw r.error;
     return { ok: true };
   },
